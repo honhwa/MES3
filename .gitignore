@@ -21,7 +21,9 @@ obj/
 # 重构与自测过程产生的临时目录（不进版本库）
 .backup/
 .verify/
+.ui-check/
 .build-check/
+.dev-build/
 .refactor/
 
 # ================= 其它 =================

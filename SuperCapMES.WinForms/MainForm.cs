@@ -305,6 +305,56 @@ public partial class MainForm : Form
     private DataGridView _spareGrid = null!;
     private Button _btnTpmExecute = null!;
     private Button _btnSpareIssue = null!;
+    // ---- 预警中心页（顶层第 22 个页签） ----
+    private Label _lblAlertHigh = null!;          // 汇总卡：高危条数
+    private Label _lblAlertMedium = null!;        // 汇总卡：中危条数
+    private Label _lblAlertLow = null!;           // 汇总卡：低危条数
+    private Label _lblAlertTotal = null!;         // 汇总卡：合计条数
+    private ComboBox _cboAlertSource = null!;     // 筛选：来源模块
+    private ComboBox _cboAlertSeverity = null!;   // 筛选：严重度
+    private DataGridView _alertGrid = null!;      // 预警明细表
+    private Button _btnAlertNavigate = null!;     // 操作：跳转处理
+    private Label _lblAlertHint = null!;          // 筛选条提示 + 跳转回执
+    // ---- 人员与资质页（顶层第 23 个页签） ----
+    private Label _lblPsOnDuty = null!;          // 汇总卡：在册人数
+    private Label _lblPsCertified = null!;        // 汇总卡：持证人数
+    private Label _lblPsExpiring = null!;         // 汇总卡：资质即将到期项数
+    private Label _lblPsInvalid = null!;          // 汇总卡：资质已失效项数
+    private ComboBox _cboPsDept = null!;          // 筛选：部门
+    private ComboBox _cboPsCertStatus = null!;    // 筛选：资质状态
+    private TextBox _txtPsKeyword = null!;        // 筛选：关键字
+    private DataGridView _psGrid = null!;         // 人员台账
+    private DataGridView _psCertGrid = null!;     // 资质明细
+    private DataGridView _psMatrixGrid = null!;   // 资质矩阵（人员 × 资质项）
+    private DataGridView _psCrewGrid = null!;     // 班组绩效
+    private ComboBox _cboPsCheckEmp = null!;      // 单人校验：人员
+    private ComboBox _cboPsCheckProcess = null!;  // 单人校验：工序
+    private Label _lblPsCheckResult = null!;      // 单人校验：结论
+    private Button _btnPsCheck = null!;           // 单人校验：按钮
+    private CheckBox _chkPsOnlyFailed = null!;    // 实绩核查：只看不通过
+    private DataGridView _psCheckGrid = null!;    // 实绩资质核查
+    private Button _btnPsEdit = null!;            // 操作：编辑人员
+    private Button _btnPsRevoke = null!;          // 操作：吊销资质
+    // ---- 客户投诉与 8D 页（顶层第 24 个页签） ----
+    private Label _lblCmpPending = null!;         // 汇总卡：待受理
+    private Label _lblCmpInvestigating = null!;   // 汇总卡：处理中
+    private Label _lblCmpWaiting = null!;         // 汇总卡：待客户确认
+    private Label _lblCmpOverdue = null!;         // 汇总卡：超期未关闭
+    private ComboBox _cboCmpStatus = null!;       // 筛选：状态
+    private TextBox _txtCmpKeyword = null!;       // 筛选：关键字
+    private DataGridView _cmpGrid = null!;        // 客诉台账
+    private DataGridView _cmpEightDGrid = null!;  // 8D 八步
+    private DataGridView _cmpHistoryGrid = null!; // 流转履历
+    private DataGridView _cmpCellGrid = null!;    // 触发范围：受影响电芯
+    private DataGridView _cmpLotGrid = null!;     // 触发范围：受影响材料批次
+    private DataGridView _cmpStatGrid = null!;    // 客户维度统计
+    private Label _lblCmpEightDProgress = null!;  // 8D 进度说明
+    private Label _lblCmpImpactSummary = null!;   // 触发范围反查结论
+    private Button _btnCmpAdvance = null!;        // 操作：推进 8D
+    private Button _btnCmpEditStep = null!;       // 操作：修订步骤
+    private Button _btnCmpConfirm = null!;        // 操作：客户确认
+    private Button _btnCmpClose = null!;          // 操作：关闭客诉
+    private Button _btnCmpFreeze = null!;         // 操作：冻结影响范围
 
     // 自动刷新（底部状态栏 + 定时器）
     private System.Windows.Forms.Timer _autoTimer = null!;
@@ -367,7 +417,8 @@ public partial class MainForm : Form
         Font = new Font("微软雅黑", 9F);
 
         _tabs = new TabControl { Dock = DockStyle.Fill };
-        _tabs.TabPages.Add(BuildDashboardTab());
+        _tabs.TabPages.Add(BuildDashboardTab());   // 顶层第 1 个页签（index 0）：生产看板
+        _tabs.TabPages.Add(BuildAlertCenterTab()); // 顶层第 2 个页签（index 1）：预警中心（管理者工作台，聚合其余 20 个页签的待办）
         _tabs.TabPages.Add(BuildWorkOrdersTab());
         _tabs.TabPages.Add(BuildActualsTab());
         _tracePage = BuildTraceTab();
@@ -380,15 +431,17 @@ public partial class MainForm : Form
         _tabs.TabPages.Add(BuildAbnormalManageTab());
         _tabs.TabPages.Add(BuildWmsTab());
         _tabs.TabPages.Add(BuildSpcTab());
-        _tabs.TabPages.Add(BuildSpcConfigTab());   // 顶层第 13 个页签（index 12）：SPC 项目管理
-        _tabs.TabPages.Add(BuildShipmentTab());    // 顶层第 14 个页签（index 13）：出货与召回
-        _tabs.TabPages.Add(BuildWipTab());         // 顶层第 15 个页签（index 14）：WIP 看板
-        _tabs.TabPages.Add(BuildReworkTab());      // 顶层第 16 个页签（index 15）：返工管理
-        _tabs.TabPages.Add(BuildReportTab());      // 顶层第 17 个页签（index 16）：报表中心
-        _tabs.TabPages.Add(BuildFaiTab());         // 顶层第 18 个页签（index 17）：首件检验
-        _tabs.TabPages.Add(BuildFeedingTab());     // 顶层第 19 个页签（index 18）：上料防错
-        _tabs.TabPages.Add(BuildModuleTab());      // 顶层第 20 个页签（index 19）：模组装配
-        _tabs.TabPages.Add(BuildTpmTab());         // 顶层第 21 个页签（index 20）：点检保养
+        _tabs.TabPages.Add(BuildSpcConfigTab());   // SPC 项目管理
+        _tabs.TabPages.Add(BuildShipmentTab());    // 出货与召回
+        _tabs.TabPages.Add(BuildWipTab());         // WIP 看板
+        _tabs.TabPages.Add(BuildReworkTab());      // 返工管理
+        _tabs.TabPages.Add(BuildReportTab());      // 报表中心
+        _tabs.TabPages.Add(BuildFaiTab());         // 首件检验
+        _tabs.TabPages.Add(BuildFeedingTab());     // 上料防错
+        _tabs.TabPages.Add(BuildModuleTab());      // 模组装配
+        _tabs.TabPages.Add(BuildTpmTab());         // 点检保养
+        _tabs.TabPages.Add(BuildPersonnelTab());   // 人员与资质（六维中「人」的一维）
+        _tabs.TabPages.Add(BuildComplaintTab());   // 客户投诉与 8D 归零
         Controls.Add(_tabs);
 
         // 自动刷新：底部状态栏 + 定时器（默认停用，间隔 5 分钟）
@@ -588,6 +641,9 @@ public partial class MainForm : Form
         EnsureFeedingReady();    // 上料防错兜底初始化（幂等）
         EnsureModuleReady();     // 模组装配兜底初始化（幂等）
         EnsureTpmReady();        // 点检保养兜底初始化（幂等）
+        EnsureAlertReady();      // 预警中心兜底初始化（幂等）
+        EnsurePersonnelReady();  // 人员与资质兜底初始化（幂等）
+        EnsureComplaintReady();  // 客户投诉与 8D 兜底初始化（幂等）
     }
 
     /// <summary>执行「Trace」业务动作（校验 → 执行 → 刷新界面）。</summary>

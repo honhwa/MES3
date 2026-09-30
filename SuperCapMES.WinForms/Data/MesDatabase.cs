@@ -83,6 +83,23 @@ public static class MesDatabase
     /// <summary>备件台账</summary>
     public static List<SparePart> SpareParts { get; } = new();
 
+    // ---- 人员与资质管理 ----
+    /// <summary>人员主数据（工号唯一）</summary>
+    public static List<UserProfile> Users { get; } = new();
+
+    /// <summary>资质证书（工号 + 资质项 唯一）</summary>
+    public static List<SkillCertificate> SkillCertificates { get; } = new();
+
+    // ---- 客户投诉与 8D 归零 ----
+    /// <summary>客诉单</summary>
+    public static List<CustomerComplaint> Complaints { get; } = new();
+
+    /// <summary>8D 报告（一客诉一份）</summary>
+    public static List<EightDReport> EightDReports { get; } = new();
+
+    /// <summary>客诉流转履历</summary>
+    public static List<ComplaintHistory> ComplaintHistories { get; } = new();
+
     // ---- SPC 统计过程控制（增量模块） ----
     /// <summary>SPC 监控项定义</summary>
     public static List<SpcItem> SpcItems { get; } = new();
@@ -130,6 +147,9 @@ public static class MesDatabase
     static MesDatabase()
     {
         Seed();
+        // 人员主数据必须先于任何「产生工序实绩」的播种执行：
+        // 种子生成实绩时按「工序 → 持证人」派工，若此时人员尚未登记会退化为未登记人员。
+        SeedPersonnel();
         SeedActuals();
         EnsureDeviceStats();
         SeedAbnormals();
@@ -147,6 +167,7 @@ public static class MesDatabase
         SeedModules();
         SeedTpm();
         SeedStockExpiry();
+        SeedComplaints();
     }
 
     private static void Seed()
@@ -386,7 +407,6 @@ public static class MesDatabase
         if (cells.Count == 0) cells = Cells.Take(6).ToList();
         cells = cells.Take(6).ToList();
 
-        var ops = new[] { "张伟", "李娜", "王强", "赵敏" };
         var rnd = new Random();
         var added = 0;
         foreach (var c in cells)
@@ -399,7 +419,8 @@ public static class MesDatabase
                 ProductModel = c.ProductModel,
                 ProcessName = process,
                 Equipment = equipmentCode,
-                Operator = ops[rnd.Next(ops.Length)],
+                // 按资质派工：优先持该工序上岗证者，少量刻意派无证人（供资质核查演示）
+                Operator = PickOperator(process, rnd, "张伟"),
                 Shift = rnd.Next(2) == 0 ? "白班" : "夜班",
                 ParamName = pname,
                 ParamValue = pvalue,
@@ -2974,6 +2995,191 @@ public static class MesDatabase
     public static List<StockFifoRow> GetFifoRecommendations() =>
         GetStockFifo().Where(r => r.IsFifoRecommended).ToList();
 
+    // ================= 预警中心（聚合各模块待处理事项） =================
+
+    /// <summary>
+    /// 预警中心：把散落在各模块的「待处理事项」投影成统一列表（**纯查询，不修改任何集合**）。
+    /// 覆盖 10 类：SPC 待处理预警 / 异常未闭环 / 保留超期 / 点检保养超期临期 / 库存效期 /
+    /// 上料被拒 / 首件未放行 / 返工积压 / 备件低库存 / 出货未绑定。
+    /// 排序：严重度（高→低）优先，其次按触发时间倒序。
+    /// </summary>
+    public static List<AlertItem> GetCenterAlerts()
+    {
+        var list = new List<AlertItem>();
+        var now = DateTime.Now;
+
+        // ① SPC 待处理预警（判异 / 能力不足 / 超规格）
+        foreach (var a in SpcAlerts.Where(x => x.Status == SpcAlertStatus.Pending))
+            list.Add(new AlertItem
+            {
+                Source = AlertSource.Spc,
+                Severity = a.Severity switch
+                {
+                    SpcSeverity.High => AlertSeverity.High,
+                    SpcSeverity.Medium => AlertSeverity.Medium,
+                    _ => AlertSeverity.Low
+                },
+                Title = $"{a.ItemName}：{a.RuleName}",
+                Detail = $"{a.AlertType} ｜ 当前值 {a.Value:0.##} ｜ 设备 {a.Equipment} ｜ 版本 {a.VersionText}",
+                OccurTime = a.SampleTime,
+                TargetKey = a.AlertNo
+            });
+
+        // ② 异常未闭环（待确认=高，已确认未闭环=中）
+        foreach (var r in AbnormalRecords.Where(x => x.Status != AbnormalStatus.Closed))
+            list.Add(new AlertItem
+            {
+                Source = AlertSource.Abnormal,
+                Severity = r.Status == AbnormalStatus.Pending ? AlertSeverity.High : AlertSeverity.Medium,
+                Title = $"{r.Category} / {r.SubType}",
+                Detail = $"{r.Description} ｜ 状态 {r.Status} ｜ 负责人 {r.Owner} ｜ 设备 {r.EquipmentName}",
+                OccurTime = r.OccurTime,
+                TargetKey = r.AbNo
+            });
+
+        // ③ 保留超期（保留中且超过 3 天未处置；超 7 天升级为高）
+        foreach (var h in Holds.Where(x => x.Status == HoldStatus.Active && (now - x.HoldTime).TotalDays > 3))
+        {
+            var days = (now - h.HoldTime).TotalDays;
+            list.Add(new AlertItem
+            {
+                Source = AlertSource.Hold,
+                Severity = days > 7 ? AlertSeverity.High : AlertSeverity.Medium,
+                Title = $"保留单 {h.HoldNo} 已保留 {days:0} 天未处置",
+                Detail = $"原因 {h.Reason} ｜ 位置 {h.HoldLocation} ｜ 电芯 {h.CellCount} 只 ｜ 来源 {h.SourceType}",
+                OccurTime = h.HoldTime,
+                TargetKey = h.HoldNo
+            });
+        }
+
+        // ④ 点检保养超期 / 即将到期
+        foreach (var p in TpmPlans.Where(x => x.DueStatus != TpmDueStatus.Normal))
+            list.Add(new AlertItem
+            {
+                Source = AlertSource.Tpm,
+                Severity = p.DueStatus == TpmDueStatus.Overdue ? AlertSeverity.High : AlertSeverity.Medium,
+                Title = $"{p.DeviceName}「{p.ItemName}」{p.DueStatus}",
+                Detail = $"周期 {p.CycleText} ｜ {p.DaysLeftText} ｜ 责任人 {p.Owner}",
+                OccurTime = p.NextDueTime ?? DateTime.Today,
+                TargetKey = p.PlanId
+            });
+
+        // ⑤ 库存效期（已过期=高，临期=中）
+        foreach (var s in GetExpiryAlerts())
+            list.Add(new AlertItem
+            {
+                Source = AlertSource.Expiry,
+                Severity = s.ExpiryStatus == StockExpiryStatus.Expired ? AlertSeverity.High : AlertSeverity.Medium,
+                Title = $"{s.MaterialName} 批次 {s.LotNo} {s.ExpiryStatus}",
+                Detail = $"到期 {s.ExpiryText} ｜ {s.DaysLeftText} ｜ 数量 {s.Quantity:0.##} {s.Unit} ｜ 库位 {s.Location}",
+                OccurTime = s.ExpiryDate ?? DateTime.Today,
+                TargetKey = s.LotNo
+            });
+
+        // ⑥ 上料被拒留痕（近 7 天；不在 BOM = 高）
+        foreach (var f in FeedingRecords.Where(x => !x.IsPass && (now - x.FeedTime).TotalDays <= 7))
+            list.Add(new AlertItem
+            {
+                Source = AlertSource.Feeding,
+                Severity = f.Result == FeedingResult.NotInBom ? AlertSeverity.High : AlertSeverity.Medium,
+                Title = $"投料被拒：{f.Result}",
+                Detail = $"工单 {f.WoNo} ｜ 物料 {f.MaterialName}（{f.MaterialCode}）｜ 批次 {f.LotNo} ｜ 操作人 {f.Operator}",
+                OccurTime = f.FeedTime,
+                TargetKey = f.FeedNo
+            });
+
+        // ⑦ 首件检验：已开工但未放行（未做首检或首检不合格）
+        foreach (var wo in WorkOrders.Where(w => w.Status is "生产中" or "已完成" or "已关闭"))
+        {
+            if (IsFaiPassed(wo.WoNo)) continue;
+            if (!ProcessActuals.Any(a => string.Equals(a.WoNo, wo.WoNo, StringComparison.OrdinalIgnoreCase))) continue;
+
+            var latest = GetLatestFai(wo.WoNo);
+            list.Add(new AlertItem
+            {
+                Source = AlertSource.Fai,
+                Severity = latest is null || latest.Status == FaiStatus.Failed ? AlertSeverity.High : AlertSeverity.Medium,
+                Title = latest is null
+                    ? $"工单 {wo.WoNo} 已开工但未做首件检验"
+                    : $"工单 {wo.WoNo} 首检未放行（{latest.Status}）",
+                Detail = $"状态 {wo.Status} ｜ 型号 {wo.ProductModel} ｜ 产线 {wo.Line} ｜ 完成 {wo.FinishedQty}/{wo.PlanQty}",
+                OccurTime = latest?.CreatedTime ?? wo.StartDate,
+                TargetKey = wo.WoNo
+            });
+        }
+
+        // ⑧ 返工积压（待返工 / 待重检超过 1 天）
+        foreach (var r in ReworkOrders.Where(x =>
+                     (x.Status == ReworkStatus.Pending || x.Status == ReworkStatus.WaitInspect)
+                     && (now - x.CreatedTime).TotalDays > 1))
+        {
+            var days = (now - r.CreatedTime).TotalDays;
+            list.Add(new AlertItem
+            {
+                Source = AlertSource.Rework,
+                Severity = r.Status == ReworkStatus.Pending ? AlertSeverity.High : AlertSeverity.Medium,
+                Title = $"返工单 {r.ReworkNo} 停留 {r.Status} {days:0} 天",
+                Detail = $"电芯 {r.CellSn} ｜ 原因 {r.Reason} ｜ 返工 {r.ReworkTimes} 次 ｜ 工序 {r.ReworkProcess}",
+                OccurTime = r.CreatedTime,
+                TargetKey = r.ReworkNo
+            });
+        }
+
+        // ⑨ 备件低库存（为 0 升级为高）
+        foreach (var p in SpareParts.Where(x => x.IsLow))
+            list.Add(new AlertItem
+            {
+                Source = AlertSource.Spare,
+                Severity = p.Stock <= 1e-9 ? AlertSeverity.High : AlertSeverity.Low,
+                Title = $"备件「{p.Name}」低于安全库存",
+                Detail = $"现有 {p.Stock:0.##} {p.Unit} ｜ 安全库存 {p.SafetyStock:0.##} ｜ 库位 {p.Location} ｜ 供应商 {p.Supplier}",
+                OccurTime = p.LastIssueTime ?? DateTime.Today,
+                TargetKey = p.Code
+            });
+
+        // ⑩ 出货未绑定 / 绑定不足
+        foreach (var o in WmsOrders.Where(x => x.Type == WmsOrderTypes.LogisticsOutbound))
+        {
+            var bound = GetShipmentBoundCount(o.OrderNo);
+            var planned = GetWmsOrderLines(o.OrderNo).Sum(l => l.Quantity);
+            if (planned <= 0 || bound + 1e-9 >= planned) continue;
+
+            list.Add(new AlertItem
+            {
+                Source = AlertSource.Shipment,
+                Severity = bound == 0 ? AlertSeverity.Medium : AlertSeverity.Low,
+                Title = bound == 0 ? $"出货单 {o.OrderNo} 未绑定出货电芯" : $"出货单 {o.OrderNo} 电芯绑定不足",
+                Detail = $"客户 {o.Partner} ｜ 已绑 {bound} / 应出 {planned:0.##} ｜ 单据状态 {o.Status}",
+                OccurTime = o.PostTime ?? o.CreateTime,
+                TargetKey = o.OrderNo
+            });
+        }
+
+        return list
+            .OrderBy(a => a.SeverityOrder)
+            .ThenByDescending(a => a.OccurTime)
+            .ToList();
+    }
+
+    /// <summary>预警中心汇总（高 / 中 / 低 / 合计）。纯查询。</summary>
+    public static (int High, int Medium, int Low, int Total) GetAlertCenterSummary()
+    {
+        var all = GetCenterAlerts();
+        return (all.Count(a => a.Severity == AlertSeverity.High),
+            all.Count(a => a.Severity == AlertSeverity.Medium),
+            all.Count(a => a.Severity == AlertSeverity.Low),
+            all.Count);
+    }
+
+    /// <summary>预警中心按来源统计（来源 / 总数 / 其中高危数）。纯查询。</summary>
+    public static List<(string Source, int Count, int HighCount)> GetAlertBySource() =>
+        GetCenterAlerts()
+            .GroupBy(a => a.Source, StringComparer.Ordinal)
+            .Select(g => (Source: g.Key, Count: g.Count(), HighCount: g.Count(a => a.Severity == AlertSeverity.High)))
+            .OrderByDescending(x => x.HighCount)
+            .ThenByDescending(x => x.Count)
+            .ToList();
+
     // ================= 点检保养 TPM 与备件 =================
 
     private static int _tpmRecordSeq;
@@ -4171,6 +4377,7 @@ public static class MesDatabase
         if (Holds.Count == 0 || HoldItems.Count == 0) return;   // 保留数据缺失时不播种，保持演示数据自洽
 
         // ① 待返工（历史示例单：不占用真实保留单，便于演示时从保留单新建完整闭环）
+        //    创建时间刻意放到 2 天前：既是"历史"单的自然语义，也让「预警中心 · 返工积压」有可演示样本。
         var r1 = NextReworkNo();
         ReworkOrders.Add(new ReworkOrder
         {
@@ -4184,10 +4391,10 @@ public static class MesDatabase
             ReworkTimes = 0,
             Status = ReworkStatus.Pending,
             CreatedBy = "质量工程师",
-            CreatedTime = today.AddHours(8).AddMinutes(20),
+            CreatedTime = today.AddDays(-2).AddHours(8).AddMinutes(20),
             Remark = "历史示例单（隔离后重新卷绕并复测容量）"
         });
-        AddReworkHistory(r1, ReworkAction.Create, "质量工程师", today.AddHours(8).AddMinutes(20),
+        AddReworkHistory(r1, ReworkAction.Create, "质量工程师", today.AddDays(-2).AddHours(8).AddMinutes(20),
             $"由保留单（历史）发起；电芯 SC-A260813-L2-00007；责任工序 卷绕；返工工序 卷绕");
 
         // ② 待重检（返工已完成，等待复测；历史单不占活跃保留单）
@@ -4547,7 +4754,6 @@ public static class MesDatabase
             ("SC-A260813-L2-00007", "SC-CX2026-300F", "L2", "WO-20260813-002", el300, jl300, 5, 5)
         };
 
-        var ops = new[] { "张伟", "李娜", "王强", "赵敏" };
         var rnd = new Random(20260930);   // 固定种子，保证每次运行分布一致
 
         foreach (var p in plans)
@@ -4588,7 +4794,8 @@ public static class MesDatabase
                     ProductModel = cell.ProductModel,
                     ProcessName = proc,
                     Equipment = ProcessSequence.DefaultEquipment.TryGetValue(proc, out var eq) ? eq : "",
-                    Operator = ops[rnd.Next(ops.Length)],
+                    // 按资质派工：优先持该工序上岗证者，少量刻意派无证人（供资质核查演示）
+                    Operator = PickOperator(proc, rnd, "张伟"),
                     Shift = i % 2 == 0 ? "白班" : "夜班",
                     ParamName = "",
                     ParamValue = "",
@@ -4746,7 +4953,6 @@ public static class MesDatabase
             .ToList();
         if (movable.Count == 0) return (0, "没有可推进的电芯（均已到末道工序）。");
 
-        var ops = new[] { "张伟", "李娜", "王强", "赵敏" };
         var rnd = new Random();
         var moved = 0;
         var detail = new List<string>();
@@ -4760,7 +4966,8 @@ public static class MesDatabase
                 ProductModel = c.ProductModel,
                 ProcessName = next,
                 Equipment = ProcessSequence.DefaultEquipment.TryGetValue(next, out var eq) ? eq : "",
-                Operator = ops[rnd.Next(ops.Length)],
+                // 按资质派工：优先持该工序上岗证者，少量刻意派无证人（供资质核查演示）
+                Operator = PickOperator(next, rnd, "张伟"),
                 Shift = "白班",
                 ParamName = "",
                 ParamValue = "",
@@ -5965,6 +6172,1099 @@ public static class MesDatabase
             added++;
         }
         return added;
+    }
+
+    // ============================================================
+    // 人员与资质管理
+    // 定位：把「人」这一维补上——无资质不能上岗操作，是本模块唯一的业务价值主张。
+    // 设计：人员主数据（Users）+ 资质证书（SkillCertificates）两张表；
+    //       资质状态不落库，由「有效期 + 吊销标记」实时派生（避免两处维护、天然自洽）。
+    // ============================================================
+
+    /// <summary>证书编号自增序号</summary>
+    private static int _certSeq;
+
+    /// <summary>生成证书编号，形如 CERT-2026-0001</summary>
+    private static string NextCertNo() => $"CERT-{DateTime.Now:yyyy}-{++_certSeq:0000}";
+
+    /// <summary>
+    /// 人员与资质种子：15 名员工（含 1 名离职）、16 张证书。
+    /// 刻意构造 3 张「即将到期」+ 1 张「已过期」+ 1 张「已吊销」，让预警与核查都有可演示样本；
+    /// 姓名与既有演示数据（工序实绩的操作人）保持一致，使「实绩资质核查」能直接产出真实结论。
+    /// </summary>
+    private static void SeedPersonnel()
+    {
+        if (Users.Count > 0) return;
+
+        var today = DateTime.Today;
+
+        Users.AddRange(new[]
+        {
+            new UserProfile { EmpNo = "E1001", Name = "张伟", Dept = "生产部", Position = "卷绕班长", Crew = "A班", Status = EmploymentStatus.Active, Phone = "138****1001", HireDate = new DateTime(2021, 3, 15) },
+            new UserProfile { EmpNo = "E1002", Name = "李娜", Dept = "生产部", Position = "注液操作员", Crew = "A班", Status = EmploymentStatus.Active, Phone = "138****1002", HireDate = new DateTime(2022, 7, 1) },
+            new UserProfile { EmpNo = "E1003", Name = "王强", Dept = "设备部", Position = "设备维护工程师", Crew = "常白班", Status = EmploymentStatus.Active, Phone = "138****1003", HireDate = new DateTime(2019, 5, 20) },
+            new UserProfile { EmpNo = "E1004", Name = "赵敏", Dept = "质量部", Position = "质量工程师", Crew = "常白班", Status = EmploymentStatus.Active, Phone = "138****1004", HireDate = new DateTime(2020, 9, 10) },
+            new UserProfile { EmpNo = "E1005", Name = "周涛", Dept = "生产部", Position = "化成操作员", Crew = "B班", Status = EmploymentStatus.Active, Phone = "138****1005", HireDate = new DateTime(2023, 2, 6) },
+            new UserProfile { EmpNo = "E1006", Name = "王芳", Dept = "质量部", Position = "检验员", Crew = "B班", Status = EmploymentStatus.Active, Phone = "138****1006", HireDate = new DateTime(2023, 8, 14) },
+            new UserProfile { EmpNo = "E1007", Name = "刘洋", Dept = "生产部", Position = "涂布操作员", Crew = "A班", Status = EmploymentStatus.Active, Phone = "138****1007", HireDate = new DateTime(2022, 11, 3) },
+            new UserProfile { EmpNo = "E1008", Name = "陈晨", Dept = "生产部", Position = "卷绕操作员", Crew = "B班", Status = EmploymentStatus.Active, Phone = "138****1008", HireDate = new DateTime(2024, 4, 18) },
+            new UserProfile { EmpNo = "E1009", Name = "孙磊", Dept = "生产部", Position = "封口操作员", Crew = "A班", Status = EmploymentStatus.Active, Phone = "138****1009", HireDate = new DateTime(2021, 12, 1) },
+            new UserProfile { EmpNo = "E1010", Name = "郑爽", Dept = "生产部", Position = "注液操作员", Crew = "B班", Status = EmploymentStatus.Active, Phone = "138****1010", HireDate = new DateTime(2024, 9, 2) },
+            new UserProfile { EmpNo = "E1011", Name = "杨帆", Dept = "生产部", Position = "电性能测试员", Crew = "A班", Status = EmploymentStatus.Active, Phone = "138****1011", HireDate = new DateTime(2023, 5, 22) },
+            new UserProfile { EmpNo = "E1012", Name = "吴迪", Dept = "仓储部", Position = "叉车司机", Crew = "常白班", Status = EmploymentStatus.Active, Phone = "138****1012", HireDate = new DateTime(2022, 3, 8) },
+            new UserProfile { EmpNo = "E1013", Name = "冯磊", Dept = "生产部", Position = "卷绕操作员", Crew = "B班", Status = EmploymentStatus.Resigned, Phone = "138****1013", HireDate = new DateTime(2020, 1, 6) },
+            new UserProfile { EmpNo = "E1014", Name = "何静", Dept = "质量部", Position = "SPC 工程师", Crew = "常白班", Status = EmploymentStatus.Active, Phone = "138****1014", HireDate = new DateTime(2021, 6, 15) },
+            // 每个工序至少要有 1 名持有效证的在岗人员，否则自动生成实绩时无合格人员可派
+            new UserProfile { EmpNo = "E1015", Name = "韩磊", Dept = "生产部", Position = "涂布操作员", Crew = "A班", Status = EmploymentStatus.Active, Phone = "138****1015", HireDate = new DateTime(2021, 10, 11) },
+            new UserProfile { EmpNo = "ADMIN", Name = "系统管理员", Dept = "信息部", Position = "系统管理员", Crew = "常白班", Status = EmploymentStatus.Active, Phone = "138****0000", HireDate = new DateTime(2018, 1, 1) },
+        });
+
+        // 资质证书：到期日一律用「今天 + 偏移」构造，保证任何运行日期下状态判定都稳定
+        void Cert(string empNo, string item, string level, int issueDaysAgo, int? expiryDaysFromNow,
+            string issuer, bool revoked = false, string revokeReason = "", int revokeDaysAgo = 0)
+        {
+            var emp = Users.First(u => u.EmpNo == empNo);
+            SkillCertificates.Add(new SkillCertificate
+            {
+                EmpNo = empNo,
+                EmpName = emp.Name,
+                SkillItem = item,
+                Level = level,
+                CertNo = NextCertNo(),
+                IssueDate = today.AddDays(-issueDaysAgo),
+                ExpiryDate = expiryDaysFromNow is null ? null : today.AddDays(expiryDaysFromNow.Value),
+                IssuedBy = issuer,
+                Revoked = revoked,
+                RevokeReason = revokeReason,
+                RevokeTime = revoked ? today.AddDays(-revokeDaysAgo) : null
+            });
+        }
+
+        const string inner = "泰州工厂能力认定委员会";
+        const string thirdParty = "江苏省特种作业培训中心";
+
+        // ① 生产一线（持工序上岗证）
+        Cert("E1001", SkillCatalog.Winding, CertLevel.Senior, 1200, 730, inner);              // 张伟 · 卷绕高级
+        Cert("E1001", SkillCatalog.TpmOperator, CertLevel.Middle, 900, 365, inner);            // 张伟 · 点检资格
+        Cert("E1002", SkillCatalog.Injection, CertLevel.Middle, 1000, 540, inner);             // 李娜 · 注液中级
+        Cert("E1002", SkillCatalog.Sealing, CertLevel.Junior, 1100, 12, inner);                // 李娜 · 封口 → 即将到期
+        Cert("E1003", SkillCatalog.TpmOperator, CertLevel.Senior, 1500, 900, inner);           // 王强 · 点检资格
+        Cert("E1003", SkillCatalog.Electrician, CertLevel.Senior, 1400, 400, thirdParty);      // 王强 · 低压电工
+        Cert("E1003", SkillCatalog.ETest, CertLevel.Middle, 800, 600, inner);                  // 王强 · 电性能检测
+        Cert("E1004", SkillCatalog.FaiInspector, CertLevel.Senior, 1600, 800, inner);          // 赵敏 · 首件检验
+        Cert("E1004", SkillCatalog.SpcAnalyst, CertLevel.Middle, 1000, 500, inner);            // 赵敏 · SPC
+        Cert("E1004", SkillCatalog.QualityEngineer, CertLevel.Middle, 1300, 700, inner);       // 赵敏 · 质量工程师
+        Cert("E1004", SkillCatalog.ETest, CertLevel.Junior, 700, 25, inner);                   // 赵敏 · 电性能检测 → 即将到期
+        Cert("E1005", SkillCatalog.Formation, CertLevel.Junior, 600, 450, inner);              // 周涛 · 化成
+        Cert("E1006", SkillCatalog.FaiInspector, CertLevel.Junior, 500, 20, inner);            // 王芳 · 首件检验 → 即将到期
+        Cert("E1007", SkillCatalog.Coating, CertLevel.Middle, 1100, -40, inner);               // 刘洋 · 涂布 → 已过期
+        Cert("E1008", SkillCatalog.Winding, CertLevel.Junior, 300, 700, inner);                // 陈晨 · 卷绕
+        Cert("E1009", SkillCatalog.Sealing, CertLevel.Middle, 1000, 800, inner);               // 孙磊 · 封口
+        Cert("E1010", SkillCatalog.Injection, CertLevel.Junior, 200, 900, inner);              // 郑爽 · 注液
+        Cert("E1010", SkillCatalog.Formation, CertLevel.Junior, 300, 700, inner);              // 郑爽 · 化成（多能工）
+        Cert("E1011", SkillCatalog.ETest, CertLevel.Junior, 500, 750, inner);                  // 杨帆 · 电性能检测
+        Cert("E1012", SkillCatalog.Forklift, CertLevel.Middle, 900, 300, thirdParty);          // 吴迪 · 叉车证
+        Cert("E1013", SkillCatalog.Winding, CertLevel.Middle, 1600, 400, inner,
+            revoked: true, revokeReason: "离职收回", revokeDaysAgo: 120);                       // 冯磊 · 已吊销
+        Cert("E1014", SkillCatalog.SpcAnalyst, CertLevel.Senior, 1200, 800, inner);            // 何静 · SPC
+        Cert("E1014", SkillCatalog.QualityEngineer, CertLevel.Senior, 1000, 700, inner);       // 何静 · 质量工程师
+        Cert("E1015", SkillCatalog.Coating, CertLevel.Middle, 800, 620, inner);                // 韩磊 · 涂布（涂布段唯一有效持证者）
+    }
+
+    /// <summary>
+    /// 生成演示用工序实绩时的「按资质派工」取样间隔：每 N 条刻意派 1 名不合规人员，
+    /// 使「上岗资质核查」既有真实结论（绝大多数合规），又能抓出可追溯的问题样本。
+    /// </summary>
+    private const int UnqualifiedPickInterval = 17;
+
+    /// <summary>
+    /// 为某工序挑选操作人：**优先从持有该工序上岗证且在岗的人员中随机选取**，
+    /// 每 <see cref="UnqualifiedPickInterval"/> 条刻意选 1 名未持证者（用于演示核查能抓到人）。
+    /// 返回人员姓名；若无任何在册人员或无对应工序要求，返回传入的兜底值。
+    /// </summary>
+    private static string PickOperator(string? processName, Random rnd, string fallback)
+    {
+        var active = Users.Where(u => u.IsActive).ToList();
+        if (active.Count == 0) return fallback;
+        if (SkillCatalog.SkillOfProcess(processName) is null) return fallback;
+
+        var qualified = active.Where(u => CheckQualification(u.EmpNo, processName).Ok).ToList();
+        var unqualified = active.Where(u => !CheckQualification(u.EmpNo, processName).Ok).ToList();
+
+        var pick = ProcessActuals.Count % UnqualifiedPickInterval == UnqualifiedPickInterval - 1;
+        if (pick && unqualified.Count > 0) return unqualified[rnd.Next(unqualified.Count)].Name;
+        if (qualified.Count == 0) return unqualified.Count == 0 ? fallback : unqualified[rnd.Next(unqualified.Count)].Name;
+        return qualified[rnd.Next(qualified.Count)].Name;
+    }
+
+    // ---------------- 人员查询 ----------------
+
+    /// <summary>按工号（忽略大小写）或姓名精确查找人员；找不到返回 null。</summary>
+    public static UserProfile? FindUser(string? empNoOrName)
+    {
+        var key = (empNoOrName ?? "").Trim();
+        if (key.Length == 0) return null;
+        return Users.FirstOrDefault(u =>
+                   string.Equals(u.EmpNo, key, StringComparison.OrdinalIgnoreCase))
+               ?? Users.FirstOrDefault(u => string.Equals(u.Name, key, StringComparison.Ordinal));
+    }
+
+    /// <summary>
+    /// 人员台账查询（关键字匹配 工号/姓名/岗位；部门与在职状态可选精准过滤）。
+    /// 返回投影行 <see cref="UserRow"/>（含资质统计），按工号升序。
+    /// </summary>
+    public static List<UserRow> QueryUsers(string? keyword = null, string? dept = null, string? status = null)
+    {
+        var kw = (keyword ?? "").Trim();
+
+        return Users
+            .Where(u => dept is null || u.Dept == dept)
+            .Where(u => status is null || u.Status == status)
+            .Where(u => kw.Length == 0
+                        || u.EmpNo.Contains(kw, StringComparison.OrdinalIgnoreCase)
+                        || u.Name.Contains(kw, StringComparison.Ordinal)
+                        || u.Position.Contains(kw, StringComparison.Ordinal))
+            .OrderBy(u => u.EmpNo, StringComparer.Ordinal)
+            .Select(u =>
+            {
+                var certs = SkillCertificates.Where(c => c.EmpNo == u.EmpNo).ToList();
+                return new UserRow
+                {
+                    EmpNo = u.EmpNo,
+                    Name = u.Name,
+                    Dept = u.Dept,
+                    Position = u.Position,
+                    Crew = u.Crew,
+                    Status = u.Status,
+                    Phone = u.Phone,
+                    HireDate = u.HireDate,
+                    CertTotal = certs.Count,
+                    CertValid = certs.Count(c => c.CanWork),
+                    CertExpiring = certs.Count(c => c.Status == CertStatus.ExpiringSoon),
+                    CertInvalid = certs.Count(c => !c.CanWork),
+                    ProcessSkillCount = certs.Count(c => c.CanWork && SkillCatalog.ProcessSkills.Contains(c.SkillItem))
+                };
+            })
+            .ToList();
+    }
+
+    /// <summary>全部部门（去重、字典序），供筛选下拉使用。</summary>
+    public static List<string> GetDepartments() =>
+        Users.Select(u => u.Dept).Distinct(StringComparer.Ordinal).OrderBy(d => d, StringComparer.Ordinal).ToList();
+
+    /// <summary>全部班组（去重，按「A班 / B班 / 常白班」习惯顺序）。</summary>
+    public static List<string> GetCrews() =>
+        Users.Select(u => u.Crew).Distinct(StringComparer.Ordinal)
+            .OrderBy(c => c, StringComparer.Ordinal).ToList();
+
+    // ---------------- 资质查询 ----------------
+
+    /// <summary>某人全部资质（按资质项顺序、状态严重度排序：失效在前）。</summary>
+    public static List<SkillCertificate> GetCertificates(string? empNo)
+    {
+        var key = (empNo ?? "").Trim();
+        if (key.Length == 0) return new List<SkillCertificate>();
+        return SkillCertificates
+            .Where(c => string.Equals(c.EmpNo, key, StringComparison.OrdinalIgnoreCase))
+            .OrderBy(c => StatusOrder(c.Status))
+            .ThenBy(c => Array.IndexOf(SkillCatalog.All, c.SkillItem))
+            .ToList();
+    }
+
+    /// <summary>资质状态排序权重：已吊销 0 &lt; 已过期 1 &lt; 即将到期 2 &lt; 有效 3</summary>
+    private static int StatusOrder(string status) => status switch
+    {
+        CertStatus.Revoked => 0,
+        CertStatus.Expired => 1,
+        CertStatus.ExpiringSoon => 2,
+        _ => 3
+    };
+
+    /// <summary>
+    /// 资质台账查询：关键字匹配 工号/姓名/资质项/证书编号；状态可选（有效/即将到期/已过期/已吊销）。
+    /// 按「状态严重度 → 剩余天数 → 工号」排序，让需要处理的排在最前面。
+    /// </summary>
+    public static List<SkillCertificate> QueryCertificates(string? keyword = null, string? status = null)
+    {
+        var kw = (keyword ?? "").Trim();
+        return SkillCertificates
+            .Where(c => status is null || c.Status == status)
+            .Where(c => kw.Length == 0
+                        || c.EmpNo.Contains(kw, StringComparison.OrdinalIgnoreCase)
+                        || c.EmpName.Contains(kw, StringComparison.Ordinal)
+                        || c.SkillItem.Contains(kw, StringComparison.Ordinal)
+                        || c.CertNo.Contains(kw, StringComparison.OrdinalIgnoreCase))
+            .OrderBy(c => StatusOrder(c.Status))
+            .ThenBy(c => c.DaysLeft ?? 9999)
+            .ThenBy(c => c.EmpNo, StringComparer.Ordinal)
+            .ToList();
+    }
+
+    /// <summary>
+    /// 人员与资质汇总：在册人数 / 持证人数 / 即将到期资质数 / 已失效资质数。
+    /// 口径：只统计**在职**人员；「持证」= 至少持 1 项可上岗资质（有效或即将到期）；
+    /// 「已失效」= 已过期 + 已吊销。纯查询。
+    /// </summary>
+    public static (int OnDuty, int Certified, int ExpiringCert, int InvalidCert) GetPersonnelSummary()
+    {
+        var active = Users.Where(u => u.IsActive).ToList();
+        var activeNos = active.Select(u => u.EmpNo).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var certs = SkillCertificates.Where(c => activeNos.Contains(c.EmpNo)).ToList();
+
+        var certified = certs.Where(c => c.CanWork).Select(c => c.EmpNo)
+            .Distinct(StringComparer.OrdinalIgnoreCase).Count();
+
+        return (active.Count,
+            certified,
+            certs.Count(c => c.Status == CertStatus.ExpiringSoon),
+            certs.Count(c => !c.CanWork));
+    }
+
+    // ---------------- 上岗资质校验（核心防错规则） ----------------
+
+    /// <summary>
+    /// 上岗资质校验：判断「某人能否在某工序上岗操作」。
+    /// 返回 (是否通过, 结论说明, 所需资质项, 证书状态)。
+    /// 规则优先级：工序无持证要求 → 人员不存在 → 人员离职 → 无证 → 证已失效 → 通过。
+    /// 纯查询，不修改任何数据。
+    /// </summary>
+    public static (bool Ok, string Reason, string Skill, string CertStatus) CheckQualification(
+        string? empNoOrName, string? processName)
+    {
+        var skill = SkillCatalog.SkillOfProcess(processName);
+        if (skill is null)
+            return (true, $"工序「{(processName ?? "").Trim()}」未设置持证要求，无需资质校验。", "", "");
+
+        var user = FindUser(empNoOrName);
+        if (user is null)
+            return (false, $"操作人「{(empNoOrName ?? "").Trim()}」未在人员主数据登记，不允许上岗。", skill, "未登记");
+
+        if (!user.IsActive)
+            return (false, $"{user.Name}（{user.EmpNo}）已于 {user.HireText} 后离职，状态为「{user.Status}」，不允许上岗。", skill, "已离职");
+
+        var cert = SkillCertificates.FirstOrDefault(c =>
+            string.Equals(c.EmpNo, user.EmpNo, StringComparison.OrdinalIgnoreCase)
+            && c.SkillItem == skill && !c.Revoked);
+
+        if (cert is null)
+            return (false, $"{user.Name}（{user.EmpNo}）未取得「{skill}」，不允许在「{processName}」工序上岗。", skill, "无证");
+
+        if (!cert.CanWork)
+            return (false, $"{user.Name}（{user.EmpNo}）的「{skill}」{cert.Status}（{cert.DaysLeftText}），不允许上岗。", skill, cert.Status);
+
+        return (true, $"{user.Name}（{user.EmpNo}）持「{skill}」{cert.Level}，状态 {cert.Status}（{cert.DaysLeftText}），允许上岗。", skill, cert.Status);
+    }
+
+    /// <summary>
+    /// 资质矩阵：行=在职人员，列=<see cref="SkillCatalog.All"/>，格值=资质等级（无证为 "—"）。
+    /// 返回 (资质项列, 矩阵行)，供界面手工建列渲染（避免字典列绑定带来的列名漂移）。
+    /// </summary>
+    public static (List<string> Items, List<SkillMatrixRow> Rows) GetSkillMatrix(string? dept = null)
+    {
+        var items = SkillCatalog.All.ToList();
+        var users = Users
+            .Where(u => u.IsActive)
+            .Where(u => dept is null || u.Dept == dept)
+            .OrderBy(u => u.EmpNo, StringComparer.Ordinal)
+            .ToList();
+
+        var rows = users.Select(u =>
+        {
+            var mine = SkillCertificates
+                .Where(c => string.Equals(c.EmpNo, u.EmpNo, StringComparison.OrdinalIgnoreCase) && !c.Revoked)
+                .ToList();
+
+            var cells = new string[items.Count];
+            var statuses = new string[items.Count];
+            for (var i = 0; i < items.Count; i++)
+            {
+                var hit = mine.FirstOrDefault(c => c.SkillItem == items[i]);
+                cells[i] = hit is null ? "—" : hit.Level;
+                statuses[i] = hit?.Status ?? "";
+            }
+
+            return new SkillMatrixRow
+            {
+                EmpNo = u.EmpNo,
+                EmpName = u.Name,
+                Dept = u.Dept,
+                Position = u.Position,
+                Crew = u.Crew,
+                Status = u.Status,
+                Cells = cells,
+                CellStatuses = statuses,
+                CertTotal = cells.Count(c => c != "—")
+            };
+        }).ToList();
+
+        return (items, rows);
+    }
+
+    /// <summary>
+    /// 班组绩效：按班组聚合 人数 / 持证人数 / 有效资质项 / 即将到期 / 失效 / 工序覆盖 / 实绩条数 / 无证上岗嫌疑条数。
+    /// 只统计在职人员；「工序覆盖」= 该班组持有的工序类上岗证覆盖的工序数（同一工序多证只计一次）。纯查询。
+    /// </summary>
+    public static List<CrewPerformanceRow> GetCrewPerformance()
+    {
+        var checks = GetQualificationChecks(null, onlyFailed: true);
+
+        return Users
+            .Where(u => u.IsActive)
+            .GroupBy(u => u.Crew, StringComparer.Ordinal)
+            .OrderBy(g => g.Key, StringComparer.Ordinal)
+            .Select(g =>
+            {
+                var empNos = g.Select(u => u.EmpNo).ToHashSet(StringComparer.OrdinalIgnoreCase);
+                var names = g.Select(u => u.Name).ToHashSet(StringComparer.Ordinal);
+                var certs = SkillCertificates.Where(c => empNos.Contains(c.EmpNo)).ToList();
+
+                var coveredProcesses = certs
+                    .Where(c => c.CanWork && SkillCatalog.ProcessSkills.Contains(c.SkillItem))
+                    .Select(c => ProcessOfSkill(c.SkillItem))
+                    .Where(p => p.Length > 0)
+                    .Distinct(StringComparer.Ordinal)
+                    .Count();
+
+                return new CrewPerformanceRow
+                {
+                    Crew = g.Key,
+                    Headcount = g.Count(),
+                    CertifiedHeadcount = certs.Where(c => c.CanWork).Select(c => c.EmpNo)
+                        .Distinct(StringComparer.OrdinalIgnoreCase).Count(),
+                    ValidCertCount = certs.Count(c => c.CanWork),
+                    ExpiringCertCount = certs.Count(c => c.Status == CertStatus.ExpiringSoon),
+                    InvalidCertCount = certs.Count(c => !c.CanWork),
+                    CoveredProcessCount = coveredProcesses,
+                    ProcessOpCount = ProcessActuals.Count(a => names.Contains(a.Operator)),
+                    UnqualifiedOpCount = checks.Count(c => names.Contains(c.Operator))
+                };
+            })
+            .ToList();
+    }
+
+    /// <summary>资质项 → 对应工序名（<see cref="SkillCatalog.SkillOfProcess"/> 的逆映射；非工序类返回空串）。</summary>
+    private static string ProcessOfSkill(string skill) => skill switch
+    {
+        SkillCatalog.Coating => "涂布",
+        SkillCatalog.Winding => "卷绕",
+        SkillCatalog.Injection => "注液",
+        SkillCatalog.Sealing => "封口",
+        SkillCatalog.Formation => "化成",
+        SkillCatalog.ETest => "电性能检测",
+        _ => ""
+    };
+
+    /// <summary>
+    /// 实绩资质核查：对工序实绩逐条判定「操作人是否持证上岗」。
+    /// 参数：工序名（null=全部）、是否只看不通过；按时间倒序。纯查询。
+    /// </summary>
+    public static List<QualificationCheckRow> GetQualificationChecks(string? processName = null, bool onlyFailed = false)
+    {
+        var proc = (processName ?? "").Trim();
+
+        return ProcessActuals
+            .Where(a => proc.Length == 0 || string.Equals(a.ProcessName, proc, StringComparison.Ordinal))
+            .Select(a =>
+            {
+                var skill = SkillCatalog.SkillOfProcess(a.ProcessName);
+                var (ok, reason, _, status) = CheckQualification(a.Operator, a.ProcessName);
+                var user = FindUser(a.Operator);
+                var cert = skill is null || user is null
+                    ? null
+                    : SkillCertificates.FirstOrDefault(c =>
+                        string.Equals(c.EmpNo, user.EmpNo, StringComparison.OrdinalIgnoreCase)
+                        && c.SkillItem == skill && !c.Revoked);
+
+                return new QualificationCheckRow
+                {
+                    CellSn = a.CellSn,
+                    WoNo = a.WoNo,
+                    ProcessName = a.ProcessName,
+                    Equipment = a.Equipment,
+                    Operator = a.Operator,
+                    Shift = a.Shift,
+                    Time = a.Time,
+                    RequiredSkill = skill ?? "（不设持证要求）",
+                    CertLevelText = cert?.Level ?? "—",
+                    CertStatusText = status.Length == 0 ? "—" : status,
+                    Passed = ok,
+                    Result = reason
+                };
+            })
+            .Where(r => !onlyFailed || !r.Passed)
+            .OrderByDescending(r => r.Time)
+            .ToList();
+    }
+
+    /// <summary>实绩资质核查汇总：核查总数 / 通过 / 不通过 / 不通过率。纯查询。</summary>
+    public static (int Total, int Passed, int Failed) GetQualificationCheckSummary(string? processName = null)
+    {
+        var all = GetQualificationChecks(processName);
+        var failed = all.Count(r => !r.Passed);
+        return (all.Count, all.Count - failed, failed);
+    }
+
+    // ---------------- 人员与资质维护 ----------------
+
+    /// <summary>
+    /// 新增人员：校验 工号非空且唯一、姓名非空、部门非空、入职日期不晚于今天。
+    /// 校验失败返回 (false, 原因) 且**不产生任何副作用**。
+    /// </summary>
+    public static (bool Ok, string Message) AddUser(UserProfile user)
+    {
+        if (user is null) return (false, "人员信息为空。");
+
+        var empNo = (user.EmpNo ?? "").Trim();
+        var name = (user.Name ?? "").Trim();
+
+        if (empNo.Length == 0) return (false, "工号不能为空。");
+        if (name.Length == 0) return (false, "姓名不能为空。");
+        if (string.IsNullOrWhiteSpace(user.Dept)) return (false, "部门不能为空。");
+        if (Users.Any(u => string.Equals(u.EmpNo, empNo, StringComparison.OrdinalIgnoreCase)))
+            return (false, $"工号 {empNo} 已存在，不能重复登记。");
+        if (user.HireDate > DateTime.Today) return (false, "入职日期不能晚于今天。");
+
+        var status = EmploymentStatus.All.Contains(user.Status) ? user.Status : EmploymentStatus.Active;
+
+        Users.Add(new UserProfile
+        {
+            EmpNo = empNo,
+            Name = name,
+            Dept = user.Dept.Trim(),
+            Position = (user.Position ?? "").Trim(),
+            Crew = string.IsNullOrWhiteSpace(user.Crew) ? "常白班" : user.Crew.Trim(),
+            Status = status,
+            Phone = (user.Phone ?? "").Trim(),
+            HireDate = user.HireDate
+        });
+
+        return (true, $"人员 {name}（{empNo}）登记成功。");
+    }
+
+    /// <summary>更新人员基础信息（工号不可改）。校验同上；失败零副作用。</summary>
+    public static (bool Ok, string Message) UpdateUser(UserProfile user)
+    {
+        if (user is null) return (false, "人员信息为空。");
+        var empNo = (user.EmpNo ?? "").Trim();
+        var existing = Users.FirstOrDefault(u => string.Equals(u.EmpNo, empNo, StringComparison.OrdinalIgnoreCase));
+        if (existing is null) return (false, $"未找到工号 {empNo}。");
+        if (string.IsNullOrWhiteSpace(user.Name)) return (false, "姓名不能为空。");
+        if (string.IsNullOrWhiteSpace(user.Dept)) return (false, "部门不能为空。");
+
+        existing.Name = user.Name.Trim();
+        existing.Dept = user.Dept.Trim();
+        existing.Position = (user.Position ?? "").Trim();
+        existing.Crew = string.IsNullOrWhiteSpace(user.Crew) ? "常白班" : user.Crew.Trim();
+        existing.Status = EmploymentStatus.All.Contains(user.Status) ? user.Status : EmploymentStatus.Active;
+        existing.Phone = (user.Phone ?? "").Trim();
+
+        // 姓名变更需同步证书上的姓名快照，避免两处不一致
+        foreach (var c in SkillCertificates.Where(c => string.Equals(c.EmpNo, empNo, StringComparison.OrdinalIgnoreCase)))
+            c.EmpName = existing.Name;
+
+        return (true, $"人员 {existing.Name}（{empNo}）信息已更新。");
+    }
+
+    /// <summary>
+    /// 登记资质：校验 人员在职 / 资质项与等级合法 / 有效期不早于发证日期 / 不重复登记。
+    /// 若该人同资质项存在**已吊销**记录，视为复审换证：原地恢复并写入新证书信息。
+    /// 校验失败返回 (false, 原因) 且**不产生任何副作用**。
+    /// </summary>
+    public static (bool Ok, string Message) AddCertificate(
+        string empNo, string skillItem, string level, DateTime issueDate, DateTime? expiryDate, string issuedBy)
+    {
+        var emp = FindUser(empNo);
+        if (emp is null) return (false, $"未找到人员「{(empNo ?? "").Trim()}」，请先在人员台账登记。");
+        if (!emp.IsActive) return (false, $"{emp.Name}（{emp.EmpNo}）已离职，不能登记新资质。");
+        if (!SkillCatalog.All.Contains(skillItem)) return (false, $"资质项「{skillItem}」不在资质目录中。");
+        if (!CertLevel.All.Contains(level)) return (false, $"资质等级「{level}」不合法。");
+        if (issueDate == default) return (false, "发证日期不能为空。");
+        if (expiryDate is not null && expiryDate.Value.Date < issueDate.Date)
+            return (false, "有效期不能早于发证日期。");
+
+        var existing = SkillCertificates.FirstOrDefault(c =>
+            string.Equals(c.EmpNo, emp.EmpNo, StringComparison.OrdinalIgnoreCase) && c.SkillItem == skillItem);
+
+        if (existing is not null && !existing.Revoked)
+            return (false, $"{emp.Name} 已持有「{skillItem}」（{existing.Level}，{existing.Status}），请先吊销后再重新登记。");
+
+        if (existing is not null)
+        {
+            // 复审换证：恢复被吊销的记录并写入新证书信息
+            existing.Level = level;
+            existing.CertNo = NextCertNo();
+            existing.IssueDate = issueDate;
+            existing.ExpiryDate = expiryDate;
+            existing.IssuedBy = (issuedBy ?? "").Trim();
+            existing.Revoked = false;
+            existing.RevokeReason = "";
+            existing.RevokeTime = null;
+            return (true, $"{emp.Name} 的「{skillItem}」已复审换证（{level}）。");
+        }
+
+        SkillCertificates.Add(new SkillCertificate
+        {
+            EmpNo = emp.EmpNo,
+            EmpName = emp.Name,
+            SkillItem = skillItem,
+            Level = level,
+            CertNo = NextCertNo(),
+            IssueDate = issueDate,
+            ExpiryDate = expiryDate,
+            IssuedBy = (issuedBy ?? "").Trim()
+        });
+
+        return (true, $"{emp.Name}（{emp.EmpNo}）的「{skillItem}」（{level}）登记成功。");
+    }
+
+    /// <summary>吊销资质：记录原因与时间。找不到 / 已吊销 / 原因为空 → 失败且零副作用。</summary>
+    public static (bool Ok, string Message) RevokeCertificate(string empNo, string skillItem, string reason)
+    {
+        if (string.IsNullOrWhiteSpace(reason)) return (false, "吊销原因不能为空。");
+
+        var cert = SkillCertificates.FirstOrDefault(c =>
+            string.Equals(c.EmpNo, (empNo ?? "").Trim(), StringComparison.OrdinalIgnoreCase) && c.SkillItem == skillItem);
+        if (cert is null) return (false, $"未找到 {empNo} 的「{skillItem}」资质记录。");
+        if (cert.Revoked) return (false, $"{cert.EmpName} 的「{skillItem}」已处于吊销状态，无需重复操作。");
+
+        cert.Revoked = true;
+        cert.RevokeReason = reason.Trim();
+        cert.RevokeTime = DateTime.Now;
+        // 吊销后该人若在对应工序已有实绩，核查会自动转为「不通过」，无需额外处理
+        return (true, $"{cert.EmpName} 的「{skillItem}」（{cert.Level}）已吊销。原因：{cert.RevokeReason}");
+    }
+
+    /// <summary>撤销吊销（误操作纠正）：恢复为按有效期判定的状态。</summary>
+    public static (bool Ok, string Message) RestoreCertificate(string empNo, string skillItem)
+    {
+        var cert = SkillCertificates.FirstOrDefault(c =>
+            string.Equals(c.EmpNo, (empNo ?? "").Trim(), StringComparison.OrdinalIgnoreCase) && c.SkillItem == skillItem);
+        if (cert is null) return (false, $"未找到 {empNo} 的「{skillItem}」资质记录。");
+        if (!cert.Revoked) return (false, $"{cert.EmpName} 的「{skillItem}」当前未吊销，无需恢复。");
+
+        cert.Revoked = false;
+        cert.RevokeReason = "";
+        cert.RevokeTime = null;
+        return (true, $"{cert.EmpName} 的「{skillItem}」已恢复，当前状态 {cert.Status}。");
+    }
+
+    /// <summary>新增人员的默认示例（供「新增人员」对话框初始化）。</summary>
+    public static UserProfile NewUserTemplate() => new()
+    {
+        EmpNo = "",
+        Name = "",
+        Dept = "生产部",
+        Position = "",
+        Crew = "A班",
+        Status = EmploymentStatus.Active,
+        Phone = "",
+        HireDate = DateTime.Today
+    };
+
+    // ============================================================
+    // 客户投诉与 8D 归零
+    // 定位：客诉归零是客户审核的硬要求，且可以直接复用既有的「召回反查 + 完整追溯链」能力。
+    // 设计：客诉单（Complaints）+ 8D 报告（EightDReports）+ 流转履历（ComplaintHistories）。
+    //       8D 顺序推进不可跳步；关闭前置校验 D3 临时围堵 / D4 根本原因 / D5 永久对策 必须齐备。
+    // ============================================================
+
+    /// <summary>客诉单号自增序号</summary>
+    private static int _complaintSeq;
+
+    /// <summary>客诉流转履历自增序号</summary>
+    private static int _complaintHistorySeq;
+
+    /// <summary>生成客诉单号，形如 CMP-yyyyMMdd-001</summary>
+    private static string NextComplaintNo() => $"CMP-{DateTime.Now:yyyyMMdd}-{++_complaintSeq:000}";
+
+    /// <summary>
+    /// 客诉与 8D 种子：4 条客诉覆盖「待受理 / 处理中 / 待客户确认 / 已关闭」四种状态，
+    /// 客户名取自既有出货单的往来对象，保证与出货、召回反查的数据链路自洽。
+    /// </summary>
+    private static void SeedComplaints()
+    {
+        if (Complaints.Count > 0) return;
+
+        var today = DateTime.Today;
+
+        // ① 已关闭（8D 八步齐备的完整闭环样本）
+        var c1 = AddSeedComplaint("华能储能", "售后-王经理 138****2201", today.AddDays(-22).AddHours(9).AddMinutes(20),
+            ComplaintSource.Customer, ComplaintSeverity.Critical, ComplaintCategories.CapacityLow,
+            "SC-CX2026-100F", "PC-260812-L1-001", 120, "客户端分选工位反馈：整批放电容量低于规格下限 5%~8%，已停线待处理。",
+            safety: false, recall: true, ComplaintStatus.Closed, "赵敏（质量部）", today.AddDays(-19));        var r1 = GetOrCreateEightD(c1.ComplaintNo);
+        r1.D1Team = "组长：赵敏（质量）；成员：张伟（生产）、李娜（工艺）、王强（设备）、吴迪（供应链）";
+        r1.D2Problem = "5W2H：2026 年 8 月 12 日 L1 线卷绕工序产出电芯，客户端分选容量 92~95F（规格 ≥95F）。涉及极片批次 PC-260812-L1-001，共 120 只。";
+        r1.D3Containment = "① 在库同极片批次电芯全部转入待检区并冻结；② 已出货 3 张出货单全部发出召回通知；③ 客户端剩余库存加严 100% 容量复检。";
+        r1.D4RootCause = "5Why 定位：卷绕张力设定值漂移 → 张力闭环未随极片厚度补偿 → 卷芯松紧不均 → 有效极片面积不足 → 容量偏低。直接原因：卷绕张力实测 2.4N（标准 2.8±0.2N）。";
+        r1.D5PermanentAction = "① 卷绕机张力闭环增加厚度补偿算法（王强，已完成）；② 建立张力日点检项并纳入 TPM（王强）；③ 极片来料厚度 Cpk 纳入 SPC 监控（赵敏）。";
+        r1.D6Verification = "对策实施后连续 5 批各抽 30 只复测：容量均值 99.2F，Cpk 1.42，全部合格。客户复检 120 只中 117 只合格、3 只降级为 B 档。";
+        r1.D7Prevention = "① PFMEA 增加「张力闭环失效」失效模式（RPN 由 168 降至 36）；② 控制计划增加张力点检；③ 作业标准书升版至 V2.1 并完成 12 人培训。";
+        r1.D8Closure = "客户于 8 月 11 日签署结案确认；团队成员表彰已完成；经验录入质量知识库编号 KB-2026-0031。";
+        r1.UpdatedTime = today.AddDays(-19).AddHours(16);
+        r1.UpdatedBy = "赵敏";
+        c1.CustomerConfirmTime = today.AddDays(-19).AddHours(15);
+        c1.CurrentStep = EightDStep.D8;
+        AddComplaintHistory(c1.ComplaintNo, ComplaintAction.Confirm, EightDStep.D8, "赵敏", today.AddDays(-19).AddHours(15), "客户书面确认 8D 报告，同意结案");
+        AddComplaintHistory(c1.ComplaintNo, ComplaintAction.Close, EightDStep.D8, "赵敏", today.AddDays(-19).AddHours(16), "8D 归零完成，客诉关闭");
+
+        // ② 处理中（D1~D3 已填，正卡在根因分析；已超期，用于演示时限预警）
+        //    注：客户名与关联批次均取自系统内真实可追溯数据（客户取自定义客户，批次取真实极片批号）
+        var c2 = AddSeedComplaint("中车时代电气", "品质部-李工 139****3302", today.AddDays(-12).AddHours(14),
+            ComplaintSource.AfterSales, ComplaintSeverity.Major, ComplaintCategories.EsrHigh,
+            "SC-CX2026-100F", "PC-260813-L2-002", 45, "客户端老化测试发现内阻偏高（均值 12.8mΩ，规格 ≤10mΩ），比例约 8%。",
+            safety: false, recall: false, ComplaintStatus.Investigating, "何静（质量部）", today.AddDays(-5));
+        var r2 = GetOrCreateEightD(c2.ComplaintNo);
+        r2.D1Team = "组长：何静（质量）；成员：郑爽（注液）、孙磊（封口）、杨帆（测试）";
+        r2.D2Problem = "5W2H：交付中车时代电气的 100F 产品，极片批次 PC-260813-L2-002，抽检 45 只，内阻 11.2~13.6mΩ 超标。";
+        r2.D3Containment = "① 冻结在库同极片批次电芯；② 客户端剩余 260 只加严内阻全检；③ 库存同型号产品暂停发货。";
+        r2.UpdatedTime = today.AddDays(-8).AddHours(10);
+        r2.UpdatedBy = "何静";
+        c2.CurrentStep = EightDStep.D4;
+
+        // ③ 待客户确认（D1~D7 已填，等待客户签署；关联范围取真实出货电芯 SN）
+        var c3 = AddSeedComplaint("阳光电源", "采购部-周经理 137****4403", today.AddDays(-8).AddHours(10).AddMinutes(30),
+            ComplaintSource.Customer, ComplaintSeverity.Major, ComplaintCategories.Appearance,
+            "SC-CX2026-100F", "SC-A260812-L1-00001", 30, "来料检验发现 30 只电芯外壳顶部有轻微划痕，要求给出围堵与改善措施。",
+            safety: false, recall: false, ComplaintStatus.WaitingCustomer, "王芳（质量部）", today.AddDays(-1));
+        var r3 = GetOrCreateEightD(c3.ComplaintNo);
+        r3.D1Team = "组长：王芳（质量）；成员：孙磊（封口）、陈晨（卷绕）、吴迪（仓储）";
+        r3.D2Problem = "5W2H：交付阳光电源的 30 只电芯，客户来料检验发现顶部环向划痕，划痕深度 ≤0.05mm，未伤及密封结构。";
+        r3.D3Containment = "① 客户端 30 只全部换货，已发出替代品；② 在库同批成品 100% 外观全检；③ 包装内衬增加 PE 垫片。";
+        r3.D4RootCause = "5Why 定位：成品周转箱隔板局部变形 → 电芯在运输中相互摩擦 → 顶部环向划痕。直接原因：周转箱隔板累计使用超期未更换。";
+        r3.D5PermanentAction = "① 周转箱隔板更换周期由 24 个月缩短至 12 个月并纳入 TPM 点检（王强）；② 包装作业标准增加内衬检查项；③ 出货前外观抽检比例由 5% 提至 20%。";
+        r3.D6Verification = "改善后连续 3 批出货抽检各 60 只，外观不良 0 只。";
+        r3.D7Prevention = "PFMEA 增加「周转容器磨损致外观不良」失效模式；《成品包装作业指导书》升版 V1.3 并培训 8 人。";
+        r3.UpdatedTime = today.AddDays(-2).AddHours(17);
+        r3.UpdatedBy = "王芳";
+        c3.CurrentStep = EightDStep.D8;
+
+        // ④ 待受理（刚收到，尚未组建团队；未登记关联范围 → 反查自动回落到按客户名）
+        var c4 = AddSeedComplaint("华能储能", "售后-王经理 138****2201", today.AddHours(8).AddMinutes(40),
+            ComplaintSource.Customer, ComplaintSeverity.Minor, ComplaintCategories.Dimension,
+            "SC-CX2026-300F", "", 6, "客户反馈 6 只电芯外径尺寸接近上限，装配时偶发卡滞，请求评估。",
+            safety: false, recall: false, ComplaintStatus.Pending, "", today.AddDays(15));
+        GetOrCreateEightD(c4.ComplaintNo);
+        c4.CurrentStep = EightDStep.D1;
+    }
+
+    /// <summary>种子辅助：建一条客诉单并写入登记履历（返回单对象以便继续填 8D）。</summary>
+    private static CustomerComplaint AddSeedComplaint(
+        string customer, string contact, DateTime receiveTime, string source, string severity, string category,
+        string productModel, string lotKeyword, double quantity, string symptom,
+        bool safety, bool recall, string status, string owner, DateTime dueDate)
+    {
+        var no = NextComplaintNo();
+        var c = new CustomerComplaint
+        {
+            ComplaintNo = no,
+            CustomerName = customer,
+            ContactInfo = contact,
+            ReceiveTime = receiveTime,
+            Source = source,
+            Severity = severity,
+            Category = category,
+            ProductModel = productModel,
+            LotKeyword = lotKeyword,
+            Quantity = quantity,
+            SymptomDesc = symptom,
+            IsSafetyInvolved = safety,
+            NeedRecall = recall,
+            Status = status,
+            Owner = owner,
+            DueDate = dueDate
+        };
+        if (ComplaintStatus.IsClosed(status))
+        {
+            c.ClosedTime = receiveTime.AddDays(3);
+            c.ClosedBy = owner.Length > 0 ? owner : "质量工程师";
+        }
+        Complaints.Add(c);
+        AddComplaintHistory(no, ComplaintAction.Create, EightDStep.D1, "客服", receiveTime,
+            $"登记客诉：{customer} / {category} / {quantity:0.##} 只；来源 {source}；严重度 {severity}");
+        return c;
+    }
+
+    /// <summary>种子辅助：取或建 8D 报告。</summary>
+    private static EightDReport GetOrCreateEightD(string complaintNo)
+    {
+        var exist = EightDReports.FirstOrDefault(r =>
+            string.Equals(r.ComplaintNo, complaintNo, StringComparison.OrdinalIgnoreCase));
+        if (exist is not null) return exist;
+
+        var report = new EightDReport
+        {
+            ComplaintNo = complaintNo,
+            CreatedTime = DateTime.Now,
+            UpdatedTime = DateTime.Now,
+            UpdatedBy = ""
+        };
+        EightDReports.Add(report);
+        return report;
+    }
+
+    /// <summary>追加一条客诉流转履历（内部使用）。</summary>
+    private static void AddComplaintHistory(string complaintNo, string action, string step, string @operator,
+        DateTime time, string remark, int cellCount = 0, string snPreview = "")
+    {
+        ComplaintHistories.Add(new ComplaintHistory
+        {
+            Seq = ++_complaintHistorySeq,
+            ComplaintNo = complaintNo,
+            ActionType = action,
+            Step = step,
+            Operator = @operator,
+            Time = time,
+            Remark = remark,
+            CellCount = cellCount,
+            SnPreview = snPreview
+        });
+    }
+
+    // ---------------- 客诉查询 ----------------
+
+    /// <summary>客诉台账查询：状态可选、关键字匹配 单号/客户/型号/分类/症状/责任人；按接收时间倒序。</summary>
+    public static List<CustomerComplaint> QueryComplaints(string? status = null, string? keyword = null)
+    {
+        var kw = (keyword ?? "").Trim();
+        return Complaints
+            .Where(c => status is null || c.Status == status)
+            .Where(c => kw.Length == 0
+                        || c.ComplaintNo.Contains(kw, StringComparison.OrdinalIgnoreCase)
+                        || c.CustomerName.Contains(kw, StringComparison.Ordinal)
+                        || c.ProductModel.Contains(kw, StringComparison.OrdinalIgnoreCase)
+                        || c.Category.Contains(kw, StringComparison.Ordinal)
+                        || c.SymptomDesc.Contains(kw, StringComparison.Ordinal)
+                        || c.Owner.Contains(kw, StringComparison.Ordinal))
+            .OrderByDescending(c => c.ReceiveTime)
+            .ToList();
+    }
+
+    /// <summary>按单号精确查找客诉（忽略大小写）。</summary>
+    public static CustomerComplaint? FindComplaint(string? complaintNo)
+    {
+        var no = (complaintNo ?? "").Trim();
+        if (no.Length == 0) return null;
+        return Complaints.FirstOrDefault(c => string.Equals(c.ComplaintNo, no, StringComparison.OrdinalIgnoreCase));
+    }
+
+    /// <summary>取某客诉的 8D 报告（不存在返回 null）。</summary>
+    public static EightDReport? GetEightD(string? complaintNo)
+    {
+        var no = (complaintNo ?? "").Trim();
+        if (no.Length == 0) return null;
+        return EightDReports.FirstOrDefault(r => string.Equals(r.ComplaintNo, no, StringComparison.OrdinalIgnoreCase));
+    }
+
+    /// <summary>取某客诉的流转履历（按序号升序）。</summary>
+    public static List<ComplaintHistory> GetComplaintHistories(string? complaintNo)
+    {
+        var no = (complaintNo ?? "").Trim();
+        if (no.Length == 0) return new List<ComplaintHistory>();
+        return ComplaintHistories
+            .Where(h => string.Equals(h.ComplaintNo, no, StringComparison.OrdinalIgnoreCase))
+            .OrderBy(h => h.Seq)
+            .ToList();
+    }
+
+    /// <summary>客诉汇总：待受理 / 处理中 / 待客户确认 / 已关闭 / 超期未关闭。纯查询。</summary>
+    public static (int Pending, int Investigating, int WaitingCustomer, int Closed, int Overdue) GetComplaintSummary()
+    {
+        return (Complaints.Count(c => c.Status == ComplaintStatus.Pending),
+            Complaints.Count(c => c.Status == ComplaintStatus.Investigating),
+            Complaints.Count(c => c.Status == ComplaintStatus.WaitingCustomer),
+            Complaints.Count(c => c.Status == ComplaintStatus.Closed),
+            Complaints.Count(c => !c.IsClosed && c.DueHealth == "已超期"));
+    }
+
+    /// <summary>按客户聚合客诉统计（总数 / 严重 / 未关闭 / 已关闭 / 超期），按总数倒序。纯查询。</summary>
+    public static List<ComplaintStatRow> GetComplaintStats() =>
+        Complaints
+            .GroupBy(c => c.CustomerName, StringComparer.Ordinal)
+            .Select(g => new ComplaintStatRow
+            {
+                CustomerName = g.Key,
+                Total = g.Count(),
+                CriticalCount = g.Count(c => c.Severity == ComplaintSeverity.Critical),
+                OpenCount = g.Count(c => !c.IsClosed),
+                ClosedCount = g.Count(c => c.IsClosed),
+                OverdueCount = g.Count(c => !c.IsClosed && c.DueHealth == "已超期")
+            })
+            .OrderByDescending(r => r.Total)
+            .ThenBy(r => r.CustomerName, StringComparer.Ordinal)
+            .ToList();
+
+    // ---------------- 客诉登记与流转 ----------------
+
+    /// <summary>
+    /// 登记客诉：校验 客户名称、症状描述、数量、严重度/分类/来源合法性；单号与时限由系统生成。
+    /// 同时创建空的 8D 报告并写入登记履历。校验失败返回 (false, 原因) 且**零副作用**。
+    /// </summary>
+    public static (bool Ok, string Message, string ComplaintNo) CreateComplaint(CustomerComplaint input)
+    {
+        if (input is null) return (false, "客诉信息为空。", "");
+        if (string.IsNullOrWhiteSpace(input.CustomerName)) return (false, "客户名称为必填项。", "");
+        if (string.IsNullOrWhiteSpace(input.SymptomDesc)) return (false, "客户描述的现象为必填项。", "");
+        if (input.Quantity <= 0) return (false, "客诉数量必须大于 0。", "");
+        if (!ComplaintSeverity.All.Contains(input.Severity)) return (false, $"严重度「{input.Severity}」不合法。", "");
+        if (!ComplaintCategories.All.Contains(input.Category)) return (false, $"症状分类「{input.Category}」不合法。", "");
+        if (!ComplaintSource.All.Contains(input.Source)) return (false, $"来源「{input.Source}」不合法。", "");
+        if (input.ReceiveTime == default) return (false, "接收时间不能为空。", "");
+        if (input.ReceiveTime > DateTime.Now.AddMinutes(1)) return (false, "接收时间不能晚于当前时间。", "");
+
+        var no = NextComplaintNo();
+        var c = new CustomerComplaint
+        {
+            ComplaintNo = no,
+            CustomerName = input.CustomerName.Trim(),
+            ContactInfo = (input.ContactInfo ?? "").Trim(),
+            ReceiveTime = input.ReceiveTime,
+            Source = input.Source,
+            Severity = input.Severity,
+            Category = input.Category,
+            ProductModel = (input.ProductModel ?? "").Trim(),
+            LotKeyword = (input.LotKeyword ?? "").Trim(),
+            Quantity = input.Quantity,
+            SymptomDesc = input.SymptomDesc.Trim(),
+            IsSafetyInvolved = input.IsSafetyInvolved,
+            NeedRecall = input.NeedRecall || input.IsSafetyInvolved,   // 涉安全一律标记需召回评估
+            Status = ComplaintStatus.Pending,
+            Owner = (input.Owner ?? "").Trim(),
+            DueDate = input.DueDate == default
+                ? input.ReceiveTime.Date.AddDays(ComplaintSeverity.ResponseDays(input.Severity))
+                : input.DueDate,
+            CurrentStep = EightDStep.D1
+        };
+        Complaints.Add(c);
+        GetOrCreateEightD(no);
+        AddComplaintHistory(no, ComplaintAction.Create, EightDStep.D1,
+            c.Owner.Length > 0 ? c.Owner : "客服", DateTime.Now,
+            $"登记客诉：{c.CustomerName} / {c.Category} / {c.Quantity:0.##} 只；来源 {c.Source}；严重度 {c.Severity}"
+            + (c.IsSafetyInvolved ? "；【涉安全】" : "")
+            + (c.NeedRecall ? "；需召回评估" : ""));
+
+        return (true, $"客诉 {no} 登记成功（要求 {c.DueText} 前回复客户）。", no);
+    }
+
+    /// <summary>
+    /// 推进 8D：把内容写入**当前步骤**，然后前进到下一步。
+    /// 规则：客诉存在 / 未关闭 / 内容非空 / 未越过 D8；写完后 D8 → 状态转「待客户确认」，其余 → 状态转「处理中」。
+    /// 失败返回 (false, 原因) 且零副作用。
+    /// </summary>
+    public static (bool Ok, string Message) AdvanceEightD(string complaintNo, string content, string @operator)
+    {
+        var c = FindComplaint(complaintNo);
+        if (c is null) return (false, $"未找到客诉 {complaintNo}。");
+        if (c.IsClosed) return (false, $"客诉 {c.ComplaintNo} 已关闭，不能再推进 8D。");
+        if (string.IsNullOrWhiteSpace(content)) return (false, $"「{c.CurrentStep}」内容不能为空。");
+
+        var report = GetEightD(c.ComplaintNo);
+        if (report is null) return (false, $"客诉 {c.ComplaintNo} 缺少 8D 报告，数据异常。");
+
+        var step = c.CurrentStep;
+        var next = EightDStep.Next(step);
+        // 末步（D8）已提交过则视为 8D 齐备，不允许重复提交覆盖结案内容；如需改内容走「修订」
+        if (next is null && !string.IsNullOrWhiteSpace(report.ContentOf(step)))
+            return (false, $"「{step}」已提交，8D 八步已齐备，等待客户确认；如需修改请使用「修订」。");
+
+        if (!report.SetContentOf(step, content.Trim()))
+            return (false, $"步骤「{step}」不合法，无法写入。");
+
+        report.UpdatedTime = DateTime.Now;
+        report.UpdatedBy = (@operator ?? "").Trim();
+
+        var statusBefore = c.Status;
+        if (next is null)
+        {
+            // D8 完成：8D 归零完成，等待客户确认
+            c.Status = ComplaintStatus.WaitingCustomer;
+        }
+        else
+        {
+            c.CurrentStep = next;
+            if (c.Status == ComplaintStatus.Pending) c.Status = ComplaintStatus.Investigating;
+        }
+
+        AddComplaintHistory(c.ComplaintNo, ComplaintAction.Advance, step, report.UpdatedBy, DateTime.Now,
+            $"完成「{step}」并推进{(next is null ? "至结案（等待客户确认）" : $"到「{next}」")}"
+            + (statusBefore != c.Status ? $"；状态 {statusBefore} → {c.Status}" : ""));
+
+        return (true, next is null
+            ? $"「{step}」已提交，8D 八步齐备，客诉 {c.ComplaintNo} 转为「{c.Status}」。"
+            : $"「{step}」已提交，当前推进到「{next}」。");
+    }
+
+    /// <summary>
+    /// 修订已填写过的 8D 步骤内容（不改变当前进度）。
+    /// 规则：不允许修订尚未推进到的步骤（防止跳步写入）；内容非空；客诉未关闭。
+    /// </summary>
+    public static (bool Ok, string Message) UpdateEightDStep(string complaintNo, string step, string content, string @operator)
+    {
+        var c = FindComplaint(complaintNo);
+        if (c is null) return (false, $"未找到客诉 {complaintNo}。");
+        if (c.IsClosed) return (false, $"客诉 {c.ComplaintNo} 已关闭，8D 已锁定不可修改。");
+        if (string.IsNullOrWhiteSpace(content)) return (false, "内容不能为空。");
+
+        var targetIdx = EightDStep.IndexOf(step);
+        var currentIdx = EightDStep.IndexOf(c.CurrentStep);
+        if (targetIdx < 0) return (false, $"步骤「{step}」不合法。");
+        if (targetIdx > currentIdx) return (false, $"「{step}」尚未推进到，不能提前填写（当前：{c.CurrentStep}）。");
+
+        var report = GetEightD(c.ComplaintNo);
+        if (report is null) return (false, $"客诉 {c.ComplaintNo} 缺少 8D 报告，数据异常。");
+        if (!report.SetContentOf(step, content.Trim())) return (false, $"步骤「{step}」不合法。");
+
+        report.UpdatedTime = DateTime.Now;
+        report.UpdatedBy = (@operator ?? "").Trim();
+        AddComplaintHistory(c.ComplaintNo, ComplaintAction.EditStep, step, report.UpdatedBy, DateTime.Now,
+            $"修订「{step}」内容");
+
+        return (true, $"「{step}」已修订。");
+    }
+
+    /// <summary>
+    /// 客户确认：要求 8D 八步齐备；确认后状态转「待客户确认」并记录确认时间。
+    /// 已确认过 / 8D 未齐备 / 客诉已关闭 → 失败且零副作用。
+    /// </summary>
+    public static (bool Ok, string Message) ConfirmByCustomer(string complaintNo, string remark, string @operator = "")
+    {
+        var c = FindComplaint(complaintNo);
+        if (c is null) return (false, $"未找到客诉 {complaintNo}。");
+        if (c.IsClosed) return (false, $"客诉 {c.ComplaintNo} 已关闭，无需重复确认。");
+        if (c.CustomerConfirmTime is not null) return (false, $"客诉 {c.ComplaintNo} 已记录客户确认，无需重复操作。");
+
+        var report = GetEightD(c.ComplaintNo);
+        if (report is null) return (false, $"客诉 {c.ComplaintNo} 缺少 8D 报告，数据异常。");
+        if (!report.IsComplete)
+            return (false, $"8D 尚未齐备（已完成 {report.CompletionText}），不能提交客户确认。"
+                           + $"待填：{string.Join("、", EightDStep.Order.Where(s => string.IsNullOrWhiteSpace(report.ContentOf(s))))}");
+
+        c.CustomerConfirmTime = DateTime.Now;
+        c.Status = ComplaintStatus.WaitingCustomer;
+        c.CurrentStep = EightDStep.D8;
+        AddComplaintHistory(c.ComplaintNo, ComplaintAction.Confirm, EightDStep.D8,
+            (@operator ?? "").Trim(), DateTime.Now,
+            remark.Length == 0 ? "客户确认 8D 报告" : $"客户确认：{remark}");
+
+        return (true, $"客诉 {c.ComplaintNo} 已记录客户确认。");
+    }
+
+    /// <summary>
+    /// 关闭客诉（8D 归零完成）。
+    /// 前置校验：D3 临时围堵 / D4 根本原因 / D5 永久对策 必须有内容（客户审核关注项）；
+    /// 涉安全客诉还要求 NeedRecall 已评估且已记录客户确认。失败零副作用。
+    /// </summary>
+    public static (bool Ok, string Message) CloseComplaint(string complaintNo, string @operator, string remark)
+    {
+        var c = FindComplaint(complaintNo);
+        if (c is null) return (false, $"未找到客诉 {complaintNo}。");
+        if (c.IsClosed) return (false, $"客诉 {c.ComplaintNo} 已关闭，无需重复操作。");
+
+        var report = GetEightD(c.ComplaintNo);
+        if (report is null) return (false, $"客诉 {c.ComplaintNo} 缺少 8D 报告，数据异常。");
+
+        var missing = new List<string>();
+        if (string.IsNullOrWhiteSpace(report.D3Containment)) missing.Add(EightDStep.D3);
+        if (string.IsNullOrWhiteSpace(report.D4RootCause)) missing.Add(EightDStep.D4);
+        if (string.IsNullOrWhiteSpace(report.D5PermanentAction)) missing.Add(EightDStep.D5);
+        if (missing.Count > 0)
+            return (false, $"关闭前必须完成：{string.Join("、", missing)}（客户审核关注项）。");
+
+        if (c.IsSafetyInvolved && c.CustomerConfirmTime is null)
+            return (false, "涉安全客诉关闭前必须记录客户确认。");
+
+        c.Status = ComplaintStatus.Closed;
+        c.ClosedTime = DateTime.Now;
+        c.ClosedBy = (@operator ?? "").Trim();
+        AddComplaintHistory(c.ComplaintNo, ComplaintAction.Close, c.CurrentStep, c.ClosedBy, DateTime.Now,
+            remark.Length == 0 ? "8D 归零完成，客诉关闭" : remark);
+
+        return (true, $"客诉 {c.ComplaintNo} 已关闭。");
+    }
+
+    // ---------------- 与召回反查 / 冻结的联动 ----------------
+
+    /// <summary>
+    /// 由客诉关联范围推断召回反查方式：电芯SN → 出货单号 → 材料批次 → 客户。
+    /// 依据「该关键字在本系统数据中真的能命中什么」来决定，避免误判。
+    /// </summary>
+    public static string DetectRecallMode(string? keyword)
+    {
+        var kw = (keyword ?? "").Trim();
+        if (kw.Length == 0) return RecallMode.MaterialLot;
+
+        if (Cells.Any(c => string.Equals(c.Sn, kw, StringComparison.OrdinalIgnoreCase))) return RecallMode.CellSn;
+        if (WmsOrders.Any(o => string.Equals(o.OrderNo, kw, StringComparison.OrdinalIgnoreCase))) return RecallMode.ShipmentOrder;
+        if (Cells.Any(c => string.Equals(c.ElectrodeLot, kw, StringComparison.OrdinalIgnoreCase)
+                           || string.Equals(c.ElectrolyteLot, kw, StringComparison.OrdinalIgnoreCase)))
+            return RecallMode.MaterialLot;
+        if (Complaints.Any(c => string.Equals(c.CustomerName, kw, StringComparison.Ordinal))
+            || WmsOrders.Any(o => string.Equals(o.Partner, kw, StringComparison.Ordinal)))
+            return RecallMode.Customer;
+
+        return RecallMode.MaterialLot;
+    }
+
+    /// <summary>
+    /// 客诉触发范围反查：直接复用召回反查能力，返回受影响出货/电芯/批次结果。
+    /// 关联范围为空时：若客诉有客户名则按客户反查，否则返回空结果并给出说明。纯查询。
+    /// </summary>
+    public static RecallQueryResult GetComplaintImpact(string? complaintNo)
+    {
+        var c = FindComplaint(complaintNo);
+        if (c is null)
+            return new RecallQueryResult { Mode = "", Keyword = "", Message = $"未找到客诉 {complaintNo}。" };
+
+        var keyword = c.LotKeyword;
+        if (string.IsNullOrWhiteSpace(keyword)) keyword = c.CustomerName;
+        if (string.IsNullOrWhiteSpace(keyword))
+            return new RecallQueryResult { Mode = "", Keyword = "", Message = "该客诉未登记关联范围（批次 / 工单 / SN / 出货单）与客户名，无法反查。" };
+
+        var mode = DetectRecallMode(keyword);
+        var result = RecallQuery(mode, keyword);
+        if (result.Message.Length == 0)
+            result.Message = $"按「{mode}」反查命中：受影响电芯 {result.Summary.CellCount} 只（已出货 {result.Summary.ShippedCellCount} 只）。";
+        return result;
+    }
+
+    /// <summary>
+    /// 客诉触发冻结：把「可冻结电芯」转入保留单（复用召回冻结能力），并回填客诉的关联保留单号与履历。
+    /// 无可冻结电芯 / 客诉不存在 → 失败且零副作用。
+    /// </summary>
+    public static (bool Ok, string Message, string HoldNo, int Held) FreezeComplaintImpact(
+        string complaintNo, string @operator, string reason)
+    {
+        var c = FindComplaint(complaintNo);
+        if (c is null) return (false, $"未找到客诉 {complaintNo}。", "", 0);
+
+        var impact = GetComplaintImpact(c.ComplaintNo);
+        if (impact.Summary.CellCount == 0)
+            return (false, $"客诉 {c.ComplaintNo} 未反查到受影响的电芯，无法冻结。", "", 0);
+
+        var freezable = impact.Cells.Where(x => !x.Shipped && !x.Held).Select(x => x.CellSn).ToList();
+        if (freezable.Count == 0)
+            return (false, $"客诉 {c.ComplaintNo} 影响范围内无「未出货且未在保留中」的可冻结电芯。", "", 0);
+
+        var (ok, msg, holdNo, held, _) = FreezeRecallCells(freezable, @operator);
+        if (!ok) return (false, msg, "", 0);
+
+        c.RelatedHoldNo = holdNo;
+        c.NeedRecall = true;
+        if (c.Status == ComplaintStatus.Pending) c.Status = ComplaintStatus.Investigating;
+
+        // 同步推进 8D 到至少 D3（临时围堵已实际执行）
+        var report = GetEightD(c.ComplaintNo);
+        if (report is not null && string.IsNullOrWhiteSpace(report.D3Containment))
+        {
+            report.D3Containment = $"自动化围堵：冻结影响范围电芯 {held} 只（保留单 {holdNo}）；原因：{reason}";
+            report.UpdatedTime = DateTime.Now;
+            report.UpdatedBy = (@operator ?? "").Trim();
+        }
+
+        AddComplaintHistory(c.ComplaintNo, ComplaintAction.Freeze, EightDStep.D3, (@operator ?? "").Trim(), DateTime.Now,
+            $"按「{impact.Mode}」反查并冻结电芯 {held} 只，保留单 {holdNo}；原因：{reason}",
+            held, string.Join("、", freezable.Take(5)));
+
+        return (true, $"已冻结 {held} 只电芯，保留单 {holdNo}。", holdNo, held);
     }
 }
 
