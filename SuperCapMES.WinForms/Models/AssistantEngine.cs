@@ -68,7 +68,7 @@ public sealed class RuleBasedAssistant : IAssistantBackend
             new[] { "谁", "哪个" }),
 
         (AssistantIntent.Inventory,
-            new[] { "库存", "存货", "物料", "料的", "效期", "过期", "临期", "批次", "库位", "账实", "盘点", "库龄", "呆滞", "fifo", "先进先出", "料号" },
+            new[] { "库存", "存货", "库房", "仓库", "仓储", "物料", "料的", "效期", "过期", "临期", "批次", "库位", "账实", "盘点", "库龄", "呆滞", "fifo", "先进先出", "料号" },
             new[] { "多少", "还有" }),
 
         (AssistantIntent.Equipment,
@@ -80,7 +80,7 @@ public sealed class RuleBasedAssistant : IAssistantBackend
             new[] { "有没有", "是否" }),
 
         (AssistantIntent.Trace,
-            new[] { "追溯", "全链", "反查", "来源", "去向", "用在哪", "上游", "下游", "哪批料", "哪些电芯", "流向" },
+            new[] { "追溯", "溯源", "全链", "反查", "来源", "去向", "用在哪", "上游", "下游", "哪批料", "哪些电芯", "流向" },
             new[] { "这只", "这个" }),
 
         (AssistantIntent.Guide,

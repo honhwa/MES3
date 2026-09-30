@@ -2,7 +2,9 @@ using System;
 using System.Collections.Generic;
 using System.Drawing;
 using System.Linq;
+using System.Threading.Tasks;
 using System.Windows.Forms;
+using SuperCapMES.WinForms.Forms;
 using SuperCapMES.WinForms.Models;
 
 namespace SuperCapMES.WinForms;
@@ -102,20 +104,22 @@ public partial class MainForm
 
         _btnAssistantSend = MakeToolbarButton("提问", BtnAssistantSend);
         _btnAssistantClear = MakeToolbarButton("清空对话", BtnAssistantClear);
-        _btnAssistantClear.Width = 120;
+        _btnAssistantClear.Width = 112;
+        _btnAssistantSettings = MakeToolbarButton("后端设置", BtnAssistantSettings);
+        _btnAssistantSettings.Width = 112;
 
         _lblAssistantStatus = new Label
         {
             AutoSize = true,
             Margin = new Padding(8, 13, 0, 0),
             ForeColor = AsstGray,
-            Font = new Font("微软雅黑", 8.5F),
-            Text = $"后端：{AssistantEngine.BackendName}"
+            Font = new Font("微软雅黑", 8.5F)
         };
 
         row.Controls.Add(_txtAssistantInput);
         row.Controls.Add(_btnAssistantSend);
         row.Controls.Add(_btnAssistantClear);
+        row.Controls.Add(_btnAssistantSettings);
         row.Controls.Add(_lblAssistantStatus);
 
         var quick = new FlowLayoutPanel
@@ -273,7 +277,17 @@ public partial class MainForm
         _assistantLoaded = true;
 
         RenderAssistantWelcome();
-        _lblAssistantStatus.Text = $"后端：{AssistantEngine.BackendName}";
+        RefreshAssistantBackendLabel();
+    }
+
+    /// <summary>刷新顶部后端标签：走云端时把"数据发往哪里"也写出来，让用户随时看得见。</summary>
+    private void RefreshAssistantBackendLabel()
+    {
+        if (_lblAssistantStatus is null) return;
+        var remote = AssistantEngine.Remote;
+        _lblAssistantStatus.Text = remote is not null
+            ? $"后端：{AssistantEngine.BackendName}（{remote.Endpoint}）"
+            : $"后端：{AssistantEngine.BackendName}";
     }
 
     /// <summary>回车即提问。</summary>
@@ -299,6 +313,7 @@ public partial class MainForm
         _rtbAssistantInspector?.Clear();
         ResetAssistantActionButtons();
         EnsureAssistantReady();
+        RefreshAssistantBackendLabel();
         RenderAssistantInspectorHint();
         _txtAssistantInput.Clear();
         _txtAssistantInput.Focus();
@@ -314,17 +329,83 @@ public partial class MainForm
             _txtAssistantInput.Focus();
             return;
         }
-        AskAssistant(q);
         _txtAssistantInput.Clear();
+
+        // 走云端时是秒级网络调用：放到后台线程，避免把界面冻住（本地规则引擎则同步直出，无延迟）
+        if (AssistantEngine.IsRemote)
+        {
+            _ = AskAssistantRemoteAsync(q);
+            return;
+        }
+
+        AskAssistant(q);
         _txtAssistantInput.Focus();
     }
 
-    /// <summary>核心提问入口：算回答 → 写对话区 → 刷新可解释面板与建议动作。</summary>
+    /// <summary>云端后端专用：后台线程提问，期间禁用输入区并提示"正在问云端"。</summary>
+    private async Task AskAssistantRemoteAsync(string question)
+    {
+        EnsureAssistantReady();
+        SetAssistantBusy(true, "正在问云端大模型…");
+        try
+        {
+            var reply = await Task.Run(() => AssistantEngine.Ask(question));
+            RunOnUi(() => RenderAssistantTurn(reply));
+        }
+        catch (Exception ex)
+        {
+            // 门面本身已有兜底；这里再兜一层，保证界面绝不因网络问题崩掉
+            RunOnUi(() =>
+            {
+                AppendAssistantSystemNote("提问失败：" + ex.Message);
+                RefreshAssistantBackendLabel();
+            });
+        }
+        finally
+        {
+            RunOnUi(() =>
+            {
+                SetAssistantBusy(false, null);
+                _txtAssistantInput.Focus();
+            });
+        }
+    }
+
+    /// <summary>
+    /// 把界面更新切回 UI 线程。
+    /// await 之后的续体依赖当时的 SynchronizationContext——标准宿主（Application.Run）下它一定存在，
+    /// 续体自然回到 UI 线程；但无消息循环的宿主（自测、被嵌进别的消息泵）里它可能是空的，
+    /// 续体就会落在后台线程上，直接改控件会抛跨线程异常、且异常被 fire-and-forget 吞掉，
+    /// 表现为"提问后一直卡在'正在问云端'"。这里统一兜一层，任何宿主下都稳。
+    /// </summary>
+    private void RunOnUi(Action action)
+    {
+        if (IsDisposed || !IsHandleCreated) return;
+        if (InvokeRequired) BeginInvoke(action);
+        else action();
+    }
+
+    private void SetAssistantBusy(bool busy, string? statusText)
+    {
+        if (_btnAssistantSend is not null) _btnAssistantSend.Enabled = !busy;
+        if (_btnAssistantClear is not null) _btnAssistantClear.Enabled = !busy;
+        if (_btnAssistantSettings is not null) _btnAssistantSettings.Enabled = !busy;
+        if (_txtAssistantInput is not null) _txtAssistantInput.Enabled = !busy;
+        if (statusText is not null && _lblAssistantStatus is not null) _lblAssistantStatus.Text = statusText;
+    }
+
+    /// <summary>核心提问入口（同步，供自测与本地后端使用）：算回答 → 写对话区 → 刷新面板与动作。</summary>
     internal AssistantReply AskAssistant(string question)
     {
         EnsureAssistantReady();
-
         var reply = AssistantEngine.Ask(question);
+        RenderAssistantTurn(reply);
+        return reply;
+    }
+
+    /// <summary>把一次回答渲染到界面（同步路径与异步路径共用）。</summary>
+    private void RenderAssistantTurn(AssistantReply reply)
+    {
         _lastAssistantReply = reply;
         _assistantRound++;
 
@@ -334,7 +415,25 @@ public partial class MainForm
         UpdateAssistantActionButtons(reply);
 
         _lblAssistantStatus.Text = $"后端：{reply.BackendName}｜第 {_assistantRound} 轮｜意图 {reply.Intent}（{reply.ConfidenceText}）";
-        return reply;
+    }
+
+    /// <summary>打开后端设置：配置云端大模型（默认关闭），保存后立即切换后端并刷新界面说明。</summary>
+    private void BtnAssistantSettings(object? sender, EventArgs e)
+    {
+        var current = AssistantLlmSettingsStore.Load();
+        using var dlg = new AssistantSettingsForm(current);
+        if (dlg.ShowDialog(this) != DialogResult.OK || !dlg.Saved) return;
+
+        var saved = AssistantLlmSettingsStore.Save(dlg.Settings);
+        AssistantEngine.Backend = AssistantBackendFactory.CreateFromSettings(dlg.Settings);
+        RefreshAssistantBackendLabel();
+        RenderAssistantInspectorHint();
+
+        var where = AssistantEngine.IsRemote
+            ? $"已切到云端大模型：{AssistantEngine.BackendName}（{AssistantEngine.Remote!.Endpoint}）。数字仍全部取自本地仓储，返回前逐个核对。"
+            : "当前仍在本地模式：未启用云端，或未填写 API Key / 未设置环境变量。全部计算在本机完成，数据不出门。";
+
+        AppendAssistantSystemNote(where + (saved ? "" : "（注意：配置未能写入磁盘，本次运行有效）"));
     }
 
     // ================= 对话区渲染 =================

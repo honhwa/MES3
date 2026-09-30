@@ -51,6 +51,7 @@ public partial class MainForm : Form
     private TextBox _txtAssistantInput = null!;
     private Button _btnAssistantSend = null!;
     private Button _btnAssistantClear = null!;
+    private Button _btnAssistantSettings = null!;
     private FlowLayoutPanel _flpAssistantActions = null!;
     private RichTextBox _rtbAssistantInspector = null!;
     private Label _lblAssistantStatus = null!;
@@ -462,6 +463,11 @@ public partial class MainForm : Form
         StartPosition = FormStartPosition.CenterScreen;
         WindowState = FormWindowState.Maximized;
         Font = new Font("微软雅黑", 9F);
+
+        // AI 助手后端：按本机配置决定走「云端大模型」还是「本地规则引擎」。
+        // 配置齐全（启用 + 有 Key）才挂云端；否则一律本地计算，数据不出本机。
+        // 这就是"接大模型只改一行"的那一行——界面与页面完全不需要知道后端是谁。
+        AssistantEngine.Backend = AssistantBackendFactory.CreateFromSettings();
 
         // 顶层容器：页签 = 一级业务分类（字号加大加粗以示层级）
         // 注意：一级容器字体必须与二级容器显式区分——WinForms 字体沿控件树继承，

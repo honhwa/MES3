@@ -277,8 +277,8 @@ public static class AssistantEntityParser
 /// <summary>
 /// 助手后端接口。**这是"换模型"的唯一接缝**：
 /// 现在挂 <see cref="RuleBasedAssistant"/>（纯规则 + 现成仓储汇总，不调外部模型）；
-/// 将来接大模型时，新写一个 <c>LlmAssistant : IAssistantBackend</c>，
-/// 在启动处 <c>AssistantEngine.Backend = new LlmAssistant(...)</c> 一行替换即可，界面与页面零改动。
+/// 接大模型时新写一个实现（如 <see cref="LlmAssistant"/>），
+/// 在启动处 <c>AssistantEngine.Backend = ...</c> 一行替换即可，界面与页面零改动。
 /// </summary>
 public interface IAssistantBackend
 {
@@ -290,6 +290,22 @@ public interface IAssistantBackend
 
     /// <summary>回答一次提问。实现须保证：只读仓储，不产生任何副作用。</summary>
     AssistantReply Ask(string question);
+}
+
+/// <summary>
+/// 可选扩展接口：标记「回答要出网（调用云端大模型）」的后端。
+///
+/// 单独抽一个接口、而不是往 <see cref="IAssistantBackend"/> 里加属性，是为了**不动已冻结的接口口径**：
+/// 规则引擎不实现它，界面据此决定要不要把提问放到后台线程——出网调用是秒级阻塞，
+/// 直接跑在 UI 线程上会把界面冻住。
+/// </summary>
+public interface IRemoteAssistantBackend : IAssistantBackend
+{
+    /// <summary>远端当前是否可用（未启用 / 未填 Key 时为 false，此时应自动退回本地取数）</summary>
+    bool IsAvailable { get; }
+
+    /// <summary>远端目标（如 api.deepseek.com ｜ deepseek-chat），供界面标注"数据发往哪里"</summary>
+    string Endpoint { get; }
 }
 
 /// <summary>
@@ -312,6 +328,12 @@ public static class AssistantEngine
 
     /// <summary>当前后端说明</summary>
     public static string BackendDescribe => _backend.Describe;
+
+    /// <summary>当前后端是否走网络（界面据此决定同步提问还是异步提问）</summary>
+    public static bool IsRemote => _backend is IRemoteAssistantBackend { IsAvailable: true };
+
+    /// <summary>当前远端后端（非远端或不可用时返回 null）</summary>
+    public static IRemoteAssistantBackend? Remote => _backend as IRemoteAssistantBackend;
 
     /// <summary>问一次。空提问直接返回空回答，不进入后端。</summary>
     public static AssistantReply Ask(string? question)
