@@ -1,0 +1,33 @@
+# ================= 构建产物 =================
+bin/
+obj/
+[Bb]in/
+[Oo]bj/
+*.dll
+*.exe
+*.pdb
+*.cache
+
+# ================= Visual Studio =================
+.vs/
+*.user
+*.suo
+*.userosscache
+*.sln.docstates
+*.VC.db
+*.VC.opendb
+
+# ================= 临时 / 验证 / 备份目录 =================
+# 重构与自测过程产生的临时目录（不进版本库）
+.backup/
+.verify/
+.build-check/
+.refactor/
+
+# ================= 其它 =================
+*.log
+*.tmp
+*.bak
+*.orig
+Thumbs.db
+Desktop.ini
