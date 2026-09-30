@@ -46,6 +46,26 @@ public partial class MainForm : Form
     /// <summary>手册页首次加载守卫（幂等）。</summary>
     private bool _manualLoaded;
 
+    // ================= AI 助手 =================
+    private RichTextBox _rtbAssistantChat = null!;
+    private TextBox _txtAssistantInput = null!;
+    private Button _btnAssistantSend = null!;
+    private Button _btnAssistantClear = null!;
+    private FlowLayoutPanel _flpAssistantActions = null!;
+    private RichTextBox _rtbAssistantInspector = null!;
+    private Label _lblAssistantStatus = null!;
+    private ToolTip _assistantTip = null!;
+    /// <summary>最近一次回答（供建议动作回放 / 测试断言）。</summary>
+    private AssistantReply? _lastAssistantReply;
+    /// <summary>助手页首次加载守卫（幂等）。</summary>
+    private bool _assistantLoaded;
+    /// <summary>提问轮次（展示用）。</summary>
+    private int _assistantRound;
+    /// <summary>待渲染的对话段落（动画播放队列）。</summary>
+    private readonly Queue<Action> _assistantRenderQueue = new();
+    /// <summary>分段渲染定时器（懒创建，避免构造期占用资源）。</summary>
+    private System.Windows.Forms.Timer? _assistantRenderTimer;
+
     // 看板
     private Label _lblOutput = null!;
     private Label _lblWip = null!;
@@ -456,9 +476,10 @@ public partial class MainForm : Form
         // ========== 按业务模块归类注册页面（一级分类 → 二级功能页面） ==========
         // 分类顺序即顶部页签顺序；同一分类内按注册顺序排列。
 
-        // 【总览】管理者视角的入口：先看全局，再看待办
+        // 【总览】管理者视角的入口：先看全局，再看待办，再直接问
         RegisterPage(NavOverview, BuildDashboardTab());      // 生产看板：产量 / WIP / 良率 / 运行设备
         RegisterPage(NavOverview, BuildAlertCenterTab());    // 预警中心：聚合其余所有页面的待处理事项
+        RegisterPage(NavOverview, BuildAssistantTab());      // AI 助手：一句话问现状，回答带数据依据并可跳转
 
         // 【生产管理】从工单下达到装配下线的执行主线
         RegisterPage(NavProduction, BuildWorkOrdersTab());   // 工单管理：新建 / 确认生产 / 终结 / ERP 下发报工
@@ -775,6 +796,7 @@ public partial class MainForm : Form
         EnsurePersonnelReady();  // 人员与资质兜底初始化（幂等）
         EnsureComplaintReady();  // 客户投诉与 8D 兜底初始化（幂等）
         EnsureManualReady();     // 使用手册兜底初始化（幂等，空查询=浏览全部条目）
+        EnsureAssistantReady();  // AI 助手兜底初始化（幂等：写欢迎语 + 渲染边界说明）
     }
 
     /// <summary>执行「Trace」业务动作（校验 → 执行 → 刷新界面）。</summary>
