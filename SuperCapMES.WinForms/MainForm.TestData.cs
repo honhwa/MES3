@@ -50,7 +50,7 @@ public partial class MainForm
         var sn = _testGrid.Rows[e.RowIndex].Cells["CellSn"].Value?.ToString();
         if (string.IsNullOrEmpty(sn)) return;
 
-        _tabs.SelectedTab = _tracePage; // 切到 SN 追溯页
+        ActivatePage(_tracePage); // 切到 SN 追溯页（自动定位到所属一级分类）
         _txtSn.Text = sn;
         DoTrace();
     }

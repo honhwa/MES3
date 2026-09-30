@@ -17,7 +17,34 @@ namespace SuperCapMES.WinForms;
 /// </summary>
 public partial class MainForm : Form
 {
+    // ================= 顶部导航（一级业务分类 → 二级功能页面） =================
+    /// <summary>顶层页签容器：每个页签 = 一个一级业务分类，页内容是该分类的二级页签容器。</summary>
     private TabControl _tabs = null!;
+
+    /// <summary>一级分类名 → 该分类下的二级页签容器（子 TabControl）。</summary>
+    private readonly Dictionary<string, TabControl> _categoryTabs = new();
+
+    /// <summary>一级分类名 → 顶层分类页。跨层跳转时需先选中该分类页。</summary>
+    private readonly Dictionary<string, TabPage> _categoryPages = new();
+
+    /// <summary>二级页面 → 所属一级分类名。跳转时反查用。</summary>
+    private readonly Dictionary<TabPage, string> _pageCategory = new();
+
+    /// <summary>全部二级页面（按注册顺序）。供按标题跳转查找与遍历使用。</summary>
+    private readonly List<TabPage> _allPages = new();
+
+    // ================= 使用手册 =================
+    private TextBox _txtManualQuery = null!;
+    private Button _btnManualSearch = null!;
+    private Button _btnManualClear = null!;
+    private DataGridView _manualResultGrid = null!;
+    private RichTextBox _rtbManualDetail = null!;
+    private Button _btnManualGo = null!;
+    private Label _lblManualHint = null!;
+    /// <summary>最近一次检索结果（列表与详情共用，避免重复计算）。</summary>
+    private List<ManualSearchHit> _manualHits = new();
+    /// <summary>手册页首次加载守卫（幂等）。</summary>
+    private bool _manualLoaded;
 
     // 看板
     private Label _lblOutput = null!;
@@ -416,32 +443,58 @@ public partial class MainForm : Form
         WindowState = FormWindowState.Maximized;
         Font = new Font("微软雅黑", 9F);
 
-        _tabs = new TabControl { Dock = DockStyle.Fill };
-        _tabs.TabPages.Add(BuildDashboardTab());   // 顶层第 1 个页签（index 0）：生产看板
-        _tabs.TabPages.Add(BuildAlertCenterTab()); // 顶层第 2 个页签（index 1）：预警中心（管理者工作台，聚合其余 20 个页签的待办）
-        _tabs.TabPages.Add(BuildWorkOrdersTab());
-        _tabs.TabPages.Add(BuildActualsTab());
-        _tracePage = BuildTraceTab();
-        _tabs.TabPages.Add(_tracePage);
-        _tabs.TabPages.Add(BuildTestsTab());
-        _tabs.TabPages.Add(BuildEquipmentsTab());
-        _tabs.TabPages.Add(BuildMaterialHoldTab());
-        _tabs.TabPages.Add(BuildHoldManageTab());
-        _tabs.TabPages.Add(BuildAbnormalTab());
-        _tabs.TabPages.Add(BuildAbnormalManageTab());
-        _tabs.TabPages.Add(BuildWmsTab());
-        _tabs.TabPages.Add(BuildSpcTab());
-        _tabs.TabPages.Add(BuildSpcConfigTab());   // SPC 项目管理
-        _tabs.TabPages.Add(BuildShipmentTab());    // 出货与召回
-        _tabs.TabPages.Add(BuildWipTab());         // WIP 看板
-        _tabs.TabPages.Add(BuildReworkTab());      // 返工管理
-        _tabs.TabPages.Add(BuildReportTab());      // 报表中心
-        _tabs.TabPages.Add(BuildFaiTab());         // 首件检验
-        _tabs.TabPages.Add(BuildFeedingTab());     // 上料防错
-        _tabs.TabPages.Add(BuildModuleTab());      // 模组装配
-        _tabs.TabPages.Add(BuildTpmTab());         // 点检保养
-        _tabs.TabPages.Add(BuildPersonnelTab());   // 人员与资质（六维中「人」的一维）
-        _tabs.TabPages.Add(BuildComplaintTab());   // 客户投诉与 8D 归零
+        // 顶层容器：页签 = 一级业务分类（字号加大加粗以示层级）
+        // 注意：一级容器字体必须与二级容器显式区分——WinForms 字体沿控件树继承，
+        //       二级容器若不显式设回 9F，页内所有控件都会继承成 11F 粗体。
+        _tabs = new TabControl
+        {
+            Dock = DockStyle.Fill,
+            Font = new Font("微软雅黑", 11F, FontStyle.Regular),
+            Padding = new Point(22, 7)
+        };
+
+        // ========== 按业务模块归类注册页面（一级分类 → 二级功能页面） ==========
+        // 分类顺序即顶部页签顺序；同一分类内按注册顺序排列。
+
+        // 【总览】管理者视角的入口：先看全局，再看待办
+        RegisterPage(NavOverview, BuildDashboardTab());      // 生产看板：产量 / WIP / 良率 / 运行设备
+        RegisterPage(NavOverview, BuildAlertCenterTab());    // 预警中心：聚合其余所有页面的待处理事项
+
+        // 【生产管理】从工单下达到装配下线的执行主线
+        RegisterPage(NavProduction, BuildWorkOrdersTab());   // 工单管理：新建 / 确认生产 / 终结 / ERP 下发报工
+        RegisterPage(NavProduction, BuildActualsTab());      // 工序实绩：设备上传实绩 + 检验录入
+        RegisterPage(NavProduction, BuildWipTab());          // WIP 看板：在制品在各工序的分布
+        RegisterPage(NavProduction, BuildFeedingTab());      // 上料防错：上料校验，防止用错料
+        RegisterPage(NavProduction, BuildFaiTab());          // 首件检验：换型/开班首件判定
+        RegisterPage(NavProduction, BuildModuleTab());       // 模组装配：模组级装配与追溯
+
+        // 【质量管理】不合格的发现 → 隔离 → 处置 → 归零闭环
+        RegisterPage(NavQuality, BuildAbnormalTab());        // 异常登记：发现异常时录单
+        RegisterPage(NavQuality, BuildAbnormalManageTab());  // 异常管理：闭环分析 / 打印异常单
+        RegisterPage(NavQuality, BuildHoldManageTab());      // 保留管理：不合格品隔离与解保
+        RegisterPage(NavQuality, BuildReworkTab());          // 返工管理：返工 → 重检 → 放行 / 报废
+        RegisterPage(NavQuality, BuildSpcTab());             // SPC 分析：控制图与过程能力、参数预警
+        RegisterPage(NavQuality, BuildSpcConfigTab());       // SPC 项目管理：控制限与版本生效管理
+        RegisterPage(NavQuality, BuildComplaintTab());       // 客户投诉与 8D：客诉归零 + 影响范围反查
+
+        // 【仓储与出货】物料入库到成品出库
+        RegisterPage(NavWarehouse, BuildWmsTab());           // WMS 仓储：单据 / 库存台账 / 效期与 FIFO
+        RegisterPage(NavWarehouse, BuildShipmentTab());      // 出货与召回：出库单绑定 + 召回反查
+        RegisterPage(NavWarehouse, BuildMaterialHoldTab());  // 资材追溯：按料号/批次反查电芯并批量保留
+
+        // 【设备与人员】六维里的「机」与「人」
+        RegisterPage(NavResource, BuildEquipmentsTab());     // 设备监控：设备状态一览
+        RegisterPage(NavResource, BuildTpmTab());            // 点检保养：点检计划 / 执行记录 / 备件台账
+        RegisterPage(NavResource, BuildPersonnelTab());      // 人员与资质：资质矩阵 + 无资质不能上岗
+
+        // 【追溯与报表】查数据、出材料
+        _tracePage = RegisterPage(NavTrace, BuildTraceTab());// SN 追溯：单只电芯的全链追溯
+        RegisterPage(NavTrace, BuildTestsTab());             // 测试数据：电性能全检数据（双击 SN 跳追溯）
+        RegisterPage(NavTrace, BuildReportTab());            // 报表中心：产量 / 良率 / 异常 / OEE 与库存
+
+        // 【帮助】手册放在最后一个分类，新人从这入门
+        RegisterPage(NavHelp, BuildManualTab());             // 使用手册：模糊搜索「我要做什么」→ 告诉你去哪、点什么
+
         Controls.Add(_tabs);
 
         // 自动刷新：底部状态栏 + 定时器（默认停用，间隔 5 分钟）
@@ -453,6 +506,83 @@ public partial class MainForm : Form
         Shown += (_, _) => RefreshAll();
         FormClosed += (_, _) => _autoTimer.Stop();
     }
+
+    // ================= 顶部导航：一级分类 + 二级页面 =================
+
+    // 一级业务分类名称（集中定义，避免注册处与跳转处写错字面量不一致）
+    internal const string NavOverview = "总览";
+    internal const string NavProduction = "生产管理";
+    internal const string NavQuality = "质量管理";
+    internal const string NavWarehouse = "仓储与出货";
+    internal const string NavResource = "设备与人员";
+    internal const string NavTrace = "追溯与报表";
+    internal const string NavHelp = "帮助";
+
+    /// <summary>
+    /// 把页面注册到指定一级分类下：分类不存在则自动创建分类页与二级页签容器。
+    /// 这是唯一的页面注册入口——新增页面只需在此处按分类调用一次即可出现在导航里。
+    /// </summary>
+    /// <param name="category">一级分类名（用 Nav* 常量）</param>
+    /// <param name="page">页面本体（各 Build*Tab() 的返回值）</param>
+    /// <returns>原样返回 <paramref name="page"/>，便于链式赋值给字段引用</returns>
+    internal TabPage RegisterPage(string category, TabPage page)
+    {
+        if (!_categoryTabs.TryGetValue(category, out var sub))
+        {
+            // 二级容器显式设回 9F 常规字重：阻断一级容器 11F 字体向下继承，保持页内控件外观不变
+            sub = new TabControl
+            {
+                Dock = DockStyle.Fill,
+                Font = new Font("微软雅黑", 9F, FontStyle.Regular)
+            };
+            var catPage = new TabPage(category);
+            catPage.Controls.Add(sub);
+            _tabs.TabPages.Add(catPage);
+            _categoryTabs[category] = sub;
+            _categoryPages[category] = catPage;
+        }
+
+        sub.TabPages.Add(page);
+        _pageCategory[page] = category;
+        _allPages.Add(page);
+        return page;
+    }
+
+    /// <summary>选中某个页面：先切到它所属的一级分类，再切到该页面本身（跨层跳转的唯一实现）。</summary>
+    internal void ActivatePage(TabPage? page)
+    {
+        if (page is null) return;
+        if (!_pageCategory.TryGetValue(page, out var category)) return;
+
+        if (_categoryPages.TryGetValue(category, out var catPage))
+            _tabs.SelectedTab = catPage;
+        if (_categoryTabs.TryGetValue(category, out var sub))
+            sub.SelectedTab = page;
+    }
+
+    /// <summary>按页签标题在全部二级页面中查找（标题需完全一致）。</summary>
+    internal TabPage? FindPage(string title)
+        => _allPages.FirstOrDefault(p => string.Equals(p.Text, title, StringComparison.Ordinal));
+
+    /// <summary>当前选中的二级页面（取不到时返回 null）。</summary>
+    internal TabPage? CurrentPage
+    {
+        get
+        {
+            if (_tabs.SelectedTab is not TabPage catPage) return null;
+            return _categoryTabs.TryGetValue(catPage.Text, out var sub) ? sub.SelectedTab : null;
+        }
+    }
+
+    /// <summary>全部一级分类名（按显示顺序）。</summary>
+    internal IReadOnlyList<string> CategoryNames
+        => _tabs.TabPages.Cast<TabPage>().Select(p => p.Text).ToList();
+
+    /// <summary>取某个一级分类下的全部二级页面（按显示顺序），供手册与导航展示。</summary>
+    internal IReadOnlyList<TabPage> PagesOf(string category)
+        => _categoryTabs.TryGetValue(category, out var sub)
+            ? sub.TabPages.Cast<TabPage>().ToList()
+            : new List<TabPage>();
 
     // ================= 自动刷新 =================
     /// <summary>构建底部自动刷新状态栏：CheckBox 开关 + 分钟输入 + 应用 + 立即刷新 + 状态文本</summary>
@@ -644,6 +774,7 @@ public partial class MainForm : Form
         EnsureAlertReady();      // 预警中心兜底初始化（幂等）
         EnsurePersonnelReady();  // 人员与资质兜底初始化（幂等）
         EnsureComplaintReady();  // 客户投诉与 8D 兜底初始化（幂等）
+        EnsureManualReady();     // 使用手册兜底初始化（幂等，空查询=浏览全部条目）
     }
 
     /// <summary>执行「Trace」业务动作（校验 → 执行 → 刷新界面）。</summary>

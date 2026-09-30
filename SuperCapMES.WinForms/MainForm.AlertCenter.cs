@@ -265,16 +265,16 @@ public partial class MainForm
             _lblAlertHint.Text = $"已跳转到「{item.Source}」对应页面，请处理：{item.Title}（关联 {item.TargetText}）";
     }
 
-    /// <summary>按页签标题切换顶层页签。</summary>
+    /// <summary>按页面标题跳转：自动定位到它所属的一级分类，再切到该页面。</summary>
     private void GoTab(string title)
     {
-        foreach (TabPage page in _tabs.TabPages)
+        var page = FindPage(title);
+        if (page is null)
         {
-            if (page.Text != title) continue;
-            _tabs.SelectedTab = page;
+            Warn($"未找到页签「{title}」。");
             return;
         }
-        Warn($"未找到页签「{title}」。");
+        ActivatePage(page);
     }
 
     /// <summary>导出预警清单（含汇总 + 明细 + 按来源统计，3 个工作表）。</summary>
