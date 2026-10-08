@@ -574,6 +574,7 @@ public partial class MainForm : Form
         _tracePage = RegisterPage(NavTrace, BuildTraceTab());// SN 追溯：单只电芯的全链追溯
         RegisterPage(NavTrace, BuildTestsTab());             // 测试数据：电性能全检数据（双击 SN 跳追溯）
         RegisterPage(NavTrace, BuildReportTab());            // 报表中心：产量 / 良率 / 异常 / OEE 与库存
+        RegisterPage(NavTrace, BuildInsightTab());           // 主动预警与决策：物料临期×消耗 / 设备异常集中 / 呆滞料占压
 
         // 【帮助】手册放在最后一个分类，新人从这入门
         RegisterPage(NavHelp, BuildManualTab());             // 使用手册：模糊搜索「我要做什么」→ 告诉你去哪、点什么
@@ -861,6 +862,7 @@ public partial class MainForm : Form
         EnsureAssistantReady();  // AI 助手兜底初始化（幂等：写欢迎语 + 渲染边界说明）
         EnsureScheduleReady();   // 智能排产兜底初始化（幂等：载入待下发 PO 并生成首张建议）
         EnsurePurchaseReady(); // 资材采购申请兜底初始化（幂等：载入申请单列表）
+        LoadInsights();          // 主动预警与决策：数据量小，纯计算，直接算出来
     }
 
     /// <summary>执行「Trace」业务动作（校验 → 执行 → 刷新界面）。</summary>
