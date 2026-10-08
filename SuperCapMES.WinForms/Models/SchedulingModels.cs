@@ -311,6 +311,19 @@ public class ScheduleRecommendation
     /// </summary>
     public ResourceCheckResult? ResourceCheck { get; set; }
 
+    /// <summary>
+    /// **资材占用校验（本项目"占用"的主体）**：按「工单 + BOM 层级」展开，
+    /// 再跨工单按物料累加，算出净缺口（= 需采购量）。
+    /// 2026-10-08 口径纠偏：占用对象是 BOM 里的资材，不是设备资产。
+    /// </summary>
+    public MaterialOccupancyCheck MaterialOccupancy { get; set; } = new();
+
+    /// <summary>是否齐备（物料覆盖 + 无资材缺口）</summary>
+    public bool MaterialOccupiedReady => MaterialOccupancy.AllSatisfied;
+
+    /// <summary>需采购的物料种类数（跨工单汇总后的净缺口项数）</summary>
+    public int PurchaseItemCount => MaterialOccupancy.ShortageCount;
+
     /// <summary>是否可以做（缺料 = 不建议立刻开工；但允许人工决策后照建）</summary>
     public bool MaterialReady => StockCheck.AllSatisfied;
 

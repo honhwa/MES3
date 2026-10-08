@@ -116,7 +116,7 @@ public partial class MainForm
             Font = new Font("微软雅黑", 9F),
             ForeColor = SchMuted,
             TextAlign = ContentAlignment.MiddleLeft,
-            Text = "资源占用：生成建议后自动校验设备/工装。"
+            Text = "设备占用：生成建议后自动校验设备/工装。"
         };
         _lblScheduleAi = new Label
         {
@@ -155,17 +155,18 @@ public partial class MainForm
 
         // 右侧改成两个子页：物料齐套 / 资产占用（同一套口径，两个维度分开看）
         var resTabs = new TabControl { Dock = DockStyle.Fill, Font = new Font("微软雅黑", 9F) };
-        var matPage = new TabPage("物料齐套");
+        var matPage = new TabPage("资材占用（跨工单汇总）");
         matPage.Padding = new Padding(4);
         matPage.Controls.Add(MakeGridGroup(
-            "齐套校验（需求量 = 单位用量 × (1 + 损耗率%) × 投产数量；可用量不含待检区与退货待处理区）",
+            "资材占用（主体）：占用 = 单位用量 × (1+损耗率%) × 剩余待产量，跨工单无条件累加；可用量不含待检区与退货待处理区"
+            + "（物料是消耗品，时间窗错开也要备足，故不按时间窗判冲突）",
             out _gridScheduleStock));
         SetupScheduleStockColumns();
 
-        var assetPage = new TabPage("资产占用");
+        var assetPage = new TabPage("设备占用");
         assetPage.Padding = new Padding(4);
         assetPage.Controls.Add(MakeGridGroup(
-            "资产占用校验（按各工序设备/工装的并发容量与时间窗逐项比对，冲突会给出可选方案）",
+            "设备占用（辅助）：设备/工装是可复用资源，按并发容量与时间窗判冲突，并给出可选方案",
             out _gridScheduleAsset));
         SetupScheduleAssetColumns();
 
@@ -238,14 +239,15 @@ public partial class MainForm
         _gridScheduleStock.Columns.Clear();
         _gridScheduleStock.Columns.Add(MakeTextCol("MaterialType", "类型", true, 6));
         _gridScheduleStock.Columns.Add(MakeTextCol("MaterialName", "物料名称", true, 16));
-        _gridScheduleStock.Columns.Add(MakeTextCol("MaterialCode", "物料编码", true, 14));
-        _gridScheduleStock.Columns.Add(MakeTextCol("FormulaText", "需求公式", true, 20));
-        _gridScheduleStock.Columns.Add(MakeTextCol("RequirementText", "需求量", true, 9));
-        _gridScheduleStock.Columns.Add(MakeTextCol("AvailableText", "可用量", true, 9));
-        _gridScheduleStock.Columns.Add(MakeTextCol("ShortageText", "缺口", true, 9));
-        _gridScheduleStock.Columns.Add(MakeTextCol("Status", "状态", true, 7));
-        _gridScheduleStock.Columns.Add(MakeTextCol("LotHint", "批次 / 效期", true, 16));
-        _gridScheduleStock.Columns.Add(MakeTextCol("Advice", "处置建议", true, 26));
+        _gridScheduleStock.Columns.Add(MakeTextCol("MaterialCode", "物料编码", true, 13));
+        _gridScheduleStock.Columns.Add(MakeTextCol("TotalText", "占用总量", true, 11));
+        _gridScheduleStock.Columns.Add(MakeTextCol("WoCountText", "工单数", true, 8));
+        _gridScheduleStock.Columns.Add(MakeTextCol("AvailableText", "可用库存", true, 10));
+        _gridScheduleStock.Columns.Add(MakeTextCol("InTransitText", "在途采购", true, 10));
+        _gridScheduleStock.Columns.Add(MakeTextCol("ShortageText", "需采购", true, 10));
+        _gridScheduleStock.Columns.Add(MakeTextCol("StatusText", "状态", true, 8));
+        _gridScheduleStock.Columns.Add(MakeTextCol("DetailsText", "占用明细（工单 / 数量 / 起止时间）", true, 40));
+        _gridScheduleStock.Columns.Add(MakeTextCol("CrowdingText", "时段挤兑提示", true, 28));
 
         _gridScheduleStock.CellFormatting -= ScheduleStock_CellFormatting;
         _gridScheduleStock.CellFormatting += ScheduleStock_CellFormatting;
@@ -293,22 +295,17 @@ public partial class MainForm
     private void ScheduleStock_CellFormatting(object? sender, DataGridViewCellFormattingEventArgs e)
     {
         if (_gridScheduleStock.Rows.Count == 0 || e.RowIndex < 0) return;
-        if (_gridScheduleStock.Rows[e.RowIndex].DataBoundItem is not MaterialShortageRow r) return;
+        if (_gridScheduleStock.Rows[e.RowIndex].DataBoundItem is not MaterialOccupancyRow r) return;
 
-        switch (r.Status)
+        if (r.NetShortage > 1e-9)
         {
-            case ShortageStatus.Short:
-                e.CellStyle.BackColor = Color.FromArgb(254, 226, 226);
-                e.CellStyle.ForeColor = SchBad;
-                break;
-            case ShortageStatus.Tight:
-                e.CellStyle.BackColor = Color.FromArgb(255, 247, 237);
-                e.CellStyle.ForeColor = SchWarn;
-                break;
-            default:
-                e.CellStyle.ForeColor = SchOk;
-                break;
+            e.CellStyle.BackColor = Color.FromArgb(254, 226, 226);
+            e.CellStyle.ForeColor = SchBad;
         }
+        else if (r.Status == ShortageStatus.Tight)
+            e.CellStyle.ForeColor = SchWarn;
+        else
+            e.CellStyle.ForeColor = SchOk;
     }
 
     // ================= 数据加载 =================
@@ -414,26 +411,28 @@ public partial class MainForm
         };
 
         // 齐套汇总：缺料时直接点名，不藏在表格里等人自己找
-        _lblScheduleStock.Text = rec.StockCheck.NoBom
-            ? "齐套校验：该型号无 BOM 数据，无法校验物料。"
-            : rec.StockCheck.AllSatisfied
-                ? $"齐套校验：{rec.StockCheck.Rows.Count} 项物料全部满足，齐套通过，可正常开工。"
-                : $"齐套校验：{rec.StockCheck.ShortCount} 项缺料 → {rec.StockCheck.ShortageBrief}。建议先补料。";
-        _lblScheduleStock.ForeColor = rec.StockCheck.NoBom || rec.StockCheck.AllSatisfied ? SchOk : SchBad;
+        var mo = rec.MaterialOccupancy;
+        _lblScheduleStock.Text = mo.Aggregated.Count == 0
+            ? "资材占用：生成建议后按「工单 + BOM」自动计算并跨工单汇总。"
+            : mo.AllSatisfied
+                ? $"资材占用：{mo.Lines.Count} 项占用 / {mo.Aggregated.Count} 种物料，跨工单累加后全部覆盖，可正常开工。"
+                  + (mo.CrowdingCount > 0 ? $"（{mo.CrowdingCount} 项时段挤兑，不影响总量）" : "")
+                : $"资材占用：{mo.ShortageCount} 种需采购 → {PurchaseBriefOf(rec)}。建议先补料。";
+        _lblScheduleStock.ForeColor = mo.Aggregated.Count == 0 || mo.AllSatisfied ? SchOk : SchBad;
 
-        _gridScheduleStock.DataSource = rec.StockCheck.Rows;
+        _gridScheduleStock.DataSource = rec.MaterialOccupancy.Aggregated;
 
         // 资产占用：齐套不等于能开工——设备被别的工单占着，照样排不了
         var res = rec.ResourceCheck;
         _gridScheduleAsset.DataSource = res?.AssetLines;
         if (res is null || res.AssetLines.Count == 0)
         {
-            _lblScheduleResource.Text = "资源占用：该型号未匹配到需占用的设备/工装。";
+            _lblScheduleResource.Text = "设备占用：该型号未匹配到需占用的设备/工装。";
             _lblScheduleResource.ForeColor = SchMuted;
         }
         else if (res.AssetOk)
         {
-            _lblScheduleResource.Text = $"资源占用：✓ {res.AssetLines.Count} 项设备/工装在计划时段均有余量。";
+            _lblScheduleResource.Text = $"设备占用：✓ {res.AssetLines.Count} 项设备/工装在计划时段均有余量。";
             _lblScheduleResource.ForeColor = SchOk;
         }
         else
@@ -442,7 +441,7 @@ public partial class MainForm
                 .Where(l => l.Status != AssetCheckStatus.Ok)
                 .Select(l => $"{l.AssetName}({(l.Status == AssetCheckStatus.Conflict ? "冲突" : "余量不足")})")
                 .Take(3));
-            _lblScheduleResource.Text = $"资源占用：⚠ {res.ConflictCount} 项时间冲突 / {res.InsufficientCount} 项余量不足 —— {names}。见「资产占用」页可选方案。";
+            _lblScheduleResource.Text = $"设备占用：⚠ {res.ConflictCount} 项时间冲突 / {res.InsufficientCount} 项余量不足 —— {names}。见「设备占用」页可选方案。";
             _lblScheduleResource.ForeColor = SchBad;
         }
 
@@ -466,6 +465,18 @@ public partial class MainForm
     }
 
     // ================= 交互 =================
+
+    /// <summary>资材占用的采购摘要（跨工单汇总后需采购的物料，3 条封顶）</summary>
+    private static string PurchaseBriefOf(ScheduleRecommendation rec)
+    {
+        var list = rec.MaterialOccupancy.Aggregated
+            .Where(r => r.NetShortage > 1e-9)
+            .OrderByDescending(r => r.NetShortage)
+            .ToList();
+        if (list.Count == 0) return "无";
+        return string.Join("、", list.Take(3).Select(r => $"{r.MaterialName} 需购 {r.ShortageText}"))
+               + (list.Count > 3 ? $" 等 {list.Count} 种" : "");
+    }
 
     private void BtnScheduleGenerate(object? sender, EventArgs e) => GenerateSchedule();
 

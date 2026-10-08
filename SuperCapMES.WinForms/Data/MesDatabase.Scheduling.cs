@@ -433,17 +433,30 @@ public static partial class MesDatabase
         // ---- ⑥ 齐套校验（按投产数量展开 BOM） ----
         rec.StockCheck = CheckBomAvailability(po.ProductModel, rec.InputQty, po.OrderQty);
 
-        // ---- ⑥' 资产占用校验：光查物料不查设备，会排出"纸面上能做、实际撞车"的计划 ----
-        // ⚠ 必须按**推荐线体**分配资产：前面 ③ 已经把线体定下来了，
-        //   如果这里不传线体，校验会去选"第一个候选"，导致"校验的资产"和"实际排的资产"不是一回事。
+        // ---- ⑥' 资材占用校验（**本项目"占用"的主体**）----
+        // 按「工单 + BOM 层级」展开本单需求，再跨工单按物料累加 → 算出净缺口（= 需采购量）。
+        // 工单尚未落库，用参数构造虚拟工单参与汇总。
+        rec.MaterialOccupancy = CheckMaterialOccupancy(
+            woNo: null,
+            productModel: po.ProductModel,
+            planQty: rec.InputQty,
+            finishedQty: 0,
+            start: rec.PlannedStart,
+            end: rec.PlannedFinish,
+            due: po.DueDate,
+            source: LlmSources.Rule);
+
+        // ---- ⑥'' 设备占用校验（辅助维度：设备是**可复用**资源，按时间窗判冲突）----
+        // 明确按推荐线体分配资产：前面 ③ 已经把线体定下来了，
+        //   不传线体会导致"校验的资产"和"实际排的资产"不是一回事。
         rec.ResourceCheck = CheckResourceAvailability(
-            woNo: "",                       // 新工单尚无号，排除自身占用时无需传
+            woNo: "",
             productModel: po.ProductModel,
             planQty: rec.InputQty,
             start: rec.PlannedStart,
             end: rec.PlannedFinish,
             requiredAssets: AllocateAssetsForModel(po.ProductModel, rec.RecommendedLine),
-            includeMaterial: false,         // 物料已由 StockCheck 算过，不重复
+            includeMaterial: false,         // 物料已由 MaterialOccupancy 算过，不重复
             source: LlmSources.Rule);
 
         // ---- ⑦ 推理依据（可解释，逐条可追问） ----
@@ -452,6 +465,18 @@ public static partial class MesDatabase
     }
 
     /// <summary>把推理链摊成可读条目——这是"可解释"的落地处，不要为了省事只输出结论。</summary>
+    /// <summary>资材占用的采购摘要（跨工单汇总后需采购的物料，3 条封顶）</summary>
+    private static string PurchaseBriefOf(ScheduleRecommendation rec)
+    {
+        var list = rec.MaterialOccupancy.Aggregated
+            .Where(r => r.NetShortage > 1e-9)
+            .OrderByDescending(r => r.NetShortage)
+            .ToList();
+        if (list.Count == 0) return "无";
+        return string.Join("、", list.Take(3).Select(r => $"{r.MaterialName} 需购 {r.ShortageText}"))
+               + (list.Count > 3 ? $" 等 {list.Count} 种" : "");
+    }
+
     private static List<string> BuildScheduleEvidence(ScheduleRecommendation rec, string lineReason, DateTime at)
     {
         var h = rec.History;
@@ -482,15 +507,23 @@ public static partial class MesDatabase
                 ? "⑩ 齐套校验：该型号无 BOM 数据，未能校验物料"
                 : $"⑩ 齐套校验：{rec.StockCheck.Rows.Count} 项物料，满足 {rec.StockCheck.OkCount}、"
                   + $"紧张 {rec.StockCheck.TightCount}、短缺 {rec.StockCheck.ShortCount}"
-                  + (rec.StockCheck.AllSatisfied ? " → 齐套通过" : $" → 缺料：{rec.StockCheck.ShortageBrief}")
+                  + (rec.StockCheck.AllSatisfied ? " → 齐套通过" : $" → 缺料：{rec.StockCheck.ShortageBrief}"),
+            // 资材占用（主体口径）：跨工单累加后的采购量
+            $"⑪ 资材占用（跨工单累加）：{rec.MaterialOccupancy.Lines.Count} 项 / {rec.MaterialOccupancy.Aggregated.Count} 种物料，"
+            + (rec.MaterialOccupancy.AllSatisfied
+                ? "占用量已全部覆盖。"
+                + (rec.MaterialOccupancy.CrowdingCount > 0 ? $"（{rec.MaterialOccupancy.CrowdingCount} 项时段挤兑，不影响总量）" : "")
+                : $"需采购 {rec.MaterialOccupancy.ShortageCount} 种：" + PurchaseBriefOf(rec))
         };
 
         if (rec.AlternateLine.Length > 0)
-            ev.Add($"⑪ 备选方案：{rec.AlternateReason}");
+            ev.Add($"⑫ 备选方案：{rec.AlternateReason}");
 
-        if (rec.StockCheck.ShortCount > 0)
-            ev.Add($"⑫ 处置建议：先按缺口补料（{rec.StockCheck.ShortageBrief}），"
-                   + "或与计划协商把投产数降到现有库存可覆盖的水平。");
+        if (rec.MaterialOccupancy.ShortageCount > 0)
+            ev.Add($"⑬ 处置建议：按跨工单汇总后的采购量补料（{PurchaseBriefOf(rec)}），"
+                   + "或与计划协商把投产数降到库存可覆盖的水平。");
+        else if (rec.MaterialOccupancy.CrowdingCount > 0)
+            ev.Add("⑬ 提示：多张工单在同一时段抢同一批料，建议错开投产顺序以免来料不及时。");
 
         return ev;
     }
@@ -515,15 +548,27 @@ public static partial class MesDatabase
         if (WorkOrders.Any(w => string.Equals(w.WoNo, woNo, StringComparison.OrdinalIgnoreCase)))
             return (false, $"工单 {woNo} 已存在。", "");
 
-        // 缺料拦截：默认不放行
-        var check = CheckBomAvailability(po.ProductModel, rec.InputQty, po.OrderQty);
-        if (!check.AllSatisfied && !check.NoBom && !forceIgnoreShortage)
-            return (false, $"物料不齐套，已阻止创建：{check.ShortageBrief}。如需强制开工请确认后重试。", "");
+        // 缺料拦截：按**跨工单累加后的资材占用**判断（不是本单单独算）
+        // 理由：物料是消耗品，A 单缺 100、B 单缺 200，备料必须按 300 起算；
+        //       若按单张算，每张单都"只缺自己的那份"，合起来就是备料不足。
+        var matChk = CheckMaterialOccupancy(
+            woNo: null, productModel: po.ProductModel, planQty: rec.InputQty, finishedQty: 0,
+            start: rec.PlannedStart, end: rec.PlannedFinish, due: po.DueDate, source: LlmSources.Rule);
+        if (!matChk.AllSatisfied && !forceIgnoreShortage)
+        {
+            var need = matChk.Aggregated.Where(r => r.NetShortage > 1e-9)
+                .OrderByDescending(r => r.NetShortage)
+                .Select(r => $"{r.MaterialName} 占用 {r.TotalText}（{r.WorkOrderCount} 张单）需购 {r.ShortageText}")
+                .ToList();
+            return (false,
+                $"资材未齐备，已阻止创建：{string.Join("；", need.Take(3))}"
+                + $"（跨工单累加口径）。如需强制开工请确认后重试。", "");
+        }
 
         var lineValue = string.IsNullOrWhiteSpace(line) ? rec.RecommendedLine : line.Trim();
         if (string.IsNullOrWhiteSpace(lineValue)) lineValue = "L1";
 
-        // 资产占用拦截：与物料同一套口径、同一个开关。齐套但设备被别人占着，照样排不了。
+        // 设备占用拦截（辅助维度：设备可复用，按时间窗判冲突）
         var assets = AllocateAssetsForModel(po.ProductModel, lineValue);
         var res = CheckResourceAvailability(
             woNo, po.ProductModel, rec.InputQty, rec.PlannedStart, rec.PlannedFinish,
@@ -539,11 +584,11 @@ public static partial class MesDatabase
                 .Take(3);
             var opt = res.AllOptions.Where(o => o.Feasible).Select(o => o.Text).Take(2).ToList();
             var tip = opt.Count > 0 ? "可选方案：" + string.Join("；", opt) : "";
-            return (false, $"资产占用冲突，已阻止创建：{string.Join("；", detail)}。{tip}。如需强制排产请确认后重试。", "");
+            return (false, $"设备占用冲突，已阻止创建：{string.Join("；", detail)}。{tip}。如需强制排产请确认后重试。", "");
         }
 
         var now = DateTime.Now;
-        WorkOrders.Add(new WorkOrder
+        var created = new WorkOrder
         {
             WoNo = woNo,
             ErpOrderNo = po.PoNo,
@@ -556,33 +601,39 @@ public static partial class MesDatabase
             StartDate = rec.PlannedStart,
             DueDate = po.DueDate,
             ErpReportStatus = ErpReportStatus.NotReported
-        });
+        };
+        WorkOrders.Add(created);
         po.Status = ErpPoStatus.Pushed;
         po.PushedTime = now;
 
         var warn = string.IsNullOrEmpty(@operator) ? "" : $"（操作人：{@operator}）";
 
-        // 登记资产占用：工单建了就得占住设备，否则两张单会排到同一台机器上
+        // 登记**资材占用**（本项目占用主体）：建单即占料，跨工单累加后参与采购汇总
+        var (matOk, matMsg, _) = ReserveMaterialsForWorkOrder(
+            created, MaterialOccupancySource.Scheduling, expectVersion: -1,
+            remark: $"智能排产 {po.PoNo} 推演");
+        var matNote = matOk ? $"；已登记 {matMsg}" : $"；⚠ 资材占用登记失败：{matMsg}";
+
+        // 登记设备占用（辅助维度）
         var (occOk, occMsg, _) = ReserveAssetsForWorkOrder(
             woNo, assets, rec.PlannedStart, rec.PlannedFinish,
             source: OccupancySource.Scheduling,
             expectVersion: -1,
             confirmed: false,
             remark: $"{po.ProductModel} {rec.InputQty} 只（智能排产）");
-        var occNote = occOk ? $"；已登记 {assets.Count} 项资产占用" : $"；⚠ 资产占用登记失败：{occMsg}";
+        var occNote = occOk ? $"；已登记 {assets.Count} 项设备占用" : $"；⚠ 设备占用登记失败：{occMsg}";
 
-        // 缺料时**同步生成采购申请**：只报"缺"却没人去补，是排产链路上最典型的断点。
-        // 这里把缺口直接转成一张草稿申请单，与本工单绑定，让缺料有出口。
+        // 缺料时**同步生成采购申请**：按**跨工单物料汇总**算采购量，避免各单重复申请同一批料
         var prNote = "";
-        if (!check.AllSatisfied && !check.NoBom)
+        if (!matChk.AllSatisfied)
         {
             var (prOk, prMsg, prNo) = BuildRequestFromWorkOrder(woNo, @operator, "工单缺料自动生成，请及时补料");
-            if (prOk) prNote = $"；已同步生成采购申请 {prNo}";
+            if (prOk) prNote = $"；已同步生成采购申请 {prNo}（{prMsg}）";
         }
 
         return (true,
             $"已生成工单 {woNo}：{po.ProductModel}，投产 {rec.InputQty} 只，线体 {lineValue}，"
-            + $"计划 {rec.PlannedStart:MM-dd} 开工、{rec.PlannedFinish:MM-dd} 完工{warn}{occNote}{prNote}。",
+            + $"计划 {rec.PlannedStart:MM-dd} 开工、{rec.PlannedFinish:MM-dd} 完工{warn}{matNote}{occNote}{prNote}。",
             woNo);
     }
 

@@ -35,10 +35,14 @@ public class WorkOrderEditForm : Form
     private TextBox _txtAiInput = null!;
     private Button _btnAiParse = null!;
     private Label _lblAiTrace = null!;
-    /// <summary>最近一次资源校验结果（物料 + 资产，保存时据此预警与登记占用）。</summary>
+    /// <summary>最近一次资源校验结果（物料 + 设备，保存时据此预警与登记占用）。</summary>
     private ResourceCheckResult? _lastResourceCheck;
+    /// <summary>最近一次资材占用校验（主体口径：跨工单累加 + 净缺口）。</summary>
+    private MaterialOccupancyCheck _matOcc = new();
     /// <summary>进入本窗体时读到的占用版本（保存时做乐观锁比对）。</summary>
     private int _occupancyVersionAtLoad;
+    /// <summary>进入窗体时读到的**资材**占用版本（保存时乐观锁比对）。</summary>
+    private int _matOccVersionAtLoad;
 
     /// <summary>新建时返回新工单；编辑时返回 null（直接修改传入对象）</summary>
     public WorkOrder? WorkOrder { get; private set; }
@@ -193,7 +197,7 @@ public class WorkOrderEditForm : Form
         // ---- 资源校验区：物料齐套 + 资产占用（两个子页，同一套口径）----
         var resTabs = new TabControl { Dock = DockStyle.Top, Height = 258, Font = new Font("微软雅黑", 9F) };
 
-        var matPage = new TabPage("物料齐套");
+        var matPage = new TabPage("资材占用（跨工单汇总）");
         matPage.Padding = new Padding(4);
         _lblStock = new Label
         {
@@ -203,13 +207,13 @@ public class WorkOrderEditForm : Form
             Font = new Font("微软雅黑", 9F),
             ForeColor = Color.FromArgb(100, 116, 139),
             TextAlign = ContentAlignment.MiddleLeft,
-            Text = "填写产品型号后自动做齐套检查。"
+            Text = "填写产品型号后自动按「工单 + BOM」计算资材占用，并跨工单汇总。"
         };
-        _gridStock = MakeStockGrid();
+        _gridStock = MakeMaterialOccupancyGrid();
         matPage.Controls.Add(_gridStock);  // Fill
         matPage.Controls.Add(_lblStock);   // Top
 
-        var assetPage = new TabPage("资产占用");
+        var assetPage = new TabPage("设备占用");
         assetPage.Padding = new Padding(4);
         _lblAsset = new Label
         {
@@ -225,8 +229,8 @@ public class WorkOrderEditForm : Form
         assetPage.Controls.Add(_gridAsset);  // Fill
         assetPage.Controls.Add(_lblAsset);   // Top
 
-        resTabs.TabPages.Add(matPage);
-        resTabs.TabPages.Add(assetPage);
+        resTabs.TabPages.Add(matPage);   // 主体：资材占用（跨工单累加，决定采购量）
+        resTabs.TabPages.Add(assetPage); // 辅助：设备占用（可复用，按时间窗判冲突）
 
         // 型号 / 计划数 / 起止日期 任一变化就重算——不要让用户点按钮才知道冲突
         _txtModel.TextChanged += (_, _) => RefreshResourceCheck();
@@ -275,6 +279,7 @@ public class WorkOrderEditForm : Form
 
         // 预填完成后再做第一次校验（控件已有值，结果才有意义）
         _occupancyVersionAtLoad = _existing is null ? -1 : MesDatabase.GetOccupancyVersionSum(_existing.WoNo);
+        _matOccVersionAtLoad = _existing is null ? -1 : MesDatabase.GetMaterialOccupancyVersionSum(_existing.WoNo);
         _tip.SetToolTip(_btnAiParse, "把一段大白话需求交给大模型解析成工单字段。未启用模型时自动走规则抽取，结果同样标明来源。");
         RefreshResourceCheck();
     }
@@ -432,10 +437,37 @@ public class WorkOrderEditForm : Form
             };
         }
 
-        // ---- 登记资产占用：写前重算 + 乐观锁，杜绝"两个人同时保存各占一台" ----
+        // ---- 登记占用：资材（主体）+ 设备（辅助），写前重算 + 乐观锁 ----
         var targetWoNo = WorkOrder?.WoNo ?? _existing?.WoNo ?? woNo;
         if (!string.IsNullOrWhiteSpace(targetWoNo))
         {
+            // ① 资材占用：按「工单 + BOM」算剩余待产量的需求量并登记，跨工单汇总时参与采购量
+            var woForOcc = _existing ?? WorkOrder;
+            if (woForOcc is null)
+            {
+                woForOcc = new WorkOrder
+                {
+                    WoNo = woNo,
+                    ProductModel = model,
+                    PlanQty = (int)_numPlan.Value,
+                    FinishedQty = (int)_numFinished.Value,
+                    StartDate = _dtStart.Value,
+                    DueDate = _dtDue.Value
+                };
+            }
+            var (matOk, matMsg, _) = MesDatabase.ReserveMaterialsForWorkOrder(
+                woForOcc, MaterialOccupancySource.Manual,
+                expectVersion: _existing is null ? -1 : _matOccVersionAtLoad,
+                remark: $"手工建单 {model} {(int)_numPlan.Value} 只");
+            if (!matOk)
+            {
+                RollbackSave();
+                MessageBox.Show(matMsg, "资材占用登记失败，已撤销本次保存",
+                    MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                return;
+            }
+
+            // ② 设备占用（辅助维度：可复用资源，按时间窗判冲突）
             var assets = MesDatabase.AllocateAssetsForModel(model, line);
             var (occOk, occMsg, _) = MesDatabase.ReserveAssetsForWorkOrder(
                 targetWoNo, assets, _dtStart.Value, _dtDue.Value,
@@ -449,8 +481,9 @@ public class WorkOrderEditForm : Form
             if (!occOk)
             {
                 // 占用登记失败 = 数据会不一致（工单存在但没占到设备），必须回滚这次保存
+                MesDatabase.ReleaseMaterialsForWorkOrder(targetWoNo, "设备占用登记失败，回滚资材占用");
                 RollbackSave();
-                MessageBox.Show(occMsg, "资产占用登记失败，已撤销本次保存",
+                MessageBox.Show(occMsg, "设备占用登记失败，已撤销本次保存",
                     MessageBoxButtons.OK, MessageBoxIcon.Warning);
                 return;
             }
@@ -537,6 +570,47 @@ public class WorkOrderEditForm : Form
         FillWeight = fillWeight
     };
 
+    /// <summary>
+    /// 资材占用表（本项目"占用"的主体）：同一物料被多少张工单占着、占多少、
+    /// 可用多少、在途多少、还需采购多少。占用明细列把"工单号 + 数量 + 起止时间"摊开。
+    /// </summary>
+    private static DataGridView MakeMaterialOccupancyGrid()
+    {
+        var g = MakeStockGrid();   // 复用同一套网格外观
+        g.Columns.Clear();
+        g.Columns.Add(StockCol("MaterialType", "类型", 7));
+        g.Columns.Add(StockCol("MaterialName", "物料名称", 17));
+        g.Columns.Add(StockCol("MaterialCode", "物料编码", 14));
+        g.Columns.Add(StockCol("TotalText", "占用总量", 12));
+        g.Columns.Add(StockCol("WoCountText", "工单数", 8));
+        g.Columns.Add(StockCol("AvailableText", "可用库存", 11));
+        g.Columns.Add(StockCol("InTransitText", "在途采购", 11));
+        g.Columns.Add(StockCol("ShortageText", "需采购", 11));
+        g.Columns.Add(StockCol("StatusText", "状态", 8));
+        g.Columns.Add(StockCol("DetailsText", "占用明细（工单 / 数量 / 起止时间）", 42));
+        g.Columns.Add(StockCol("CrowdingText", "时段挤兑提示", 28));
+
+        g.CellFormatting += (_, e) =>
+        {
+            if (g.Rows.Count == 0 || e.RowIndex < 0) return;
+            if (g.Rows[e.RowIndex].DataBoundItem is not MaterialOccupancyRow r) return;
+            if (r.NetShortage > 1e-9)
+            {
+                e.CellStyle.BackColor = Color.FromArgb(254, 226, 226);
+                e.CellStyle.ForeColor = Color.FromArgb(220, 38, 38);
+            }
+            else if (r.Status == ShortageStatus.Tight)
+            {
+                e.CellStyle.ForeColor = Color.FromArgb(217, 119, 6);
+            }
+            else
+            {
+                e.CellStyle.ForeColor = Color.FromArgb(21, 128, 61);
+            }
+        };
+        return g;
+    }
+
     private static DataGridView MakeAssetGrid()
     {
         var g = MakeStockGrid();   // 复用同一套网格外观
@@ -582,9 +656,10 @@ public class WorkOrderEditForm : Form
         if (model.Length == 0)
         {
             _lastResourceCheck = null;
+            _matOcc = new MaterialOccupancyCheck();
             _lblStock.Text = "填写产品型号后自动做齐套检查。";
             _lblStock.ForeColor = Color.FromArgb(100, 116, 139);
-            _lblAsset.Text = "填写产品型号后自动校验设备/工装占用。";
+            _lblAsset.Text = "设备/工装是可复用资源，按时间窗判冲突。";
             _lblAsset.ForeColor = Color.FromArgb(100, 116, 139);
             _gridStock.DataSource = null;
             _gridAsset.DataSource = null;
@@ -597,19 +672,35 @@ public class WorkOrderEditForm : Form
             woNo, model, qty, _dtStart.Value, _dtDue.Value, includeMaterial: true);
         _lastResourceCheck = res;
 
-        // ---- 物料页 ----
-        var mat = res.Material;
-        if (mat is null || mat.NoBom) { _lblStock.Text = "该型号暂无 BOM 数据，无法校验物料。"; _lblStock.ForeColor = Color.FromArgb(100, 116, 139); }
-        else if (mat.AllSatisfied) { _lblStock.Text = $"✓ 齐套通过：{mat.Rows.Count} 项物料全部满足，可正常投产。"; _lblStock.ForeColor = Color.FromArgb(21, 128, 61); }
+        // ---- 资材占用（主体）：按「工单 + BOM」展开本单 → 跨工单按物料累加 → 算净缺口 ----
+        _matOcc = MesDatabase.CheckMaterialOccupancy(
+            woNo: string.IsNullOrWhiteSpace(woNo) ? null : woNo,
+            productModel: model, planQty: qty, finishedQty: (int)(_numFinished?.Value ?? 0),
+            start: _dtStart.Value, end: _dtDue.Value, due: _dtDue.Value);
+
+        var agg = _matOcc.Aggregated;
+        _gridStock.DataSource = agg;
+        if (agg.Count == 0)
+        {
+            _lblStock.Text = "该型号暂无 BOM 数据，无法计算资材占用。";
+            _lblStock.ForeColor = Color.FromArgb(100, 116, 139);
+        }
+        else if (_matOcc.AllSatisfied)
+        {
+            _lblStock.Text = $"✓ 资材齐备：本单占用 {agg.Count} 种物料，跨工单累加后已全部覆盖"
+                           + (_matOcc.CrowdingCount > 0 ? $"（{_matOcc.CrowdingCount} 项时段挤兑，不影响总量）" : "") + "。";
+            _lblStock.ForeColor = Color.FromArgb(21, 128, 61);
+        }
         else
         {
-            _lblStock.Text = $"⚠ 缺料 {mat.ShortCount} 项 → {mat.ShortageBrief}"
-                           + (mat.TightCount > 0 ? $"；另有 {mat.TightCount} 项紧张（够用但无缓冲）。" : "");
+            var need = agg.Where(r => r.NetShortage > 1e-9)
+                .Select(r => $"{r.MaterialName} 占{r.TotalText}（{r.WorkOrderCount}单）需购{r.ShortageText}");
+            _lblStock.Text = $"⚠ 资材未齐备：{_matOcc.ShortageCount} 种需采购 → {string.Join("；", need.Take(3))}"
+                           + (_matOcc.CrowdingCount > 0 ? $"；{_matOcc.CrowdingCount} 项时段挤兑。" : "");
             _lblStock.ForeColor = Color.FromArgb(220, 38, 38);
         }
-        _gridStock.DataSource = mat?.Rows;
 
-        // ---- 资产页 ----
+        // ---- 设备页（辅助维度：设备可复用，按时间窗判冲突） ----
         _gridAsset.DataSource = res.AssetLines;
         if (res.AssetLines.Count == 0) { _lblAsset.Text = "该型号未匹配到需要占用的资产。"; _lblAsset.ForeColor = Color.FromArgb(100, 116, 139); }
         else if (res.AssetOk) { _lblAsset.Text = $"✓ 资产满足：{res.AssetLines.Count} 项设备/工装在计划时段均有余量。"; _lblAsset.ForeColor = Color.FromArgb(21, 128, 61); }

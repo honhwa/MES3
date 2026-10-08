@@ -184,21 +184,50 @@ public static partial class MesDatabase
         if (existing is not null)
             return (false, $"工单 {wo.WoNo} 已有未关闭的采购申请 {existing.ReqNo}（{existing.StatusText}），不重复生成。", "");
 
-        var outstanding = GetOutstandingShortage(wo.WoNo);
-        var targets = outstanding
-            .Concat(includeTight ? check.Rows.Where(r => r.Status == ShortageStatus.Tight) : Enumerable.Empty<MaterialShortageRow>())
-            .DistinctBy(r => r.MaterialCode, StringComparer.OrdinalIgnoreCase)
+        // ★ 口径核心：按**物料维度跨工单汇总占用** → 再扣可用与在途 → 得采购量。
+        //   绝不能"每张工单各算各的缺口"——同一批料会被多张单重复申请，是采购环节最贵的错。
+        var wos = WorkOrders.Where(IsOpenWorkOrder).ToList();
+        foreach (var w in wos) EnsureMaterialOccupancyRegistered(w);
+
+        var involvedCodes = BuildWorkOrderMaterialOccupancy(wo).Select(b => b.MaterialCode).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var demand = AggregatePurchaseDemand(wos.Select(w => w.WoNo), skipInTransit: true)
+            .Where(r => involvedCodes.Contains(r.MaterialCode))
             .ToList();
 
-        if (targets.Count == 0)
-            return (false, $"工单 {wo.WoNo} 物料已齐套（或缺口已在在途申请中），无需采购申请。", "");
+        if (demand.Count == 0)
+            return (false, $"工单 {wo.WoNo} 涉及的物料已齐套（或缺口已在在途申请中），无需采购申请。", "");
 
-        var req = BuildRequestCore(wo, targets, applicant, remark, autoCreated: true);
+        var lines = ToPurchaseLines(demand);
+        var req = BuildRequestCore(wo, lines, applicant,
+            AppendNote(remark, OccupancyScopeNote(demand)), autoCreated: true);
         PurchaseRequests.Add(req);
-        // 同一事务边界：生成申请单时顺带做一次资源占用校验，冲突与建议写进备注
+
+        // 同一事务边界：把设备占用冲突也写进备注（资材是主体，设备是辅助维度）
         AppendOccupancyNoteOnCreate(req, wo);
 
-        return (true, $"已生成采购申请 {req.ReqNo}：{targets.Count} 项物料，合计 {req.TotalQtyText}。来源工单 {wo.WoNo}。", req.ReqNo);
+        // 参与汇总的工单数：取各物料工单数的**最大值**，不能 Sum——
+        // Sum 是"每种物料各数一遍工单"，2 种物料 × 3 张单会数成 6 张，纯属重复计数。
+        var woCount = demand.Count > 0 ? demand.Max(d => d.WorkOrderCount) : 0;
+        return (true,
+            $"已生成采购申请 {req.ReqNo}：{lines.Count} 项物料（按 {woCount} 张在手工单的资材占用跨工单汇总），"
+            + $"需采购合计 {demand.Sum(d => d.NetShortage):0.##}（已扣可用库存与在途采购量）。来源工单 {wo.WoNo}。",
+            req.ReqNo);
+    }
+
+    /// <summary>资材占用的汇总口径说明（写进申请单备注，让审批人知道这个量是怎么汇总来的）</summary>
+    private static string OccupancyScopeNote(List<MaterialOccupancyRow> demand)
+    {
+        var woCount = demand.Count > 0 ? demand.Max(d => d.WorkOrderCount) : 0;
+        return $"采购量按物料维度跨 {woCount} 张在手工单的资材占用汇总"
+               + "（占用 = 单位用量 ×(1+损耗率)× 剩余待产量；跨工单累加），再扣可用库存与在途采购量。";
+    }
+
+    /// <summary>确保某工单有资材占用记录（未登记则按当前 BOM 补登记一次，保证汇总口径完整）</summary>
+    private static void EnsureMaterialOccupancyRegistered(WorkOrder w)
+    {
+        if (GetWorkOrderMaterialOccupancies(w.WoNo).Count > 0) return;
+        ReserveMaterialsForWorkOrder(w, MaterialOccupancySource.Manual, expectVersion: -1,
+            remark: "汇总口径补登记");
     }
 
     /// <summary>
@@ -243,7 +272,7 @@ public static partial class MesDatabase
     }
 
     private static PurchaseRequest BuildRequestCore(
-        WorkOrder wo, List<MaterialShortageRow> targets, string applicant, string remark, bool autoCreated)
+        WorkOrder wo, List<PurchaseRequestLine> targets, string applicant, string remark, bool autoCreated)
     {
         var req = new PurchaseRequest
         {
@@ -258,31 +287,11 @@ public static partial class MesDatabase
             AutoCreated = autoCreated
         };
 
+        // 明细已由调用方按"跨工单汇总的净缺口"算好（申请量 = 占用 − 可用 − 在途），这里直接落单
         foreach (var t in targets)
-        {
-            // 缺口已在 outstanding 里扣减了在途量；紧张项没有在途概念，直接按富余量建议
-            var suggest = t.Status == ShortageStatus.Short
-                ? Math.Max(0, t.Shortage)
-                : Math.Max(0, t.Requirement * 0.1);   // 紧张项：按需求的 10% 建议备一点
+            req.Lines.Add(CopyLine(t));
 
-            req.Lines.Add(new PurchaseRequestLine
-            {
-                MaterialCode = t.MaterialCode,
-                MaterialName = t.MaterialName,
-                Spec = t.Spec,
-                Unit = t.Unit,
-                MaterialType = t.MaterialType,
-                FormulaText = t.FormulaText,
-                Requirement = t.Requirement,
-                Available = t.Available,
-                FrozenQty = t.FrozenQty,
-                RequestQty = suggest,
-                Supplier = GetPreferredSupplier(t.MaterialCode),
-                Remark = t.Status == ShortageStatus.Tight ? "库存刚好够用无缓冲，建议小批量备料" : ""
-            });
-        }
-
-        // 主材优先、缺口大的在前——审批人先看最要紧的
+        // 主材优先、采购量大的在前——审批人先看最要紧的
         req.Lines = req.Lines
             .OrderByDescending(l => l.RequestQty)
             .ThenBy(l => l.MaterialType == ErpMaterialTypes.Main ? 0 : l.MaterialType == ErpMaterialTypes.Aux ? 1 : 2)
