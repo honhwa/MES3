@@ -529,9 +529,19 @@ public static partial class MesDatabase
         po.PushedTime = now;
 
         var warn = string.IsNullOrEmpty(@operator) ? "" : $"（操作人：{@operator}）";
+
+        // 缺料时**同步生成采购申请**：只报"缺"却没人去补，是排产链路上最典型的断点。
+        // 这里把缺口直接转成一张草稿申请单，与本工单绑定，让缺料有出口。
+        var prNote = "";
+        if (!check.AllSatisfied && !check.NoBom)
+        {
+            var (prOk, prMsg, prNo) = BuildRequestFromWorkOrder(woNo, @operator, "工单缺料自动生成，请及时补料");
+            if (prOk) prNote = $"；已同步生成采购申请 {prNo}";
+        }
+
         return (true,
             $"已生成工单 {woNo}：{po.ProductModel}，投产 {rec.InputQty} 只，线体 {lineValue}，"
-            + $"计划 {rec.PlannedStart:MM-dd} 开工、{rec.PlannedFinish:MM-dd} 完工{warn}。",
+            + $"计划 {rec.PlannedStart:MM-dd} 开工、{rec.PlannedFinish:MM-dd} 完工{warn}{prNote}。",
             woNo);
     }
 

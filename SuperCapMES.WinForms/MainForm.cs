@@ -83,6 +83,24 @@ public partial class MainForm : Form
     private ScheduleRecommendation? _currentSchedule;
     /// <summary>排产页首次加载守卫（幂等）。</summary>
     private bool _scheduleLoaded;
+
+    // ================= 资材采购申请 =================
+    private ComboBox _cboReqWo = null!;
+    private ComboBox _cboReqStatus = null!;
+    private TextBox _txtReqSearch = null!;
+    private Button _btnReqSubmit = null!;
+    private Button _btnReqApprove = null!;
+    private Button _btnReqReject = null!;
+    private Button _btnReqOrder = null!;
+    private Button _btnReqClose = null!;
+    private Label _lblReqSummary = null!;
+    private Label _lblReqInfo = null!;
+    private DataGridView _gridReqList = null!;
+    private DataGridView _gridReqLines = null!;
+    private ToolTip _reqTip = null!;
+    private bool _reqLoaded;
+    /// <summary>当前选中的申请单（供状态流转与明细刷新复用）。</summary>
+    private PurchaseRequest? _currentRequest;
     /// <summary>分段渲染定时器（懒创建，避免构造期占用资源）。</summary>
     private System.Windows.Forms.Timer? _assistantRenderTimer;
 
@@ -528,6 +546,7 @@ public partial class MainForm : Form
         RegisterPage(NavWarehouse, BuildWmsTab());           // WMS 仓储：单据 / 库存台账 / 效期与 FIFO
         RegisterPage(NavWarehouse, BuildShipmentTab());      // 出货与召回：出库单绑定 + 召回反查
         RegisterPage(NavWarehouse, BuildMaterialHoldTab());  // 资材追溯：按料号/批次反查电芯并批量保留
+        RegisterPage(NavWarehouse, BuildPurchaseReqTab());   // 资材采购申请：工单缺料 → 请购 → 审批 → 下单
 
         // 【设备与人员】六维里的「机」与「人」
         RegisterPage(NavResource, BuildEquipmentsTab());     // 设备监控：设备状态一览
@@ -824,6 +843,7 @@ public partial class MainForm : Form
         EnsureManualReady();     // 使用手册兜底初始化（幂等，空查询=浏览全部条目）
         EnsureAssistantReady();  // AI 助手兜底初始化（幂等：写欢迎语 + 渲染边界说明）
         EnsureScheduleReady();   // 智能排产兜底初始化（幂等：载入待下发 PO 并生成首张建议）
+        EnsurePurchaseReady(); // 资材采购申请兜底初始化（幂等：载入申请单列表）
     }
 
     /// <summary>执行「Trace」业务动作（校验 → 执行 → 刷新界面）。</summary>

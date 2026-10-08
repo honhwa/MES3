@@ -1,4 +1,4 @@
-using SuperCapMES.WinForms.Models;
+﻿using SuperCapMES.WinForms.Models;
 using SuperCapMES.WinForms.Utils;
 
 namespace SuperCapMES.WinForms.Data;
@@ -191,6 +191,15 @@ public static partial class MesDatabase
             new MaterialLot { LotNo = "CC-260812-003",   MaterialCode = "M-COL-AL-04",  MaterialName = "铝箔集流体", Supplier = "铝业精工", SupplierLot = "LY-260801-03", ReceivedDate = new DateTime(2026,8,7), IqcResult = "合格", UsedFor = "SC-A260812-L1-00001" },
             new MaterialLot { LotNo = "PC-260813-L2-002", MaterialCode = "M-ACT-CAR-01", MaterialName = "活性炭电极材料", Supplier = "碳源科技", SupplierLot = "CY-C-20260802", ReceivedDate = new DateTime(2026,8,11), IqcResult = "合格", UsedFor = "SC-A260813-L2-00006" },
             new MaterialLot { LotNo = "EL-260813-015",   MaterialCode = "M-ELE-ACN-02", MaterialName = "电解液（ACN基）", Supplier = "电解液股份", SupplierLot = "DJY-260808-015", ReceivedDate = new DateTime(2026,8,10), IqcResult = "合格", UsedFor = "SC-A260813-L2-00006" },
+
+            // ---- 辅料 / 包材的材料批次（2026-10-08 采购申请轮补充）----
+            // 起因：供应商信息只挂在 MaterialLot 上（物料主数据里没有供应商字段），
+            // 原先只给四大主材建了批次 → 采购申请单里辅料/包材的"建议供应商"全是待定，
+            // 下单校验直接被拦。批次号与 WMS 库存台账里的批次保持一致，便于材料追溯反查。
+            new MaterialLot { LotNo = "CAN-260810-001",  MaterialCode = "M-CAN-ALU-05", MaterialName = "铝壳外壳", Supplier = "精密金属制品厂", SupplierLot = "JX-20260805-021", ReceivedDate = new DateTime(2026,8,8), IqcResult = "合格", UsedFor = "" },
+            new MaterialLot { LotNo = "SEL-260811-002",  MaterialCode = "M-SEL-RUB-06", MaterialName = "密封圈", Supplier = "氟塑密封件厂", SupplierLot = "FS-20260806-114", ReceivedDate = new DateTime(2026,8,9), IqcResult = "合格", UsedFor = "" },
+            new MaterialLot { LotNo = "TAB-260811-001",  MaterialCode = "M-TAB-NIC-07", MaterialName = "镍带极耳", Supplier = "有色金属冶炼厂", SupplierLot = "YS-20260804-057", ReceivedDate = new DateTime(2026,8,7), IqcResult = "合格", UsedFor = "" },
+            new MaterialLot { LotNo = "BOX-260811-001",  MaterialCode = "M-PKG-BOX-11", MaterialName = "彩盒（100F 专用）", Supplier = "华瑞包装印刷", SupplierLot = "HR-20260803-036", ReceivedDate = new DateTime(2026,8,6), IqcResult = "合格", UsedFor = "" },
         });
 
         // ---- 电芯 SN ----
