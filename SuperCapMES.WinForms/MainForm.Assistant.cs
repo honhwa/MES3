@@ -107,6 +107,8 @@ public partial class MainForm
         _btnAssistantClear.Width = 112;
         _btnAssistantSettings = MakeToolbarButton("后端设置", BtnAssistantSettings);
         _btnAssistantSettings.Width = 112;
+        _btnAssistantExport = MakeToolbarButton("导出", BtnAssistantExport);
+        _btnAssistantExport.Width = 76;
 
         _lblAssistantStatus = new Label
         {
@@ -119,6 +121,7 @@ public partial class MainForm
         row.Controls.Add(_txtAssistantInput);
         row.Controls.Add(_btnAssistantSend);
         row.Controls.Add(_btnAssistantClear);
+        row.Controls.Add(_btnAssistantExport);
         row.Controls.Add(_btnAssistantSettings);
         row.Controls.Add(_lblAssistantStatus);
 
@@ -139,24 +142,8 @@ public partial class MainForm
             Font = new Font("微软雅黑", 9F)
         });
 
-        foreach (var sample in AssistantEngine.SampleQuestions)
-        {
-            var link = new LinkLabel
-            {
-                Text = sample,
-                AutoSize = true,
-                Margin = new Padding(0, 8, 14, 0),
-                LinkColor = AsstAccent,
-                Font = new Font("微软雅黑", 9F)
-            };
-            var text = sample;   // 闭包捕获：每轮用独立副本
-            link.LinkClicked += (_, _) =>
-            {
-                _txtAssistantInput.Text = text;
-                AskAssistantFromInput();
-            };
-            quick.Controls.Add(link);
-        }
+        _flpAssistantQuick = quick;
+        RefreshAssistantQuick(null);
 
         // Dock=Top 按"后加入的先停靠"排列，这里倒序加入才得到「标题 → 输入行 → 快捷行」
         panel.Controls.Add(quick);
@@ -298,6 +285,85 @@ public partial class MainForm
         AskAssistantFromInput();
     }
 
+    /// <summary>
+    /// 刷新快捷提问区（P0-2 / P0-3）：
+    ///   · 有回答 → 按**本轮意图**给出下一步该问什么（问完缺料就该推"要采购哪些"）
+    ///   · 未识别 → 给"你是不是想问…"的候选，把路接上而不是直接说结束
+    ///   · 无回答（初始）→ 显示固定的入门示例
+    /// </summary>
+    private void RefreshAssistantQuick(AssistantReply? reply)
+    {
+        if (_flpAssistantQuick is null) return;
+        _flpAssistantQuick.SuspendLayout();
+        try
+        {
+            _flpAssistantQuick.Controls.Clear();
+
+            var label = new Label
+            {
+                Text = reply is null ? "常用提问：" : "接着可以问：",
+                AutoSize = true,
+                Margin = new Padding(0, 9, 4, 0),
+                ForeColor = AsstGray,
+                Font = new Font("微软雅黑", 9F)
+            };
+            _flpAssistantQuick.Controls.Add(label);
+
+            var items = reply is null
+                ? AssistantEngine.SampleQuestions.Take(6).ToList()
+                : reply.Intent == AssistantIntent.Unknown || reply.IsFallback && reply.Confidence <= 0
+                    ? AssistantFollowUp.GuideFromUnknown(reply)
+                    : AssistantFollowUp.Suggest(reply);
+
+            foreach (var text in items.Take(6))
+            {
+                var q = text;   // 闭包捕获：每条用独立副本
+                var link = new LinkLabel
+                {
+                    Text = q,
+                    AutoSize = true,
+                    Margin = new Padding(0, 8, 14, 0),
+                    LinkColor = AsstAccent,
+                    Font = new Font("微软雅黑", 9F)
+                };
+                link.LinkClicked += (_, _) =>
+                {
+                    _txtAssistantInput.Text = q;
+                    AskAssistantFromInput();
+                };
+                _flpAssistantQuick.Controls.Add(link);
+            }
+        }
+        finally
+        {
+            _flpAssistantQuick.ResumeLayout(true);
+        }
+    }
+
+    /// <summary>点「导出」：把本条问答导出成 Markdown/纯文本，供贴进汇报材料。</summary>
+    private void BtnAssistantExport(object? sender, EventArgs e)
+    {
+        var reply = _lastAssistantReply;
+        if (reply is null)
+        {
+            Warn("还没有问答内容可导出，先问一句。");
+            return;
+        }
+
+        using var dlg = new SaveFileDialog
+        {
+            Title = "导出问答记录",
+            Filter = "Markdown 文件 (*.md)|*.md|文本文件 (*.txt)|*.txt|所有文件 (*.*)|*.*",
+            FileName = AssistantExporter.DefaultFileName(),
+            InitialDirectory = Environment.GetFolderPath(Environment.SpecialFolder.DesktopDirectory)
+        };
+        if (dlg.ShowDialog(this) != DialogResult.OK) return;
+
+        var (ok, msg) = AssistantExporter.ExportToFile(reply, dlg.FileName, _assistantHistory.Turns);
+        if (ok) MessageBox.Show(msg, "已导出", MessageBoxButtons.OK, MessageBoxIcon.Information);
+        else MessageBox.Show(msg, "导出失败", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+    }
+
     /// <summary>点「提问」。</summary>
     private void BtnAssistantSend(object? sender, EventArgs e) => AskAssistantFromInput();
 
@@ -309,6 +375,8 @@ public partial class MainForm
         _lastAssistantReply = null;
         _assistantRound = 0;
         _assistantLoaded = false;
+        _assistantHistory.Clear();          // 上文要一起清，否则清完对话再问还会"接住"上一轮
+        RefreshAssistantQuick(null);
         _rtbAssistantChat?.Clear();
         _rtbAssistantInspector?.Clear();
         ResetAssistantActionButtons();
@@ -398,7 +466,7 @@ public partial class MainForm
     internal AssistantReply AskAssistant(string question)
     {
         EnsureAssistantReady();
-        var reply = AssistantEngine.Ask(question);
+        var reply = AssistantEngine.Ask(question, _assistantHistory);
         RenderAssistantTurn(reply);
         return reply;
     }
@@ -415,6 +483,10 @@ public partial class MainForm
         UpdateAssistantActionButtons(reply);
 
         _lblAssistantStatus.Text = $"后端：{reply.BackendName}｜第 {_assistantRound} 轮｜意图 {reply.Intent}（{reply.ConfidenceText}）";
+
+        // 记入上文，并按本轮意图刷新快捷提问（P0-1 / P0-2）
+        _assistantHistory.Add(reply);
+        RefreshAssistantQuick(reply);
     }
 
     /// <summary>打开后端设置：配置云端大模型（默认关闭），保存后立即切换后端并刷新界面说明。</summary>

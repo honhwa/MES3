@@ -156,6 +156,9 @@ public sealed class LlmAssistant : IRemoteAssistantBackend
     /// <summary>本地取数后端：所有数字的唯一来源</summary>
     private readonly IAssistantBackend _facts;
 
+    /// <summary>本次提问的上文（供 SendChat 拼进提示词；Ask 调用时赋值）</summary>
+    private ConversationHistory? _lastHistory;
+
     private readonly AssistantLlmSettings _cfg;
     private readonly HttpClient _http;
 
@@ -208,10 +211,11 @@ public sealed class LlmAssistant : IRemoteAssistantBackend
 
     // ================= 主流程 =================
 
-    public AssistantReply Ask(string question)
+    public AssistantReply Ask(string question, ConversationHistory? history = null)
     {
-        // ① 先用规则引擎把数取准——这一步不联网
-        var baseline = _facts.Ask(question);
+        // ① 先用规则引擎把数取准——这一步不联网（带上文补全，追问也能取对数）
+        var baseline = _facts.Ask(question, history);
+        _lastHistory = history;
 
         if (!IsAvailable)
             return Degrade(baseline, "云端未启用（未开启开关或未配置 API Key）");
@@ -219,7 +223,7 @@ public sealed class LlmAssistant : IRemoteAssistantBackend
         string raw;
         try
         {
-            raw = SendChat(question, baseline);
+            raw = SendChat(question, baseline, _lastHistory);
         }
         catch (Exception ex)
         {
@@ -291,8 +295,8 @@ public sealed class LlmAssistant : IRemoteAssistantBackend
 
     // ================= HTTP =================
 
-    private string SendChat(string question, AssistantReply baseline)
-        => SendChatCore(_http, _cfg, BuildSystemPrompt(), BuildUserPrompt(question, baseline));
+    private string SendChat(string question, AssistantReply baseline, ConversationHistory? history)
+        => SendChatCore(_http, _cfg, BuildSystemPrompt(), BuildUserPrompt(question, baseline, history));
 
     /// <summary>
     /// 发一次对话请求，返回模型正文（失败抛异常，由调用方统一降级）。
@@ -331,9 +335,15 @@ public sealed class LlmAssistant : IRemoteAssistantBackend
         "用工厂里的大白话说，不要客套，不要重复用户的问题。"
     });
 
-    private static string BuildUserPrompt(string question, AssistantReply baseline)
+    private static string BuildUserPrompt(string question, AssistantReply baseline, ConversationHistory? history = null)
     {
         var sb = new StringBuilder();
+        if (history is not null && history.Count > 0)
+        {
+            sb.AppendLine("【上文对话】（供你理解追问里的『那』『它』指什么；它不是新的数据来源）");
+            sb.AppendLine(history.ToPromptText());
+            sb.AppendLine();
+        }
         sb.AppendLine("【管理者提问】");
         sb.AppendLine(question);
         sb.AppendLine();

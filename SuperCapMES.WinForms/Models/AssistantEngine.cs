@@ -101,10 +101,54 @@ public sealed class RuleBasedAssistant : IAssistantBackend
     // ================= 入口 =================
 
     /// <inheritdoc />
-    public AssistantReply Ask(string question)
+    public AssistantReply Ask(string question, ConversationHistory? history = null)
     {
         var q = (question ?? "").Trim();
         if (q.Length == 0) return AssistantReply.Empty("", Name);
+
+        // ---- 追问补全（纯规则，零风险）----
+        // 场景：用户问完"缺什么料"，接着问"那铝壳呢"——单看这句没有任何业务关键词，
+        // 规则打分必然落空。这里的做法是：**识别不出来时，用上一轮的问句补一次上下文再试**，
+        // 而不是让用户自己把话说完整。
+        var first = AskCore(q);
+        if (first.Intent == AssistantIntent.Unknown || first.Confidence <= 0)
+        {
+            var enriched = EnrichWithHistory(q, history);
+            if (enriched != null)
+            {
+                var retry = AskCore(enriched);
+                if (retry.Intent != AssistantIntent.Unknown || retry.Confidence > first.Confidence)
+                    return retry;
+            }
+        }
+        return first;
+    }
+
+    /// <summary>把短追问与上一轮问句拼起来（返回 null 表示不需要补全）</summary>
+    private static string? EnrichWithHistory(string q, ConversationHistory? history)
+    {
+        if (history is null || history.Count == 0) return null;
+        if (q.Length > 12) return null;                       // 长句自带上下文，不必补
+        if (!LooksLikeFollowUp(q)) return null;               // 不是"那…呢"这类追问
+        var lastQ = history.Last!.Question;
+        if (lastQ.Length > 0 && q.Contains(lastQ[..Math.Min(4, lastQ.Length)], StringComparison.OrdinalIgnoreCase))
+            return null;                                       // 已经带了上一轮的实体
+        return $"{q}　（接着上一轮「{lastQ}」继续问）";
+    }
+
+    /// <summary>是否像一句追问（含指代或省略主语的短问句）</summary>
+    private static bool LooksLikeFollowUp(string q) =>
+        FollowUpMarkers.Any(m => q.Contains(m, StringComparison.Ordinal));
+
+    private static readonly string[] FollowUpMarkers =
+    {
+        "那", "它", "这个", "那个", "还有", "呢", "然后", "接着", "其中", "哪些", "几个", "还有吗"
+    };
+
+    /// <summary>真正的取数与判定（原 Ask 主体）</summary>
+    private AssistantReply AskCore(string question)
+    {
+        var q = (question ?? "").Trim();
 
         var norm = AssistantEntityParser.Normalize(q);
         var ent = AssistantEntityParser.Parse(q);

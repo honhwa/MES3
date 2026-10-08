@@ -117,6 +117,75 @@ public static class FactLevel
 /// 目的是让界面能把"这句话是基于哪几个数、哪些表算出来的"直接摆给用户看——
 /// 生产过程问答必须可追溯，不允许只给一个没法追责的结论。
 /// </summary>
+/// <summary>
+/// 一轮对话（供多轮追问用）。
+/// 只带<b>问题 + 结论 + 意图</b>，不带全文——历史的作用是让模型知道"上一轮在聊什么"，
+/// 带上全文既费 token 又会让模型被旧细节干扰。
+/// </summary>
+public class ChatTurn
+{
+    public string Question { get; set; } = "";
+    public string Headline { get; set; } = "";
+    public string Intent { get; set; } = "";
+
+    public ChatTurn() { }
+
+    public ChatTurn(string question, string headline, string intent)
+    {
+        Question = question;
+        Headline = headline;
+        Intent = intent;
+    }
+
+    public ChatTurn(AssistantReply r) => FromReply(r);
+
+    public void FromReply(AssistantReply r)
+    {
+        Question = r.Question;
+        Headline = r.Headline;
+        Intent = r.Intent;
+    }
+
+    /// <summary>一句话摘要，用于拼进提示词</summary>
+    public string Compact => $"问：{Question}　→ [{Intent}] {Headline}";
+}
+
+/// <summary>
+/// 对话上下文（环形，最多保留 <see cref="MaxRounds"/> 轮）。
+/// 为什么限轮数：历史全量进提示词会让 token 成本随轮次线性上升，
+/// 而且超过 3~5 轮后模型基本已经够用了，再多只是噪声。
+/// </summary>
+public class ConversationHistory
+{
+    /// <summary>最多保留的轮数</summary>
+    public const int MaxRounds = 4;
+
+    private readonly List<ChatTurn> _turns = new();
+
+    public IReadOnlyList<ChatTurn> Turns => _turns;
+
+    public int Count => _turns.Count;
+
+    /// <summary>最近一轮（没有则 null）</summary>
+    public ChatTurn? Last => _turns.Count > 0 ? _turns[^1] : null;
+
+    /// <summary>记录一轮对话（超上限自动丢最旧的）</summary>
+    public void Add(AssistantReply reply)
+    {
+        if (string.IsNullOrWhiteSpace(reply?.Question)) return;
+        _turns.Add(new ChatTurn(reply));
+        while (_turns.Count > MaxRounds) _turns.RemoveAt(0);
+    }
+
+    public void Clear() => _turns.Clear();
+
+    /// <summary>拼成提示词里的【上文】段落（不含当前轮）</summary>
+    public string ToPromptText()
+        => _turns.Count == 0
+            ? "（无，这是第一次提问）"
+            : string.Join("\n", _turns.Select((t, i) => $"  第{i + 1}轮 {t.Compact}"));
+}
+
 public sealed class AssistantReply
 {
     /// <summary>用户原话</summary>
@@ -292,8 +361,14 @@ public interface IAssistantBackend
     /// <summary>后端说明（可解释面板展示实现方式与数据边界）</summary>
     string Describe { get; }
 
-    /// <summary>回答一次提问。实现须保证：只读仓储，不产生任何副作用。</summary>
-    AssistantReply Ask(string question);
+    /// <summary>
+    /// 回答一次提问。实现须保证：只读仓储，不产生任何副作用。
+    /// </summary>
+    /// <param name="history">
+    /// 上文对话（可为空）。2026-10-08 起新增——之前界面显示"第 N 轮"却从不把历史传给后端，
+    /// 追问接不住，属"暗示了不存在的能力"。加的是<b>可选参数</b>，既有实现与调用都不受影响。
+    /// </param>
+    AssistantReply Ask(string question, ConversationHistory? history = null);
 }
 
 /// <summary>
@@ -340,13 +415,13 @@ public static class AssistantEngine
     public static IRemoteAssistantBackend? Remote => _backend as IRemoteAssistantBackend;
 
     /// <summary>问一次。空提问直接返回空回答，不进入后端。</summary>
-    public static AssistantReply Ask(string? question)
+    public static AssistantReply Ask(string? question, ConversationHistory? history = null)
     {
         var q = (question ?? "").Trim();
         if (q.Length == 0) return AssistantReply.Empty("", _backend.Name);
         try
         {
-            return _backend.Ask(q);
+            return _backend.Ask(q, history);
         }
         catch (Exception ex)
         {

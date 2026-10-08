@@ -62,6 +62,12 @@ public partial class MainForm : Form
     private bool _assistantLoaded;
     /// <summary>提问轮次（展示用）。</summary>
     private int _assistantRound;
+    /// <summary>对话上下文（最多 4 轮）。界面显示的"第 N 轮"从此是**真的**——历史会传给后端。</summary>
+    private readonly ConversationHistory _assistantHistory = new();
+    /// <summary>快捷提问区（随上一轮意图动态刷新，不再是固定列表）</summary>
+    private FlowLayoutPanel? _flpAssistantQuick;
+    /// <summary>导出按钮：把本条问答输出成 Markdown/纯文本，供贴进汇报材料</summary>
+    private Button _btnAssistantExport = null!;
     /// <summary>待渲染的对话段落（动画播放队列）。</summary>
     private readonly Queue<Action> _assistantRenderQueue = new();
 
