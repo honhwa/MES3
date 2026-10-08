@@ -30,6 +30,9 @@ public partial class MainForm
     private static readonly Color AsstBlue = Color.FromArgb(15, 76, 129);
     private static readonly Color AsstAccent = Color.FromArgb(30, 95, 168);
     private static readonly Color AsstGray = Color.FromArgb(110, 125, 145);
+    private static readonly Color AsstMuted = Color.FromArgb(148, 163, 184);
+    private static readonly Color AsstOk = Color.FromArgb(21, 128, 61);
+    private static readonly Color AsstBad = Color.FromArgb(220, 38, 38);
     private static readonly Color AsstGreen = Color.FromArgb(26, 127, 90);
     private static readonly Color AsstAmber = Color.FromArgb(168, 106, 0);
     private static readonly Color AsstRed = Color.FromArgb(176, 42, 42);
@@ -57,10 +60,12 @@ public partial class MainForm
 
         // 停靠顺序：Fill 必须先加入（下标最小 → 最后停靠 → 占满剩余）；
         // 后加入的先停靠，因此 Top 最后加入才能拿到整行宽度。
+        // 推送区最后加 → 停靠在**最上面**：打开助手页第一眼就能看到"现在有几件事要处理"。
         page.Controls.Add(center);
         page.Controls.Add(right);
         page.Controls.Add(bottom);
         page.Controls.Add(top);
+        BuildAssistantPushBar(page);
         return page;
     }
 
@@ -204,6 +209,9 @@ public partial class MainForm
             ScrollBars = RichTextBoxScrollBars.Vertical,
             Padding = new Padding(10, 8, 8, 8)
         };
+
+        // 反馈条属于"这条回答的元信息"，放在可解释面板正下方最自然
+        BuildAssistantFeedbackBar(host);
 
         host.Controls.Add(_rtbAssistantInspector);
         host.Controls.Add(caption);
@@ -487,6 +495,189 @@ public partial class MainForm
         // 记入上文，并按本轮意图刷新快捷提问（P0-1 / P0-2）
         _assistantHistory.Add(reply);
         RefreshAssistantQuick(reply);
+    }
+
+    /// <summary>
+    /// 答案反馈：每条回答下方 👍/👎。
+    /// 反馈的**用途是反哺**——按意图统计差评率，直接指出"哪类问法答不好"，指导补关键词/补手册。
+    /// 点 👎 会追问"哪里不对"，因为一条没有说明的差评没法指导任何改进。
+    /// </summary>
+    private void BuildAssistantFeedbackBar(Control parent)
+    {
+        var bar = new FlowLayoutPanel
+        {
+            Dock = DockStyle.Top,
+            Height = 34,
+            Padding = new Padding(8, 2, 8, 2),
+            BackColor = Color.White,
+            WrapContents = false
+        };
+
+        var cap = new Label
+        {
+            Text = "这条回答有帮助吗？",
+            AutoSize = true,
+            Margin = new Padding(0, 5, 8, 0),
+            ForeColor = AsstGray,
+            Font = new Font("微软雅黑", 8.5F)
+        };
+        bar.Controls.Add(cap);
+
+        var good = MakeFeedbackButton("👍 有帮助", FeedbackRating.Good);
+        var bad = MakeFeedbackButton("👎 没答到点", FeedbackRating.Bad);
+        bar.Controls.Add(good);
+        bar.Controls.Add(bad);
+
+        var stat = MakeToolbarButton("反馈统计", BtnFeedbackStats);
+        stat.Width = 84;
+        bar.Controls.Add(stat);
+
+        _lblFeedbackTip = new Label
+        {
+            AutoSize = true,
+            Margin = new Padding(10, 5, 0, 0),
+            ForeColor = AsstMuted,
+            Font = new Font("微软雅黑", 8.5F)
+        };
+        bar.Controls.Add(_lblFeedbackTip);
+
+        parent.Controls.Add(bar);   // Top：后加入的先停靠
+    }
+
+    private Button MakeFeedbackButton(string text, string rating)
+    {
+        var b = new Button
+        {
+            Text = text,
+            AutoSize = true,
+            Height = 24,
+            FlatStyle = FlatStyle.Flat,
+            BackColor = Color.White,
+            ForeColor = AsstInk,
+            Font = new Font("微软雅黑", 8.5F),
+            Tag = rating
+        };
+        b.FlatAppearance.BorderColor = Color.FromArgb(210, 218, 230);
+        b.Click += (_, _) => SubmitFeedback(rating);
+        return b;
+    }
+
+    /// <summary>提交反馈（负反馈会追问原因）。</summary>
+    private void SubmitFeedback(string rating)
+    {
+        var reply = _lastAssistantReply;
+        if (reply is null) { Warn("还没有回答可评价。"); return; }
+
+        var comment = "";
+        if (rating == FeedbackRating.Bad)
+        {
+            using var dlg = new FeedbackForm(reply);
+            if (dlg.ShowDialog(this) != DialogResult.OK) return;   // 取消就不记
+            comment = dlg.Comment;
+        }
+
+        var (ok, msg) = AssistantFeedbackStore.Add(reply, rating, comment);
+        if (ok)
+        {
+            _lblFeedbackTip.Text = "已收到反馈　";
+            _lblFeedbackTip.ForeColor = AsstOk;
+            _assistantFeedbackTip = msg;
+        }
+        else
+        {
+            _lblFeedbackTip.Text = msg;
+            _lblFeedbackTip.ForeColor = AsstBad;
+        }
+    }
+
+    /// <summary>反馈统计弹窗：差评率按意图排序，并给出可执行的改进建议。</summary>
+    private void BtnFeedbackStats(object? sender, EventArgs e)
+    {
+        using var dlg = new FeedbackStatsForm(AssistantFeedbackStore.Summarize());
+        dlg.ShowDialog(this);
+    }
+
+    /// <summary>
+    /// 主动推送区：打开助手页就知道"现在有几件事要处理"，点一下直接问到答案。
+    /// 数据源接「主动预警与决策」，不做系统弹窗（会打断、也没人看）。
+    /// </summary>
+    private void BuildAssistantPushBar(Control parent)
+    {
+        _flpAssistantPush = new FlowLayoutPanel
+        {
+            Dock = DockStyle.Top,
+            AutoSize = true,
+            AutoSizeMode = AutoSizeMode.GrowAndShrink,
+            MaximumSize = new Size(1200, 0),
+            Padding = new Padding(10, 4, 10, 4),
+            BackColor = Color.FromArgb(240, 247, 255),
+            WrapContents = true
+        };
+        parent.Controls.Add(_flpAssistantPush);
+        RefreshAssistantPush();
+    }
+
+    /// <summary>重建推送区内容（每次打开助手页 / 分析完预警后刷新）</summary>
+    private void RefreshAssistantPush()
+    {
+        if (_flpAssistantPush is null) return;
+        _flpAssistantPush.SuspendLayout();
+        try
+        {
+            _flpAssistantPush.Controls.Clear();
+            var items = AssistantPush.BuildPushItems();
+
+            var title = new Label
+            {
+                Text = "🔔 " + AssistantPush.SummaryText(items),
+                AutoSize = true,
+                Margin = new Padding(0, 4, 10, 0),
+                ForeColor = Color.FromArgb(30, 64, 175),
+                Font = new Font("微软雅黑", 9F, FontStyle.Bold)
+            };
+            _flpAssistantPush.Controls.Add(title);
+
+            if (items.Count == 0)
+            {
+                _flpAssistantPush.Controls.Add(new Label
+                {
+                    Text = "　— 各项都在正常范围内",
+                    AutoSize = true,
+                    Margin = new Padding(0, 5, 0, 4),
+                    ForeColor = AsstGray,
+                    Font = new Font("微软雅黑", 9F)
+                });
+                return;
+            }
+
+            foreach (var item in items)
+            {
+                var q = item.Question;
+                var link = new LinkLabel
+                {
+                    Text = "· " + item.Title,
+                    AutoSize = true,
+                    Margin = new Padding(0, 4, 14, 4),
+                    LinkColor = item.Level == InsightLevels.Urgent ? AsstBad : Color.FromArgb(30, 64, 175),
+                    Font = new Font("微软雅黑", 9F),
+                    Tag = item
+                };
+                link.Click += (_, _) =>
+                {
+                    _txtAssistantInput.Text = q;
+                    AskAssistantFromInput();
+                };
+                _flpAssistantPush.Controls.Add(link);
+            }
+
+            var refresh = MakeToolbarButton("刷新提醒", (_, _) => RefreshAssistantPush());
+            refresh.Width = 84;
+            _flpAssistantPush.Controls.Add(refresh);
+        }
+        finally
+        {
+            _flpAssistantPush.ResumeLayout(true);
+        }
     }
 
     /// <summary>打开后端设置：配置云端大模型（默认关闭），保存后立即切换后端并刷新界面说明。</summary>

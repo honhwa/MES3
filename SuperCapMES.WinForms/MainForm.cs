@@ -68,6 +68,12 @@ public partial class MainForm : Form
     private FlowLayoutPanel? _flpAssistantQuick;
     /// <summary>导出按钮：把本条问答输出成 Markdown/纯文本，供贴进汇报材料</summary>
     private Button _btnAssistantExport = null!;
+    /// <summary>反馈按钮旁的结果提示（"已收到反馈"等）</summary>
+    private Label _lblFeedbackTip = null!;
+    /// <summary>主动推送提醒区（数据源接「主动预警与决策」）</summary>
+    private FlowLayoutPanel? _flpAssistantPush;
+    /// <summary>最近一次反馈的落盘提示（自测与排查用）</summary>
+    private string _assistantFeedbackTip = "";
     /// <summary>待渲染的对话段落（动画播放队列）。</summary>
     private readonly Queue<Action> _assistantRenderQueue = new();
 
@@ -869,6 +875,7 @@ public partial class MainForm : Form
         EnsureScheduleReady();   // 智能排产兜底初始化（幂等：载入待下发 PO 并生成首张建议）
         EnsurePurchaseReady(); // 资材采购申请兜底初始化（幂等：载入申请单列表）
         LoadInsights();          // 主动预警与决策：数据量小，纯计算，直接算出来
+        AssistantFeedbackStore.Load();   // 载入历史反馈（重启后统计不丢）
     }
 
     /// <summary>执行「Trace」业务动作（校验 → 执行 → 刷新界面）。</summary>
