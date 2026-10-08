@@ -294,101 +294,23 @@ public sealed class LlmAssistant : IRemoteAssistantBackend
     private string SendChat(string question, AssistantReply baseline)
         => SendChatCore(_http, _cfg, BuildSystemPrompt(), BuildUserPrompt(question, baseline));
 
-    /// <summary>发一次对话请求，返回模型正文（失败抛异常，由调用方统一降级）。</summary>
+    /// <summary>
+    /// 发一次对话请求，返回模型正文（失败抛异常，由调用方统一降级）。
+    /// 实现已抽到 <see cref="LlmHttp"/> 供结构化任务调用共用——此处保留同名薄封装，
+    /// 避免出现两份 HTTP 实现导致"一处修了超时识别、另一处没修"。
+    /// </summary>
     private static string SendChatCore(HttpClient http, AssistantLlmSettings cfg, string system, string user)
-    {
-        var url = cfg.BaseUrl.TrimEnd('/') + "/chat/completions";
-        var payload = new
-        {
-            model = cfg.Model,
-            messages = new object[]
-            {
-                new { role = "system", content = system },
-                new { role = "user", content = user }
-            },
-            temperature = cfg.Temperature,
-            max_tokens = cfg.MaxTokens,
-            stream = false
-        };
-
-        var json = JsonSerializer.Serialize(payload, PayloadJson);
-
-        using var cts = new System.Threading.CancellationTokenSource(TimeSpan.FromSeconds(cfg.TimeoutSeconds));
-        using var req = new HttpRequestMessage(HttpMethod.Post, url)
-        {
-            Content = new StringContent(json, Encoding.UTF8, "application/json")
-        };
-        req.Headers.TryAddWithoutValidation("Authorization", "Bearer " + cfg.ResolveApiKey());
-
-        // 用 SendAsync 而不是同步的 Send：.NET 中自定义 HttpMessageHandler（含自测用的假处理器）
-        // 默认不支持同步 Send，会直接抛 NotSupportedException 而请求根本发不出去。
-        // 这里同步等待是因为 Ask() 本身就是阻塞契约，界面在后台线程调用它，不会冻 UI。
-        using var resp = http.SendAsync(req, cts.Token).GetAwaiter().GetResult();
-        string body;
-        using (var reader = new StreamReader(resp.Content.ReadAsStream(cts.Token), Encoding.UTF8))
-            body = reader.ReadToEnd();
-
-        if (!resp.IsSuccessStatusCode)
-            throw new InvalidOperationException($"HTTP {(int)resp.StatusCode}：{Shorten(ExtractApiError(body), 200)}");
-
-        using var doc = JsonDocument.Parse(body);
-        if (!doc.RootElement.TryGetProperty("choices", out var choices)
-            || choices.GetArrayLength() == 0
-            || !choices[0].TryGetProperty("message", out var msg)
-            || !msg.TryGetProperty("content", out var content))
-            throw new InvalidOperationException("响应结构不符合 OpenAI 兼容格式（缺少 choices[0].message.content）");
-
-        return content.GetString() ?? "";
-    }
+        => LlmHttp.Send(cfg, system, user, http);
 
     /// <summary>连通性自测：发一条最小请求，返回可用性与说明（供设置对话框调用）。</summary>
     public static (bool Ok, string Message) TestConnection(AssistantLlmSettings cfg, HttpClient? http = null)
-    {
-        if (!cfg.CanCall)
-            return (false, "尚未启用或未填写 API Key。");
+        => LlmHttp.TestConnection(cfg, http);
 
-        try
-        {
-            var text = SendChatCore(http ?? SharedHttp, cfg,
-                "你是连通性测试端点。",
-                "请只回复六个字：连接正常。");
-            return string.IsNullOrWhiteSpace(text)
-                ? (false, "服务有响应但内容为空。")
-                : (true, $"连接正常，模型回显：{Shorten(text.Trim(), 80)}（模型 {cfg.Model}）");
-        }
-        catch (Exception ex)
-        {
-            return (false, ShortError(ex));
-        }
-    }
+    /// <summary>异常归类（与共用通道一致）。</summary>
+    private static string ShortError(Exception ex) => LlmHttp.ShortError(ex);
 
-    /// <summary>从错误响应里尽量挖出 API 的 message 字段，比整段 JSON 好读。</summary>
-    private static string ExtractApiError(string body)
-    {
-        try
-        {
-            using var doc = JsonDocument.Parse(body);
-            if (doc.RootElement.TryGetProperty("error", out var err)
-                && err.TryGetProperty("message", out var m))
-                return m.GetString() ?? body;
-        }
-        catch { /* 不是 JSON 就原样返回，交给 Shorten 截断 */ }
-        return body;
-    }
-
-    private static string ShortError(Exception ex) =>
-        ex switch
-        {
-            TaskCanceledException or OperationCanceledException => "请求超时（可调大超时秒数或检查网络）",
-            HttpRequestException hre => "网络不可达：" + Shorten(hre.Message, 160),
-            _ => ex.GetType().Name + "：" + Shorten(ex.Message, 180)
-        };
-
-    private static string Shorten(string? s, int max)
-    {
-        var t = (s ?? "").Replace("\r", " ").Replace("\n", " ").Trim();
-        return t.Length <= max ? t : t[..max] + "…";
-    }
+    /// <summary>截断过长文本。</summary>
+    private static string Shorten(string? s, int max) => LlmHttp.Shorten(s, max);
 
     // ================= 提示词 =================
 

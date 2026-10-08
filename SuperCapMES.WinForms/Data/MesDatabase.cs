@@ -157,6 +157,7 @@ public static partial class MesDatabase
         SeedShipment();
         SeedErp();
         SeedSchedulingHistory();   // 历史工单 + 完工报工：为智能排产推理提供足量样本
+        SeedAssets();              // 生产资产 + 初始占用：为资产占用校验提供可冲突的样本
         SeedErpStocks();
         SeedSpc();
         SeedWipFlow();

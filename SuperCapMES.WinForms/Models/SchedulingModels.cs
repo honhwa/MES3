@@ -305,6 +305,12 @@ public class ScheduleRecommendation
     // ---- 齐套校验 ----
     public MaterialCheckResult StockCheck { get; set; } = new();
 
+    /// <summary>
+    /// 资源校验结果（物料齐套 + 资产占用冲突）。
+    /// 2026-10-08 起排产也校验资产占用——只查物料不查设备，会排出"纸面上能做、实际撞车"的计划。
+    /// </summary>
+    public ResourceCheckResult? ResourceCheck { get; set; }
+
     /// <summary>是否可以做（缺料 = 不建议立刻开工；但允许人工决策后照建）</summary>
     public bool MaterialReady => StockCheck.AllSatisfied;
 

@@ -195,6 +195,9 @@ public static partial class MesDatabase
 
         var req = BuildRequestCore(wo, targets, applicant, remark, autoCreated: true);
         PurchaseRequests.Add(req);
+        // 同一事务边界：生成申请单时顺带做一次资源占用校验，冲突与建议写进备注
+        AppendOccupancyNoteOnCreate(req, wo);
+
         return (true, $"已生成采购申请 {req.ReqNo}：{targets.Count} 项物料，合计 {req.TotalQtyText}。来源工单 {wo.WoNo}。", req.ReqNo);
     }
 
@@ -386,7 +389,9 @@ public static partial class MesDatabase
 
     // ================= 状态流转 =================
 
-    /// <summary>提交（草稿 / 已驳回 → 待审批）。</summary>
+    /// <summary>提交（草稿 / 已驳回 → 待审批）。
+    /// 提交前会**再校验一次资产占用**——申请单可能在草稿态放了好几天，
+    /// 期间别的工单可能已经占了设备。冲突原因与处理建议写进备注，随单据留痕。</summary>
     public static (bool Ok, string Message) SubmitRequest(string reqNo, string @operator)
     {
         var req = FindPurchaseRequest(reqNo);
@@ -398,10 +403,61 @@ public static partial class MesDatabase
         if (req.Lines.Any(l => l.RequestQty <= 1e-9))
             return (false, "明细里存在申请量为 0 的行，请补齐后再提交。");
 
+        // 提交时重校验资源占用：草稿期间占用状况可能已变
+        var occupancyNote = BuildOccupancyNoteForRequest(req);
+        if (occupancyNote.Length > 0)
+            req.Remark = AppendNote(req.Remark, occupancyNote);
+
         req.Status = PurchaseRequestStatus.Submitted;
         req.SubmitTime = DateTime.Now;
         req.Applicant = string.IsNullOrWhiteSpace(@operator) ? req.Applicant : @operator.Trim();
-        return (true, $"{req.ReqNo} 已提交，等待审批。");
+        return (true, occupancyNote.Length > 0
+            ? $"{req.ReqNo} 已提交，等待审批。\n\n提交时资源占用复校：\n{occupancyNote}"
+            : $"{req.ReqNo} 已提交，等待审批。");
+    }
+
+    /// <summary>
+    /// 生成申请单时做一次资源占用校验，把冲突与建议写进申请单备注。
+    /// 这样"为什么这张单要采购"和"这张单能不能按时开工"两张信息落在同一张单据上。
+    /// </summary>
+    private static void AppendOccupancyNoteOnCreate(PurchaseRequest req, WorkOrder wo)
+    {
+        var res = CheckResourceAvailability(
+            req.WoNo, wo.ProductModel, wo.PlanQty,
+            wo.StartDate, wo.DueDate, includeMaterial: false, source: LlmSources.Rule);
+        var note = BuildOccupancyNoteCore(res);
+        if (note.Length > 0) req.Remark = AppendNote(req.Remark, note);
+    }
+
+    private static string BuildOccupancyNoteForRequest(PurchaseRequest req)
+    {
+        if (string.IsNullOrWhiteSpace(req.WoNo)) return "";
+        var check = CheckWorkOrderShortage(req.WoNo, out var wo);
+        if (check is null || wo is null) return "";
+
+        var res = CheckResourceAvailability(
+            req.WoNo, wo.ProductModel, wo.PlanQty,
+            wo.StartDate, wo.DueDate, includeMaterial: false, source: LlmSources.Rule);
+        return BuildOccupancyNoteCore(res);
+    }
+
+    private static string BuildOccupancyNoteCore(ResourceCheckResult? check)
+    {
+        if (check is null || check.AssetOk) return "";
+
+        var sb = new System.Text.StringBuilder();
+        sb.Append("【资源占用冲突】").Append(check.SummaryText);
+        foreach (var l in check.AssetLines.Where(x => x.Status != AssetCheckStatus.Ok))
+        {
+            sb.Append($"\n· {l.AssetName}（{l.AssetCode}／工序 {l.Process}）：");
+            if (l.Conflicts.Count > 0)
+                sb.Append(string.Join("；", l.Conflicts.Select(c => $"工单 {c.WoNo} 占 {c.OccupiedQty} 台 {c.WindowText}")));
+            else
+                sb.Append($"可用余量 {l.AvailableQty} {l.Unit}，本单需 {l.NeedQty} {l.Unit}");
+            var opts = l.Options.Where(o => o.Feasible).Select(o => o.Text).ToList();
+            if (opts.Count > 0) sb.Append("；处理建议：").Append(string.Join("；", opts.Take(2)));
+        }
+        return sb.ToString();
     }
 
     /// <summary>批准（待审批 → 已批准）。</summary>

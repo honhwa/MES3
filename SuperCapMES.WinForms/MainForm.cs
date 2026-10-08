@@ -83,6 +83,10 @@ public partial class MainForm : Form
     private ScheduleRecommendation? _currentSchedule;
     /// <summary>排产页首次加载守卫（幂等）。</summary>
     private bool _scheduleLoaded;
+    private Button _btnScheduleAi = null!;
+    private Label _lblScheduleResource = null!;
+    private Label _lblScheduleAi = null!;
+    private DataGridView _gridScheduleAsset = null!;
 
     // ================= 资材采购申请 =================
     private ComboBox _cboReqWo = null!;

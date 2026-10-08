@@ -73,6 +73,10 @@ public partial class MainForm
         _btnScheduleCreate.Enabled = false;   // 没有建议前不给点，避免误生成
         toolbar.Controls.Add(_btnScheduleCreate);
 
+        _btnScheduleAi = MakeToolbarButton("🤖 AI 推演", BtnScheduleAiAdvise);
+        _btnScheduleAi.Width = 108;
+        toolbar.Controls.Add(_btnScheduleAi);
+
         var btnRefresh = MakeToolbarButton("刷新", (_, _) => LoadSchedulingPos());
         btnRefresh.Width = 84;
         toolbar.Controls.Add(btnRefresh);
@@ -104,8 +108,30 @@ public partial class MainForm
             TextAlign = ContentAlignment.MiddleLeft,
             Text = "口径：可用库存不含待检区与退货待处理区；1 个生产日按 16h 有效产能折算（未含周末与节假日）。"
         };
-        conclusion.Controls.Add(_lblScheduleRisk);
-        conclusion.Controls.Add(_lblScheduleHeadline);
+        _lblScheduleResource = new Label
+        {
+            Dock = DockStyle.Bottom,
+            Height = 26,
+            AutoSize = false,
+            Font = new Font("微软雅黑", 9F),
+            ForeColor = SchMuted,
+            TextAlign = ContentAlignment.MiddleLeft,
+            Text = "资源占用：生成建议后自动校验设备/工装。"
+        };
+        _lblScheduleAi = new Label
+        {
+            Dock = DockStyle.Bottom,
+            Height = 26,
+            AutoSize = false,
+            Font = new Font("微软雅黑", 9F),
+            ForeColor = SchMuted,
+            TextAlign = ContentAlignment.MiddleLeft,
+            Text = ""
+        };
+        conclusion.Controls.Add(_lblScheduleAi);      // Bottom
+        conclusion.Controls.Add(_lblScheduleResource);// Bottom
+        conclusion.Controls.Add(_lblScheduleRisk);    // Fill
+        conclusion.Controls.Add(_lblScheduleHeadline);// Top
 
         // ---- 主体：左=结论与依据，右=齐套校验 ----
         var split = new SplitContainer
@@ -126,10 +152,26 @@ public partial class MainForm
         };
 
         split.Panel1.Controls.Add(BuildScheduleConclusionPanel());
-        split.Panel2.Controls.Add(MakeGridGroup(
+
+        // 右侧改成两个子页：物料齐套 / 资产占用（同一套口径，两个维度分开看）
+        var resTabs = new TabControl { Dock = DockStyle.Fill, Font = new Font("微软雅黑", 9F) };
+        var matPage = new TabPage("物料齐套");
+        matPage.Padding = new Padding(4);
+        matPage.Controls.Add(MakeGridGroup(
             "齐套校验（需求量 = 单位用量 × (1 + 损耗率%) × 投产数量；可用量不含待检区与退货待处理区）",
             out _gridScheduleStock));
         SetupScheduleStockColumns();
+
+        var assetPage = new TabPage("资产占用");
+        assetPage.Padding = new Padding(4);
+        assetPage.Controls.Add(MakeGridGroup(
+            "资产占用校验（按各工序设备/工装的并发容量与时间窗逐项比对，冲突会给出可选方案）",
+            out _gridScheduleAsset));
+        SetupScheduleAssetColumns();
+
+        resTabs.TabPages.Add(matPage);
+        resTabs.TabPages.Add(assetPage);
+        split.Panel2.Controls.Add(resTabs);
 
         page.Controls.Add(split);         // Fill
         page.Controls.Add(conclusion);    // Top
@@ -207,6 +249,44 @@ public partial class MainForm
 
         _gridScheduleStock.CellFormatting -= ScheduleStock_CellFormatting;
         _gridScheduleStock.CellFormatting += ScheduleStock_CellFormatting;
+    }
+
+    /// <summary>资产占用表列定义。</summary>
+    private void SetupScheduleAssetColumns()
+    {
+        _gridScheduleAsset.AutoGenerateColumns = false;
+        _gridScheduleAsset.Columns.Clear();
+        _gridScheduleAsset.Columns.Add(MakeTextCol("Process", "工序", true, 7));
+        _gridScheduleAsset.Columns.Add(MakeTextCol("AssetName", "资产", true, 15));
+        _gridScheduleAsset.Columns.Add(MakeTextCol("AssetCode", "编码", true, 13));
+        _gridScheduleAsset.Columns.Add(MakeTextCol("NeedText", "本单需求", true, 9));
+        _gridScheduleAsset.Columns.Add(MakeTextCol("AvailableText", "可用余量", true, 9));
+        _gridScheduleAsset.Columns.Add(MakeTextCol("StatusText", "状态", true, 9));
+        _gridScheduleAsset.Columns.Add(MakeTextCol("ConflictText", "冲突占用明细", true, 30));
+        _gridScheduleAsset.Columns.Add(MakeTextCol("OptionText", "可选方案", true, 34));
+
+        _gridScheduleAsset.CellFormatting -= ScheduleAsset_CellFormatting;
+        _gridScheduleAsset.CellFormatting += ScheduleAsset_CellFormatting;
+    }
+
+    private void ScheduleAsset_CellFormatting(object? sender, DataGridViewCellFormattingEventArgs e)
+    {
+        if (_gridScheduleAsset.Rows.Count == 0 || e.RowIndex < 0) return;
+        if (_gridScheduleAsset.Rows[e.RowIndex].DataBoundItem is not AssetCheckLine l) return;
+        switch (l.Status)
+        {
+            case AssetCheckStatus.Conflict:
+                e.CellStyle.BackColor = Color.FromArgb(254, 226, 226);
+                e.CellStyle.ForeColor = SchBad;
+                break;
+            case AssetCheckStatus.Insufficient:
+                e.CellStyle.BackColor = Color.FromArgb(255, 247, 237);
+                e.CellStyle.ForeColor = SchWarn;
+                break;
+            default:
+                e.CellStyle.ForeColor = SchOk;
+                break;
+        }
     }
 
     /// <summary>齐套状态着色：短缺红底、紧张黄底、满足绿字。</summary>
@@ -343,6 +423,31 @@ public partial class MainForm
 
         _gridScheduleStock.DataSource = rec.StockCheck.Rows;
 
+        // 资产占用：齐套不等于能开工——设备被别的工单占着，照样排不了
+        var res = rec.ResourceCheck;
+        _gridScheduleAsset.DataSource = res?.AssetLines;
+        if (res is null || res.AssetLines.Count == 0)
+        {
+            _lblScheduleResource.Text = "资源占用：该型号未匹配到需占用的设备/工装。";
+            _lblScheduleResource.ForeColor = SchMuted;
+        }
+        else if (res.AssetOk)
+        {
+            _lblScheduleResource.Text = $"资源占用：✓ {res.AssetLines.Count} 项设备/工装在计划时段均有余量。";
+            _lblScheduleResource.ForeColor = SchOk;
+        }
+        else
+        {
+            var names = string.Join("、", res.AssetLines
+                .Where(l => l.Status != AssetCheckStatus.Ok)
+                .Select(l => $"{l.AssetName}({(l.Status == AssetCheckStatus.Conflict ? "冲突" : "余量不足")})")
+                .Take(3));
+            _lblScheduleResource.Text = $"资源占用：⚠ {res.ConflictCount} 项时间冲突 / {res.InsufficientCount} 项余量不足 —— {names}。见「资产占用」页可选方案。";
+            _lblScheduleResource.ForeColor = SchBad;
+        }
+
+        _lblScheduleAi.Text = "";   // 换订单时清掉上一张的 AI 推演结果
+
         _lstScheduleEvidence.BeginUpdate();
         try
         {
@@ -363,6 +468,56 @@ public partial class MainForm
     // ================= 交互 =================
 
     private void BtnScheduleGenerate(object? sender, EventArgs e) => GenerateSchedule();
+
+    /// <summary>
+    /// AI 推演：把**规则已算好的**结论 + 依据交给云端模型，请它讲成主管能直接决策的话。
+    /// 数字仍全部来自规则；模型若编了素材外的数字，返回会被整段丢弃并自动降级（结果区标明来源）。
+    /// </summary>
+    private async void BtnScheduleAiAdvise(object? sender, EventArgs e)
+    {
+        var rec = _currentSchedule;
+        if (rec is null) { Warn("请先生成排产建议。"); return; }
+
+        _btnScheduleAi.Enabled = false;
+        _btnScheduleAi.Text = "推演中…";
+        _lblScheduleAi.Text = "正在请求云端大模型…（数字仍以规则计算为准）";
+        try
+        {
+            LlmCallResult<ScheduleAdviseResult> r;
+            try { r = await Task.Run(() => AiTasks.AdviseSchedule(rec)); }
+            catch (Exception ex) { r = new LlmCallResult<ScheduleAdviseResult> { Ok = false, Source = LlmSources.Rule, Reason = ex.Message }; }
+
+            if (!r.Ok || r.Value is null)
+            {
+                _lblScheduleAi.Text = r.TraceText;
+                _lblScheduleAi.ForeColor = SchWarn;
+                return;
+            }
+
+            var v = r.Value;
+            _lblScheduleAi.Text = $"{r.TraceText}｜{v.Conclusion}";
+            _lblScheduleAi.ForeColor = SchOk;
+
+            // 推演结果追加进「推理依据」列表：与规则依据放在一起，方便对照"哪些是算的、哪些是模型讲的"
+            _lstScheduleEvidence.BeginUpdate();
+            try
+            {
+                _lstScheduleEvidence.Items.Add($"—— 以下为 AI 推演（{r.Source}，置信度 {r.Confidence:P0}）——");
+                _lstScheduleEvidence.Items.Add("【结论】" + v.Conclusion);
+                foreach (var a in v.Actions) _lstScheduleEvidence.Items.Add("【建议】" + a);
+                foreach (var k in v.Risks) _lstScheduleEvidence.Items.Add("【风险】" + k);
+            }
+            finally
+            {
+                _lstScheduleEvidence.EndUpdate();
+            }
+        }
+        finally
+        {
+            _btnScheduleAi.Enabled = true;
+            _btnScheduleAi.Text = "🤖 AI 推演";
+        }
+    }
 
     /// <summary>
     /// 按排产建议生成工单。
@@ -390,6 +545,19 @@ public partial class MainForm
         if (rec.Risk == ScheduleRisk.Late) blocks.Add($"· 交期风险：{rec.RiskText}");
         if (!rec.StockCheck.NoBom && !rec.MaterialReady)
             blocks.Add($"· 物料不齐套：缺 {rec.StockCheck.ShortageBrief}\n  缺料开工会造成生产中断或半成品积压。");
+        if (rec.ResourceCheck is { AssetLines.Count: > 0 } rc && !rc.AssetOk)
+        {
+            foreach (var l in rc.AssetLines.Where(x => x.Status != AssetCheckStatus.Ok).Take(3))
+            {
+                var t = $"· 资产占用{l.StatusText}：{l.AssetName}（{l.AssetCode}／{l.Process}）"
+                        + (l.Conflicts.Count > 0
+                            ? "，已被 " + string.Join("、", l.Conflicts.Select(c => $"工单 {c.WoNo}（{c.WindowText}）")) + " 占用"
+                            : $"，可用余量 {l.AvailableText} 不足本单所需 {l.NeedText}");
+                var opts = l.Options.Where(o => o.Feasible).Select(o => o.Text).ToList();
+                if (opts.Count > 0) t += "\n  可选方案：" + string.Join("；", opts.Take(2));
+                blocks.Add(t);
+            }
+        }
 
         if (blocks.Count > 0)
         {

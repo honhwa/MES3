@@ -95,7 +95,7 @@ public static partial class MesDatabase
     /// <param name="productModel">产品型号（区分大小写不敏感）</param>
     /// <param name="planQty">投产数量（未含良率补偿时由调用方自行换算）</param>
     /// <param name="orderQty">订单数量（仅用于展示"订单→投产"的差异来源；≤0 时取 planQty）</param>
-    public static MaterialCheckResult CheckBomAvailability(string productModel, int planQty, int orderQty = 0)
+    public static MaterialCheckResult CheckBomAvailability(string? productModel, int planQty, int orderQty = 0)
     {
         var result = new MaterialCheckResult
         {
@@ -433,6 +433,19 @@ public static partial class MesDatabase
         // ---- ⑥ 齐套校验（按投产数量展开 BOM） ----
         rec.StockCheck = CheckBomAvailability(po.ProductModel, rec.InputQty, po.OrderQty);
 
+        // ---- ⑥' 资产占用校验：光查物料不查设备，会排出"纸面上能做、实际撞车"的计划 ----
+        // ⚠ 必须按**推荐线体**分配资产：前面 ③ 已经把线体定下来了，
+        //   如果这里不传线体，校验会去选"第一个候选"，导致"校验的资产"和"实际排的资产"不是一回事。
+        rec.ResourceCheck = CheckResourceAvailability(
+            woNo: "",                       // 新工单尚无号，排除自身占用时无需传
+            productModel: po.ProductModel,
+            planQty: rec.InputQty,
+            start: rec.PlannedStart,
+            end: rec.PlannedFinish,
+            requiredAssets: AllocateAssetsForModel(po.ProductModel, rec.RecommendedLine),
+            includeMaterial: false,         // 物料已由 StockCheck 算过，不重复
+            source: LlmSources.Rule);
+
         // ---- ⑦ 推理依据（可解释，逐条可追问） ----
         rec.Evidence = BuildScheduleEvidence(rec, lineReason, at);
         return rec;
@@ -510,6 +523,25 @@ public static partial class MesDatabase
         var lineValue = string.IsNullOrWhiteSpace(line) ? rec.RecommendedLine : line.Trim();
         if (string.IsNullOrWhiteSpace(lineValue)) lineValue = "L1";
 
+        // 资产占用拦截：与物料同一套口径、同一个开关。齐套但设备被别人占着，照样排不了。
+        var assets = AllocateAssetsForModel(po.ProductModel, lineValue);
+        var res = CheckResourceAvailability(
+            woNo, po.ProductModel, rec.InputQty, rec.PlannedStart, rec.PlannedFinish,
+            assets, includeMaterial: false, source: LlmSources.Rule);
+        if (!res.AssetOk && !forceIgnoreShortage)
+        {
+            var detail = res.AssetLines
+                .Where(l => l.Status != AssetCheckStatus.Ok)
+                .Select(l => $"{l.AssetName}（{l.AssetCode}）{l.StatusText}"
+                             + (l.Conflicts.Count > 0
+                                 ? "：工单 " + string.Join("、", l.Conflicts.Select(c => $"{c.WoNo} 占 {c.OccupiedQty} 台 {c.WindowText}"))
+                                 : $"：可用 {l.AvailableText} < 需求 {l.NeedText}"))
+                .Take(3);
+            var opt = res.AllOptions.Where(o => o.Feasible).Select(o => o.Text).Take(2).ToList();
+            var tip = opt.Count > 0 ? "可选方案：" + string.Join("；", opt) : "";
+            return (false, $"资产占用冲突，已阻止创建：{string.Join("；", detail)}。{tip}。如需强制排产请确认后重试。", "");
+        }
+
         var now = DateTime.Now;
         WorkOrders.Add(new WorkOrder
         {
@@ -530,6 +562,15 @@ public static partial class MesDatabase
 
         var warn = string.IsNullOrEmpty(@operator) ? "" : $"（操作人：{@operator}）";
 
+        // 登记资产占用：工单建了就得占住设备，否则两张单会排到同一台机器上
+        var (occOk, occMsg, _) = ReserveAssetsForWorkOrder(
+            woNo, assets, rec.PlannedStart, rec.PlannedFinish,
+            source: OccupancySource.Scheduling,
+            expectVersion: -1,
+            confirmed: false,
+            remark: $"{po.ProductModel} {rec.InputQty} 只（智能排产）");
+        var occNote = occOk ? $"；已登记 {assets.Count} 项资产占用" : $"；⚠ 资产占用登记失败：{occMsg}";
+
         // 缺料时**同步生成采购申请**：只报"缺"却没人去补，是排产链路上最典型的断点。
         // 这里把缺口直接转成一张草稿申请单，与本工单绑定，让缺料有出口。
         var prNote = "";
@@ -541,7 +582,7 @@ public static partial class MesDatabase
 
         return (true,
             $"已生成工单 {woNo}：{po.ProductModel}，投产 {rec.InputQty} 只，线体 {lineValue}，"
-            + $"计划 {rec.PlannedStart:MM-dd} 开工、{rec.PlannedFinish:MM-dd} 完工{warn}{prNote}。",
+            + $"计划 {rec.PlannedStart:MM-dd} 开工、{rec.PlannedFinish:MM-dd} 完工{warn}{occNote}{prNote}。",
             woNo);
     }
 

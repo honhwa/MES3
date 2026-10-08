@@ -30,8 +30,15 @@ public class WorkOrderEditForm : Form
     private DateTimePicker _dtDue = null!;
     private Label _lblStock = null!;
     private DataGridView _gridStock = null!;
-    /// <summary>最近一次齐套校验结果（保存时据此做缺料预警）。</summary>
-    private MaterialCheckResult? _lastStockCheck;
+    private Label _lblAsset = null!;
+    private DataGridView _gridAsset = null!;
+    private TextBox _txtAiInput = null!;
+    private Button _btnAiParse = null!;
+    private Label _lblAiTrace = null!;
+    /// <summary>最近一次资源校验结果（物料 + 资产，保存时据此预警与登记占用）。</summary>
+    private ResourceCheckResult? _lastResourceCheck;
+    /// <summary>进入本窗体时读到的占用版本（保存时做乐观锁比对）。</summary>
+    private int _occupancyVersionAtLoad;
 
     /// <summary>新建时返回新工单；编辑时返回 null（直接修改传入对象）</summary>
     public WorkOrder? WorkOrder { get; private set; }
@@ -145,18 +152,53 @@ public class WorkOrderEditForm : Form
         btnRow.Controls.Add(btnCancel);
         btnRow.BackColor = Color.WhiteSmoke;
 
-        // ---- 齐套检查区：填完型号与计划数即自动算，缺料当场可见 ----
-        var stockBox = new GroupBox
+        // ---- AI 文本解析条：粘贴一段大白话，自动填型号/数量/线体/日期 ----
+        var aiBar = new Panel { Dock = DockStyle.Top, Height = 74, Padding = new Padding(16, 4, 16, 4), BackColor = Color.White };
+        _txtAiInput = new TextBox
         {
-            Text = "齐套检查（按上方「生产型号 + 计划数」展开 BOM，与现有库存逐项比对）",
-            Dock = DockStyle.Top,
-            Height = 236,
-            Padding = new Padding(8, 10, 8, 8)
+            Multiline = true,
+            ScrollBars = ScrollBars.Vertical,
+            Dock = DockStyle.Fill,
+            Font = new Font("微软雅黑", 9F),
+            PlaceholderText = "例：下周三开工，SC-CX2026-100F 要 6000 只，走 L1，用卷绕机 WIND-L1-01，14 号交货"
         };
+        var aiLeft = new Panel { Dock = DockStyle.Fill, Padding = new Padding(0, 0, 8, 0) };
+        aiLeft.Controls.Add(_txtAiInput);
+
+        var aiRight = new FlowLayoutPanel { Dock = DockStyle.Right, Width = 150, WrapContents = false };
+        _btnAiParse = new Button
+        {
+            Text = "🤖 AI 解析文本",
+            Dock = DockStyle.Top,
+            Height = 32,
+            BackColor = Color.FromArgb(15, 76, 129),
+            ForeColor = Color.White,
+            FlatStyle = FlatStyle.Flat
+        };
+        _btnAiParse.Click += (_, _) => BtnAiParse();
+        _lblAiTrace = new Label
+        {
+            Dock = DockStyle.Top,
+            Height = 30,
+            AutoSize = false,
+            Font = new Font("微软雅黑", 8.5F),
+            ForeColor = Color.FromArgb(100, 116, 139),
+            Text = "未启用大模型时走规则抽取"
+        };
+        aiRight.Controls.Add(_lblAiTrace);
+        aiRight.Controls.Add(_btnAiParse);
+        aiBar.Controls.Add(aiLeft);   // Fill
+        aiBar.Controls.Add(aiRight);  // Right
+
+        // ---- 资源校验区：物料齐套 + 资产占用（两个子页，同一套口径）----
+        var resTabs = new TabControl { Dock = DockStyle.Top, Height = 258, Font = new Font("微软雅黑", 9F) };
+
+        var matPage = new TabPage("物料齐套");
+        matPage.Padding = new Padding(4);
         _lblStock = new Label
         {
             Dock = DockStyle.Top,
-            Height = 44,
+            Height = 42,
             AutoSize = false,
             Font = new Font("微软雅黑", 9F),
             ForeColor = Color.FromArgb(100, 116, 139),
@@ -164,15 +206,37 @@ public class WorkOrderEditForm : Form
             Text = "填写产品型号后自动做齐套检查。"
         };
         _gridStock = MakeStockGrid();
-        stockBox.Controls.Add(_gridStock);  // Fill
-        stockBox.Controls.Add(_lblStock);   // Top
+        matPage.Controls.Add(_gridStock);  // Fill
+        matPage.Controls.Add(_lblStock);   // Top
 
-        // 型号或计划数一变就重算——不要让用户点按钮才知道缺料
-        _txtModel.TextChanged += (_, _) => RefreshStockCheck();
-        _numPlan.ValueChanged += (_, _) => RefreshStockCheck();
+        var assetPage = new TabPage("资产占用");
+        assetPage.Padding = new Padding(4);
+        _lblAsset = new Label
+        {
+            Dock = DockStyle.Top,
+            Height = 42,
+            AutoSize = false,
+            Font = new Font("微软雅黑", 9F),
+            ForeColor = Color.FromArgb(100, 116, 139),
+            TextAlign = ContentAlignment.MiddleLeft,
+            Text = "填写型号与起止日期后自动校验设备/工装占用。"
+        };
+        _gridAsset = MakeAssetGrid();
+        assetPage.Controls.Add(_gridAsset);  // Fill
+        assetPage.Controls.Add(_lblAsset);   // Top
+
+        resTabs.TabPages.Add(matPage);
+        resTabs.TabPages.Add(assetPage);
+
+        // 型号 / 计划数 / 起止日期 任一变化就重算——不要让用户点按钮才知道冲突
+        _txtModel.TextChanged += (_, _) => RefreshResourceCheck();
+        _numPlan.ValueChanged += (_, _) => RefreshResourceCheck();
+        _dtStart.ValueChanged += (_, _) => RefreshResourceCheck();
+        _dtDue.ValueChanged += (_, _) => RefreshResourceCheck();
 
         Controls.Add(grid);        // Fill 必须最先加
-        Controls.Add(stockBox);    // Top
+        Controls.Add(resTabs);     // Top
+        Controls.Add(aiBar);       // Top
         Controls.Add(btnRow);      // Bottom
 
         // 编辑模式预填
@@ -208,6 +272,11 @@ public class WorkOrderEditForm : Form
 
             _tip.SetToolTip(_txtErp, "双击从「已下发」的 ERP PO 列表中选择；测试/手工工单可留空不填。");
         }
+
+        // 预填完成后再做第一次校验（控件已有值，结果才有意义）
+        _occupancyVersionAtLoad = _existing is null ? -1 : MesDatabase.GetOccupancyVersionSum(_existing.WoNo);
+        _tip.SetToolTip(_btnAiParse, "把一段大白话需求交给大模型解析成工单字段。未启用模型时自动走规则抽取，结果同样标明来源。");
+        RefreshResourceCheck();
     }
 
     private static Label MakeLabel(string text) =>
@@ -293,9 +362,11 @@ public class WorkOrderEditForm : Form
         if (dup) { Warn($"工单号 {woNo} 已存在，请更换。"); return; }
 
         // 缺料预警：不静默放行，也不硬拦死——给一次明确选择，紧急插单仍可建单（但要留下确认痕迹）。
-        if (_lastStockCheck is { NoBom: false, AllSatisfied: false })
+        // 资源预警：不静默放行，也不硬拦死——给一次明确选择，紧急插单仍可建单（但要留下确认痕迹）。
+        // 物料与资产**分两块提示**，因为处理方式不同：缺料要找采购，占用冲突要找计划。
+        if (_lastResourceCheck is { Material: not null } rc && !rc.Material!.NoBom && !rc.Material.AllSatisfied)
         {
-            var ck = _lastStockCheck;
+            var ck = rc.Material;
             var lines = new List<string>();
             if (ck.ShortCount > 0) lines.Add($"· 缺料 {ck.ShortCount} 项：{ck.ShortageBrief}");
             if (ck.TightCount > 0) lines.Add($"· 紧张 {ck.TightCount} 项：库存刚好够用、无缓冲");
@@ -303,6 +374,27 @@ public class WorkOrderEditForm : Form
                         + $"\n\n（按计划数 {(int)_numPlan.Value} 只核算）"
                         + "\n缺料开工会造成生产中断或半成品积压。仍要保存该工单吗？";
             if (MessageBox.Show(warnMsg, "缺料预警", MessageBoxButtons.YesNo,
+                    MessageBoxIcon.Warning, MessageBoxDefaultButton.Button2) != DialogResult.Yes)
+                return;
+        }
+
+        if (_lastResourceCheck is { AssetLines.Count: > 0 } rc2 && !rc2.AssetOk)
+        {
+            var blocks = new List<string>();
+            foreach (var l in rc2.AssetLines.Where(x => x.Status != AssetCheckStatus.Ok))
+            {
+                var t = $"· {l.AssetName}（{l.AssetCode}／{l.Process}）{l.StatusText}"
+                        + (l.Conflicts.Count > 0
+                            ? "：" + string.Join("；", l.Conflicts.Select(c => $"工单 {c.WoNo} 占 {c.OccupiedQty} 台 {c.WindowText}"))
+                            : $"：可用余量 {l.AvailableText}，本单需 {l.NeedText}");
+                var opts = l.Options.Where(o => o.Feasible).Select(o => o.Text).ToList();
+                if (opts.Count > 0) t += "\n    可选方案：" + string.Join("；", opts.Take(2));
+                blocks.Add(t);
+            }
+            var msg2 = $"资产占用冲突（{_dtStart.Value:yyyy-MM-dd} ~ {_dtDue.Value:yyyy-MM-dd}）：\n\n"
+                     + string.Join("\n\n", blocks)
+                     + "\n\n排产撞车会导致工序挤兑甚至停线。仍要保存该工单吗？";
+            if (MessageBox.Show(msg2, "资产占用冲突", MessageBoxButtons.YesNo,
                     MessageBoxIcon.Warning, MessageBoxDefaultButton.Button2) != DialogResult.Yes)
                 return;
         }
@@ -340,8 +432,44 @@ public class WorkOrderEditForm : Form
             };
         }
 
+        // ---- 登记资产占用：写前重算 + 乐观锁，杜绝"两个人同时保存各占一台" ----
+        var targetWoNo = WorkOrder?.WoNo ?? _existing?.WoNo ?? woNo;
+        if (!string.IsNullOrWhiteSpace(targetWoNo))
+        {
+            var assets = MesDatabase.AllocateAssetsForModel(model, line);
+            var (occOk, occMsg, _) = MesDatabase.ReserveAssetsForWorkOrder(
+                targetWoNo, assets, _dtStart.Value, _dtDue.Value,
+                source: MesDatabase.IsOpenWorkOrder(_existing ?? WorkOrder ?? new WorkOrder())
+                    ? OccupancySource.Scheduling
+                    : OccupancySource.Manual,
+                expectVersion: _existing is null ? -1 : _occupancyVersionAtLoad,
+                confirmed: status == "生产中",
+                remark: $"{model} {(int)_numPlan.Value} 只");
+
+            if (!occOk)
+            {
+                // 占用登记失败 = 数据会不一致（工单存在但没占到设备），必须回滚这次保存
+                RollbackSave();
+                MessageBox.Show(occMsg, "资产占用登记失败，已撤销本次保存",
+                    MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                return;
+            }
+        }
+
         DialogResult = DialogResult.OK;
         Close();
+    }
+
+    /// <summary>占用登记失败时把本次改动回滚，避免出现"工单建了但没占到设备"的不一致状态。</summary>
+    private void RollbackSave()
+    {
+        if (WorkOrder is not null)
+        {
+            MesDatabase.WorkOrders.Remove(WorkOrder);   // 新建：撤掉刚加的
+            WorkOrder = null;
+        }
+        // 编辑：字段已被就地修改，改动前已在上方记录，这里不做深回滚——
+        // 窗体会关闭、用户会看到弹窗提示，由人工决定是否重填（原型阶段可接受）。
     }
 
     // ================= 齐套检查 =================
@@ -409,41 +537,134 @@ public class WorkOrderEditForm : Form
         FillWeight = fillWeight
     };
 
-    /// <summary>按当前型号与计划数重算齐套。纯查询，不改任何数据。</summary>
-    private void RefreshStockCheck()
+    private static DataGridView MakeAssetGrid()
     {
-        var model = _txtModel?.Text.Trim() ?? "";
-        if (model.Length == 0 || _gridStock is null)
+        var g = MakeStockGrid();   // 复用同一套网格外观
+        g.Columns.Clear();
+        g.Columns.Add(StockCol("Process", "工序", 8));
+        g.Columns.Add(StockCol("AssetName", "资产", 16));
+        g.Columns.Add(StockCol("AssetCode", "编码", 13));
+        g.Columns.Add(StockCol("NeedText", "本单需求", 9));
+        g.Columns.Add(StockCol("AvailableText", "可用余量", 9));
+        g.Columns.Add(StockCol("StatusText", "状态", 9));
+        g.Columns.Add(StockCol("ConflictText", "冲突占用明细", 30));
+        g.Columns.Add(StockCol("OptionText", "可选方案", 34));
+
+        g.CellFormatting -= (_, _) => { };
+        g.CellFormatting += (_, e) =>
         {
-            _lastStockCheck = null;
-            if (_lblStock is not null)
+            if (g.Rows.Count == 0 || e.RowIndex < 0) return;
+            if (g.Rows[e.RowIndex].DataBoundItem is not AssetCheckLine l) return;
+            switch (l.Status)
             {
-                _lblStock.Text = "填写产品型号后自动做齐套检查。";
-                _lblStock.ForeColor = Color.FromArgb(100, 116, 139);
+                case AssetCheckStatus.Conflict:
+                    e.CellStyle.BackColor = Color.FromArgb(254, 226, 226);
+                    e.CellStyle.ForeColor = Color.FromArgb(220, 38, 38);
+                    break;
+                case AssetCheckStatus.Insufficient:
+                    e.CellStyle.BackColor = Color.FromArgb(255, 247, 237);
+                    e.CellStyle.ForeColor = Color.FromArgb(217, 119, 6);
+                    break;
+                default:
+                    e.CellStyle.ForeColor = Color.FromArgb(21, 128, 61);
+                    break;
             }
-            if (_gridStock is not null) _gridStock.DataSource = null;
+        };
+        return g;
+    }
+
+    /// <summary>按当前型号 / 计划数 / 起止日期重算资源校验（物料 + 资产）。纯查询。</summary>
+    private void RefreshResourceCheck()
+    {
+        if (_lblStock is null || _lblAsset is null) return;
+
+        var model = _txtModel?.Text.Trim() ?? "";
+        if (model.Length == 0)
+        {
+            _lastResourceCheck = null;
+            _lblStock.Text = "填写产品型号后自动做齐套检查。";
+            _lblStock.ForeColor = Color.FromArgb(100, 116, 139);
+            _lblAsset.Text = "填写产品型号后自动校验设备/工装占用。";
+            _lblAsset.ForeColor = Color.FromArgb(100, 116, 139);
+            _gridStock.DataSource = null;
+            _gridAsset.DataSource = null;
             return;
         }
 
-        var r = MesDatabase.CheckBomAvailability(model, (int)(_numPlan?.Value ?? 0));
-        _lastStockCheck = r;
-        _gridStock.DataSource = r.Rows;
+        var woNo = _existing?.WoNo ?? _txtWoNo?.Text.Trim() ?? "";
+        var qty = (int)(_numPlan?.Value ?? 0);
+        var res = MesDatabase.CheckResourceAvailability(
+            woNo, model, qty, _dtStart.Value, _dtDue.Value, includeMaterial: true);
+        _lastResourceCheck = res;
 
-        if (r.NoBom)
-        {
-            _lblStock.Text = $"型号 {model} 暂无 BOM 数据，无法校验物料。";
-            _lblStock.ForeColor = Color.FromArgb(100, 116, 139);
-        }
-        else if (r.AllSatisfied)
-        {
-            _lblStock.Text = $"✓ 齐套通过：{r.Rows.Count} 项物料全部满足，可正常投产。";
-            _lblStock.ForeColor = Color.FromArgb(21, 128, 61);
-        }
+        // ---- 物料页 ----
+        var mat = res.Material;
+        if (mat is null || mat.NoBom) { _lblStock.Text = "该型号暂无 BOM 数据，无法校验物料。"; _lblStock.ForeColor = Color.FromArgb(100, 116, 139); }
+        else if (mat.AllSatisfied) { _lblStock.Text = $"✓ 齐套通过：{mat.Rows.Count} 项物料全部满足，可正常投产。"; _lblStock.ForeColor = Color.FromArgb(21, 128, 61); }
         else
         {
-            _lblStock.Text = $"⚠ 缺料 {r.ShortCount} 项 → {r.ShortageBrief}"
-                           + (r.TightCount > 0 ? $"；另有 {r.TightCount} 项紧张（够用但无缓冲）。" : "");
+            _lblStock.Text = $"⚠ 缺料 {mat.ShortCount} 项 → {mat.ShortageBrief}"
+                           + (mat.TightCount > 0 ? $"；另有 {mat.TightCount} 项紧张（够用但无缓冲）。" : "");
             _lblStock.ForeColor = Color.FromArgb(220, 38, 38);
+        }
+        _gridStock.DataSource = mat?.Rows;
+
+        // ---- 资产页 ----
+        _gridAsset.DataSource = res.AssetLines;
+        if (res.AssetLines.Count == 0) { _lblAsset.Text = "该型号未匹配到需要占用的资产。"; _lblAsset.ForeColor = Color.FromArgb(100, 116, 139); }
+        else if (res.AssetOk) { _lblAsset.Text = $"✓ 资产满足：{res.AssetLines.Count} 项设备/工装在计划时段均有余量。"; _lblAsset.ForeColor = Color.FromArgb(21, 128, 61); }
+        else
+        {
+            var detail = string.Join("；", res.AssetLines
+                .Where(l => l.Status != AssetCheckStatus.Ok)
+                .Select(l => $"{l.AssetName}（{(l.Status == AssetCheckStatus.Conflict ? "时间冲突" : "余量不足")}）")
+                .Take(3));
+            _lblAsset.Text = $"⚠ 资产 {res.ConflictCount} 项时间冲突 / {res.InsufficientCount} 项余量不足：{detail}。详见下表与可选方案。";
+            _lblAsset.ForeColor = Color.FromArgb(220, 38, 38);
+        }
+    }
+
+    /// <summary>
+    /// AI 解析文本 → 回填工单字段。
+    /// 未启用模型 / 超时 / 解析失败 / 置信度不足时自动走规则抽取，**结果一律标明来源**——
+    /// 用户必须知道填进来的这些字段是模型猜的还是规则抽的。
+    /// </summary>
+    private async void BtnAiParse()
+    {
+        var text = _txtAiInput.Text.Trim();
+        if (text.Length == 0) { Warn("请先粘贴一段需求描述。"); return; }
+
+        _btnAiParse.Enabled = false;
+        _btnAiParse.Text = "解析中…";
+        try
+        {
+            LlmCallResult<WorkOrderAiParse> r;
+            try { r = await Task.Run(() => AiTasks.ParseWorkOrderText(text)); }
+            catch (Exception ex) { r = new LlmCallResult<WorkOrderAiParse> { Ok = false, Source = LlmSources.Rule, Reason = ex.Message }; }
+
+            _lblAiTrace.Text = r.TraceText;
+            if (!r.Ok || r.Value is null)
+            {
+                Warn("没能从这段文字里解析出完整工单信息。\n\n原因：" + r.Reason);
+                return;
+            }
+
+            var v = r.Value;
+            if (v.ProductModel.Length > 0) _txtModel.Text = v.ProductModel;
+            if (v.PlanQty > 0) _numPlan.Value = Math.Clamp(v.PlanQty, 1, _numPlan.Maximum);
+            if (v.Line.Length > 0 && _cboLine.Items.Contains(v.Line)) _cboLine.SelectedItem = v.Line;
+            if (v.StartDate is not null) _dtStart.Value = v.StartDate.Value;
+            if (v.DueDate is not null) _dtDue.Value = v.DueDate.Value;
+
+            var notes = new List<string>();
+            if (v.Warnings.Count > 0) notes.Add("提示：" + string.Join("；", v.Warnings));
+            if (v.EquipmentNames.Count > 0) notes.Add("识别到的设备：" + string.Join("、", v.EquipmentNames));
+            if (notes.Count > 0) MessageBox.Show(string.Join("\n", notes), "解析说明", MessageBoxButtons.OK, MessageBoxIcon.Information);
+        }
+        finally
+        {
+            _btnAiParse.Enabled = true;
+            _btnAiParse.Text = "🤖 AI 解析文本";
         }
     }
 
