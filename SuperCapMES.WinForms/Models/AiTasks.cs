@@ -500,6 +500,168 @@ public static class AiTasks
         }, allowedNumbers: allowed, http: http);
     }
 
+    // ================================================================
+    // ⑤ 资材采购分析（防御性预测推理）
+    //   触发：采购申请页点「🤖 AI 库存分析」（用户显式触发，不随页面加载自动调）
+    //   输入：PurchaseAnalysisInput——库存/需求/在途/历史消耗/限额，全部由规则算好
+    //   输出：{ conclusion, riskLevel, suggestedQty, reasons[], actions[], confidence }
+    //   校验：① riskLevel 必须是 低/中/高 ② 建议量**必须过规则钳制**才能采用
+    //         ③ 风险等级与规则判定**取更保守的一个**（模型说"低"但规则算出缺料 → 升为高）
+    //   降级：模型不可用/超时/格式错/置信度不足 → 规则直接给结论与建议量，来源标"规则"
+    // ================================================================
+    public static PurchaseAiAnalysis AnalyzePurchase(PurchaseAnalysisInput input, System.Net.Http.HttpClient? http = null)
+    {
+        ArgumentNullException.ThrowIfNull(input);
+
+        // 规则版结果既是降级路径，也是钳制模型结果的基准——任何时候都先算一遍
+        var rule = BuildRulePurchaseAnalysis(input, "云端大模型未启用或未配置 API Key");
+
+        if (!LlmService.Enabled) return rule;
+
+        var payload = new
+        {
+            material = new { input.MaterialCode, input.MaterialName, input.Unit, input.MaterialType },
+            available = input.Available,
+            safetyStock = input.SafetyStock,
+            maxPurchaseQty = input.MaxPurchaseQty,
+            requirement = input.Requirement,
+            pendingQty = input.PendingQty,
+            consumed90d = input.ConsumedQty,
+            consumptionSamples = input.ConsumptionSamples,
+            relatedWoCount = input.RelatedWoCount,
+            derived = new
+            {
+                netShortage = input.NetShortage,
+                safetyGap = input.SafetyGap,
+                ruleSuggestedQty = input.RuleSuggestedQty,
+                dailyConsumption = input.DailyConsumption,
+                coverDays = input.CoverDays,
+                enoughSamples = input.EnoughSamples
+            },
+            bounds = new
+            {
+                minSuggested = input.RuleSuggestedQty,
+                maxSuggested = PurchaseSuggest.UpperBound(input)
+            }
+        };
+
+        var r = LlmService.CallJson<PurchaseAiAnalysis>(SysPurchaseAnalyze(), payload, root =>
+        {
+            var a = new PurchaseAiAnalysis
+            {
+                Conclusion = LlmService.Str(root, "conclusion"),
+                RiskLevel = LlmService.Str(root, "riskLevel", PurchaseRisk.Medium),
+                RawSuggestedQty = LlmService.Dbl(root, "suggestedQty", 0),
+                Reasons = LlmService.StrList(root, "reasons"),
+                Actions = LlmService.StrList(root, "actions"),
+                Confidence = LlmService.Dbl(root, "confidence", 0.5)
+            };
+
+            // 风险等级必须是 低/中/高 之一（模型可能返回"较低""medium"等，一律拒绝）
+            if (!PurchaseRisk.All.Contains(a.RiskLevel)) return (null, a.Confidence, "riskLevel 取值非法");
+            if (a.Conclusion.Length == 0) return (null, a.Confidence, "模型未给出结论");
+            return (a, a.Confidence, "");
+        }, minConfidence: 0.55, http: http);
+
+        if (!r.Ok || r.Value is null)
+            return BuildRulePurchaseAnalysis(input, r.Reason);
+
+        var v = r.Value;
+
+        // ★ 防御核心：模型给的建议量必须钳制 —— 下限补足缺口+安全线，上限不超超量线/限额
+        var (finalQty, clamped) = PurchaseSuggest.Clamp(input, v.RawSuggestedQty);
+        v.SuggestedQty = finalQty;
+        v.Clamped = clamped;
+
+        // 风险等级与规则判定取更保守者：模型说"低"但规则算出净缺口，必须升为"高"
+        var ruleRisk = PurchaseSuggest.RuleRisk(input);
+        if (RiskRank(v.RiskLevel) < RiskRank(ruleRisk))
+        {
+            v.Note = $"模型判断为「{v.RiskLevel}」，但规则口径已算出净缺口，按更保守的「{ruleRisk}」采用。";
+            v.RiskLevel = ruleRisk;
+        }
+        else if (clamped)
+        {
+            v.Note = $"模型建议量 {v.RawSuggestedQty:0.##} {input.Unit} 已按规则钳制为 {finalQty:0.##} {input.Unit}"
+                   + $"（下限补足缺口+安全线，上限不超超量线/限额）。";
+        }
+        else if (!input.EnoughSamples)
+        {
+            v.Note = $"历史领用样本仅 {input.ConsumptionSamples} 条，不足以支撑趋势预测，结论仅供参考。";
+        }
+
+        v.Source = LlmSources.Model;
+        return v;
+    }
+
+    private static int RiskRank(string level) => level switch
+    {
+        PurchaseRisk.High => 3,
+        PurchaseRisk.Medium => 2,
+        _ => 1
+    };
+
+    /// <summary>规则版采购分析（降级路径 + 钳制基准）</summary>
+    private static PurchaseAiAnalysis BuildRulePurchaseAnalysis(PurchaseAnalysisInput input, string reason)
+    {
+        var qty = input.RuleSuggestedQty;
+        var clampNote = "";
+        if (input.MaxPurchaseQty > 1e-9 && qty > input.MaxPurchaseQty)
+        {
+            qty = input.MaxPurchaseQty;
+            clampNote = $"已按单次采购限额 {input.MaxPurchaseQty:0.##} {input.Unit} 封顶。";
+        }
+
+        var conclusion = input.NetShortage > 1e-9
+            ? $"当前净缺口 {input.NetShortage:0.##} {input.Unit}，建议采购 {qty:0.##} {input.Unit} 补足。"
+            : input.SafetyGap > 1e-9
+                ? $"库存 {input.Available:0.##} {input.Unit} 低于安全库存 {input.SafetyStock:0.##} {input.Unit}，建议补 {qty:0.##} {input.Unit}。"
+                : $"库存与在途可覆盖需求，暂无采购必要。";
+
+        var a = new PurchaseAiAnalysis
+        {
+            Conclusion = conclusion,
+            RiskLevel = PurchaseSuggest.RuleRisk(input),
+            RawSuggestedQty = qty,
+            SuggestedQty = qty,
+            Source = LlmSources.Rule,
+            Confidence = 1.0,
+            Note = string.IsNullOrEmpty(reason) ? clampNote : reason + (clampNote.Length > 0 ? "；" + clampNote : "")
+        };
+        if (input.NetShortage > 1e-9)
+            a.Reasons.Add($"净缺口 = 需求 {input.Requirement:0.##} − 可用 {input.Available:0.##} − 在途 {input.PendingQty:0.##} = {input.NetShortage:0.##} {input.Unit}");
+        if (input.SafetyGap > 1e-9)
+            a.Reasons.Add($"低于安全库存 {input.SafetyStock:0.##} {input.Unit}，缺口 {input.SafetyGap:0.##} {input.Unit}");
+        if (input.EnoughSamples && input.CoverDays > 0)
+            a.Reasons.Add($"按近 90 天日均消耗 {input.DailyConsumption:0.##} {input.Unit} 估算，现库存可支撑约 {input.CoverDays:0.#} 天");
+        else
+            a.Reasons.Add("历史领用样本不足，无法估算消耗趋势");
+        if (input.MaxPurchaseQty > 1e-9)
+            a.Reasons.Add($"单次采购限额 {input.MaxPurchaseQty:0.##} {input.Unit}");
+
+        return a;
+    }
+
+    private static string SysPurchaseAnalyze() =>
+        """
+        你是超级电容工厂的采购分析助手，负责基于库存、需求、在途与历史消耗，判断缺料风险并给出建议采购量。
+
+        【绝对规则】
+        1. 只输出 JSON，不要任何解释文字。
+        2. **你只能使用【用户消息】里给出的数字**，严禁自行推算、四舍五入或换算单位。
+           你要做的判断（该不该补、风险多高、买多少）必须落在系统已经算好的
+           【derived】与【bounds】里：建议量不得低于 minSuggested，不得高于 maxSuggested。
+        3. riskLevel 只能是三个字符串之一："低"、"中"、"高"。不要写"较低""medium"之类。
+        4. 如果历史领用样本不足（enoughSamples 为 false），必须在 reasons 里点明"样本不足"，
+           并且**不要假装能预测趋势**。
+        5. 不要输出合格/不合格之类的质量判定，也不要替人审批——你只做分析与建议。
+        6. reasons 与 actions 各 2 到 4 条，每条不超过 40 字，用工厂里的口语。
+
+        【输出格式】
+        {"conclusion":"","riskLevel":"低","suggestedQty":0,
+         "reasons":[],"actions":[],"confidence":0.0}
+        """;
+
     private static string SysAdvise() =>
         """
         你是超级电容工厂的生产经理助手，负责把系统算好的排产结果讲成主管能直接决策的话。

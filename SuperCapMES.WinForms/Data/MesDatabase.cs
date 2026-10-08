@@ -1713,16 +1713,16 @@ public static partial class MesDatabase
         // ---- 物料主数据（原料 / 辅料 / 成品） ----
         WmsMaterials.AddRange(new[]
         {
-            new WmsMaterial { Code = "M-ACT-CAR-01", MaterialName = "活性炭电极材料", Spec = "200F/g", Unit = "kg", Category = WmsCategories.Raw, SafetyStock = 100 },
-            new WmsMaterial { Code = "M-ELE-ACN-02", MaterialName = "电解液（ACN基）", Spec = "1 mol/L", Unit = "L", Category = WmsCategories.Raw, SafetyStock = 80 },
-            new WmsMaterial { Code = "M-SEP-PP-03", MaterialName = "隔膜（PP）", Spec = "25 μm", Unit = "m²", Category = WmsCategories.Raw, SafetyStock = 500 },
-            new WmsMaterial { Code = "M-COL-AL-04", MaterialName = "铝箔集流体", Spec = "20 μm", Unit = "m²", Category = WmsCategories.Raw, SafetyStock = 300 },
-            new WmsMaterial { Code = "M-CAN-ALU-05", MaterialName = "铝壳外壳", Spec = "Φ18×40", Unit = "只", Category = WmsCategories.Raw, SafetyStock = 1000 },
-            new WmsMaterial { Code = "M-SEL-RUB-06", MaterialName = "密封圈", Spec = "Φ18", Unit = "只", Category = WmsCategories.Raw, SafetyStock = 1000 },
-            new WmsMaterial { Code = "M-TAB-NIC-07", MaterialName = "镍带极耳", Spec = "0.1×5 mm", Unit = "m", Category = WmsCategories.Aux, SafetyStock = 200 },
+            new WmsMaterial { Code = "M-ACT-CAR-01", MaterialName = "活性炭电极材料", Spec = "200F/g", Unit = "kg", Category = WmsCategories.Raw, SafetyStock = 100, MaxPurchaseQty = 500 },
+            new WmsMaterial { Code = "M-ELE-ACN-02", MaterialName = "电解液（ACN基）", Spec = "1 mol/L", Unit = "L", Category = WmsCategories.Raw, SafetyStock = 80, MaxPurchaseQty = 200 },
+            new WmsMaterial { Code = "M-SEP-PP-03", MaterialName = "隔膜（PP）", Spec = "25 μm", Unit = "m²", Category = WmsCategories.Raw, SafetyStock = 500, MaxPurchaseQty = 1000 },
+            new WmsMaterial { Code = "M-COL-AL-04", MaterialName = "铝箔集流体", Spec = "20 μm", Unit = "m²", Category = WmsCategories.Raw, SafetyStock = 300, MaxPurchaseQty = 500 },
+            new WmsMaterial { Code = "M-CAN-ALU-05", MaterialName = "铝壳外壳", Spec = "Φ18×40", Unit = "只", Category = WmsCategories.Raw, SafetyStock = 1000, MaxPurchaseQty = 10000 },
+            new WmsMaterial { Code = "M-SEL-RUB-06", MaterialName = "密封圈", Spec = "Φ18", Unit = "只", Category = WmsCategories.Raw, SafetyStock = 1000, MaxPurchaseQty = 10000 },
+            new WmsMaterial { Code = "M-TAB-NIC-07", MaterialName = "镍带极耳", Spec = "0.1×5 mm", Unit = "m", Category = WmsCategories.Aux, SafetyStock = 200, MaxPurchaseQty = 500 },
             // 包材主数据（2026-10-08 补）：彩盒此前只出现在 BOM 里，物料台账缺主数据，
             // 齐套校验与库存台账都会拿不到名称/单位。
-            new WmsMaterial { Code = "M-PKG-BOX-11", MaterialName = "彩盒（100F 专用）", Spec = "200×60×40 mm", Unit = "个", Category = WmsCategories.Aux, SafetyStock = 300 },
+            new WmsMaterial { Code = "M-PKG-BOX-11", MaterialName = "彩盒（100F 专用）", Spec = "200×60×40 mm", Unit = "个", Category = WmsCategories.Aux, SafetyStock = 300, MaxPurchaseQty = 800 },
             new WmsMaterial { Code = "M-INS-PET-08", MaterialName = "绝缘胶带（PET）", Spec = "10 mm", Unit = "m", Category = WmsCategories.Aux, SafetyStock = 150 },
             new WmsMaterial { Code = "M-FG-100F-09", MaterialName = "超级电容成品 SC-CX2026-100F", Spec = "100F/2.7V", Unit = "只", Category = WmsCategories.Finished, SafetyStock = 100 },
             new WmsMaterial { Code = "M-FG-300F-10", MaterialName = "超级电容成品 SC-CX2026-300F", Spec = "300F/2.7V", Unit = "只", Category = WmsCategories.Finished, SafetyStock = 80 },

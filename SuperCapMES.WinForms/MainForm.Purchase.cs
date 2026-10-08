@@ -80,6 +80,16 @@ public partial class MainForm
         _btnReqClose.Width = 74;
         toolbar.Controls.Add(_btnReqClose);
 
+        _btnReqAi = MakeToolbarButton("🤖 AI 库存分析", BtnReqAiAnalyze);
+        _btnReqAi.Width = 128;
+        _btnReqAi.Enabled = false;
+        toolbar.Controls.Add(_btnReqAi);
+
+        _btnReqAiGen = MakeToolbarButton("⚡ 按建议生成申请", BtnReqAiGenerate);
+        _btnReqAiGen.Width = 142;
+        _btnReqAiGen.Enabled = false;
+        toolbar.Controls.Add(_btnReqAiGen);
+
         var btnRefresh = MakeToolbarButton("刷新", (_, _) => LoadPurchaseRequests());
         btnRefresh.Width = 84;
         toolbar.Controls.Add(btnRefresh);
@@ -163,11 +173,37 @@ public partial class MainForm
         };
 
         var gridGroup = MakeGridGroup(
-            "采购明细（需求量 = 单位用量 × (1+损耗率%) × 投产数；可用量不含待检区与退货待处理区）",
+            "采购明细（需求量 = 跨工单累加的资材占用；可用量不含待检区与退货待处理区）",
             out _gridReqLines);
         SetupPurchaseLineColumns();
 
+        // AI 分析结果区：风险徽标 + 结论/依据（来源必须可见）
+        _lblReqAi = new Label
+        {
+            Dock = DockStyle.Top,
+            Height = 76,
+            AutoSize = false,
+            Font = new Font("微软雅黑", 9F),
+            ForeColor = PrMuted,
+            BackColor = Color.White,
+            BorderStyle = BorderStyle.FixedSingle,
+            Padding = new Padding(10, 6, 10, 6),
+            Text = "选中一张申请单后，点「🤖 AI 库存分析」对首行物料做缺料风险与采购量推理。未启用大模型时自动走规则计算，结论同样标明来源。"
+        };
+        _lblReqRisk = new Label
+        {
+            Dock = DockStyle.Top,
+            Height = 26,
+            AutoSize = false,
+            Font = new Font("微软雅黑", 10F, FontStyle.Bold),
+            ForeColor = PrMuted,
+            TextAlign = ContentAlignment.MiddleLeft,
+            Text = ""
+        };
+
         panel.Controls.Add(gridGroup);  // Fill
+        panel.Controls.Add(_lblReqRisk); // Top
+        panel.Controls.Add(_lblReqAi);   // Top
         panel.Controls.Add(_lblReqInfo); // Top
         return panel;
     }
@@ -366,6 +402,7 @@ public partial class MainForm
 
         _lblReqInfo.Text = sb.ToString();
         RefreshPurchaseActionButtons();
+        RefreshAiButtons();
     }
 
     /// <summary>按单据状态刷新流程按钮的启用态与文案（流程约束在数据层，这里只呈现）。</summary>
@@ -473,6 +510,160 @@ public partial class MainForm
         _currentRequest = MesDatabase.FindPurchaseRequest(r.ReqNo);
         LoadPurchaseRequests();
         Warn(msg);
+    }
+
+    // ================= AI 库存分析 =================
+
+    /// <summary>分析按钮的启用态：必须有选中的单据且有明细行。</summary>
+    private void RefreshAiButtons()
+    {
+        var has = _currentRequest is not null && _currentRequest.Lines.Count > 0;
+        if (_btnReqAi is not null) _btnReqAi.Enabled = has;
+        if (_btnReqAiGen is not null) _btnReqAiGen.Enabled = has && _currentAiAnalysis is not null;
+    }
+
+    /// <summary>
+    /// 对当前单据**首行物料**做缺料风险与采购量推理。
+    /// 走后台线程（模型可能是秒级调用），完成后回 UI 线程渲染；
+    /// 模型不可用/超时/格式错时由 <see cref="AiTasks.AnalyzePurchase"/> 降级为规则结论，界面标明来源。
+    /// </summary>
+    private async void BtnReqAiAnalyze(object? sender, EventArgs e)
+    {
+        var req = _currentRequest;
+        if (req is null || req.Lines.Count == 0) { Warn("请先选择一张含明细的采购申请单。"); return; }
+
+        var line = req.Lines[0];
+        var input = MesDatabase.BuildPurchaseAnalysisInput(line.MaterialCode, req.ReqNo);
+
+        _btnReqAi.Enabled = false;
+        _btnReqAi.Text = "分析中…";
+        _lblReqRisk.Text = "";
+        _lblReqRisk.ForeColor = PrMuted;
+        _lblReqAi.Text = $"正在分析「{input.MaterialName}」：可用 {input.Available:0.##} {input.Unit}｜"
+                       + $"需求 {input.Requirement:0.##}｜在途 {input.PendingQty:0.##}｜"
+                       + $"历史领用样本 {input.ConsumptionSamples} 条…";
+        try
+        {
+            PurchaseAiAnalysis a;
+            try { a = await Task.Run(() => AiTasks.AnalyzePurchase(input)); }
+            catch (Exception ex)
+            {
+                a = new PurchaseAiAnalysis
+                {
+                    Source = LlmSources.Rule, RiskLevel = PurchaseSuggest.RuleRisk(input),
+                    Conclusion = "分析未完成，已按规则口径给出建议。", Note = ex.Message
+                };
+            }
+            _currentAiAnalysis = a;
+            _currentAiInput = input;
+
+            // await 续体依赖 SynchronizationContext；宿主没有消息循环时（如自测 harness）它会落到
+            // 后台线程，直接改控件就丢了。所有 UI 更新统一切回 UI 线程——与 AI 助手页 RunOnUi 同一手法。
+            OnPurchaseUi(() => RenderAiAnalysis(a, input));
+        }
+        finally
+        {
+            OnPurchaseUi(() =>
+            {
+                _btnReqAi.Enabled = true;
+                _btnReqAi.Text = "🤖 AI 库存分析";
+                RefreshAiButtons();
+            });
+        }
+    }
+
+    /// <summary>把采购页的界面更新切回 UI 线程（无消息循环宿主 / 跨线程续体都能安全执行）。</summary>
+    private void OnPurchaseUi(Action action)
+    {
+        if (IsDisposed || !IsHandleCreated) return;
+        if (InvokeRequired) BeginInvoke(action);
+        else action();
+    }
+
+    private void RenderAiAnalysis(PurchaseAiAnalysis a, PurchaseAnalysisInput input)
+    {
+        _lblReqRisk.Text = $"风险等级：{a.RiskLevel}　建议采购：{a.SuggestedQty:0.##} {input.Unit}"
+                         + (a.Clamped ? $"（模型原值 {a.RawSuggestedQty:0.##}，已钳制）" : "");
+        _lblReqRisk.ForeColor = a.RiskLevel switch
+        {
+            PurchaseRisk.High => PrBad,
+            PurchaseRisk.Medium => PrWarn,
+            _ => PrOk
+        };
+
+        var sb = new System.Text.StringBuilder();
+        sb.Append($"【来源：{a.Source}】").AppendLine();
+        sb.Append(a.Conclusion);
+        if (a.Note.Length > 0) sb.Append("　※ ").Append(a.Note);
+        foreach (var r in a.Reasons.Take(3)) sb.Append("\n· ").Append(r);
+        foreach (var r in a.Actions.Take(2)) sb.Append("\n→ ").Append(r);
+        _lblReqAi.Text = sb.ToString();
+        _lblReqAi.ForeColor = PrInk;
+    }
+
+    /// <summary>
+    /// 按 AI 分析结论**预填并生成**一张新的采购申请单。
+    /// 预填映射：物料编码/名称/规格/单位/类型取物料主数据；需求量取跨工单累加占用；
+    /// 可用量取分析快照；**申请量取经规则钳制后的建议量**；供应商取最近入库批次。
+    /// 生成前先跑数量校验——AI 建议也要过闸，不因为"是模型说的"就放行。
+    /// </summary>
+    private void BtnReqAiGenerate(object? sender, EventArgs e)
+    {
+        var a = _currentAiAnalysis;
+        var input = _currentAiInput;
+        if (a is null || input is null) { Warn("请先点「🤖 AI 库存分析」。"); return; }
+        if (a.SuggestedQty <= 1e-9) { Warn("分析结论是不需要采购，无法生成申请单。"); return; }
+
+        var mat = MesDatabase.FindWmsMaterial(input.MaterialCode);
+        var line = new PurchaseRequestLine
+        {
+            MaterialCode = input.MaterialCode,
+            MaterialName = input.MaterialName,
+            Spec = mat?.Spec ?? "",
+            Unit = input.Unit,
+            MaterialType = input.MaterialType,
+            FormulaText = "按跨工单资材占用汇总",
+            Requirement = input.Requirement,
+            Available = input.Available,
+            FrozenQty = MesDatabase.GetMaterialFrozenQty(input.MaterialCode),
+            RequestQty = a.SuggestedQty,
+            Supplier = MesDatabase.GetPreferredSupplier(input.MaterialCode),
+            Remark = $"AI 分析（{a.Source}，风险{a.RiskLevel}）建议"
+        };
+
+        // 用户确认环节：预填结果先给用户看，确认后才落库
+        var confirm = $"物料：{line.MaterialName}（{line.MaterialCode}）\n"
+                    + $"需求量：{input.Requirement:0.##} {input.Unit}（跨工单累加占用）\n"
+                    + $"可用量：{input.Available:0.##} {line.Unit}　在途：{input.PendingQty:0.##} {line.Unit}\n"
+                    + $"建议采购量：<b>{line.RequestQtyText}</b>（来源：{a.Source}，风险{a.RiskLevel}）\n"
+                    + (string.IsNullOrEmpty(line.Supplier) ? "供应商：<b>（待定）</b>——下单前需补齐\n" : $"供应商：{line.Supplier}\n")
+                    + (a.Note.Length > 0 ? $"※ {a.Note}\n" : "")
+                    + "\n确认生成草稿申请单？";
+        if (MessageBox.Show(confirm, "按 AI 建议生成采购申请", MessageBoxButtons.YesNo,
+                MessageBoxIcon.Question, MessageBoxDefaultButton.Button1) != DialogResult.Yes)
+        {
+            _lblReqRisk.Text = "已取消生成。";
+            return;
+        }
+
+        var (ok, msg, reqNo) = MesDatabase.CreateRequest(
+            "", "计划员", new List<PurchaseRequestLine> { line },
+            $"按 AI 分析生成（{a.Source}，风险{a.RiskLevel}）");
+
+        if (!ok)
+        {
+            // 失败不落库（CreateRequest 先校验后写入，这里只是把原因原样呈现）
+            MessageBox.Show(msg, "未能生成采购申请", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            _lblReqRisk.Text = "生成失败：" + msg;
+            return;
+        }
+
+        MessageBox.Show(msg, "已生成采购申请", MessageBoxButtons.OK, MessageBoxIcon.Information);
+        _currentAiAnalysis = null;
+        _currentAiInput = null;
+        _lblReqRisk.Text = "";
+        _lblReqAi.Text = $"已生成 {reqNo}（草稿）。可在左侧点「提交」送审。";
+        LoadPurchaseRequests();
     }
 
     /// <summary>简单的单行输入对话框（项目里没有现成的输入框窗体）。取消返回 null。</summary>

@@ -105,6 +105,14 @@ public partial class MainForm : Form
     private bool _reqLoaded;
     /// <summary>当前选中的申请单（供状态流转与明细刷新复用）。</summary>
     private PurchaseRequest? _currentRequest;
+    private Button _btnReqAi = null!;
+    private Button _btnReqAiGen = null!;
+    private Label _lblReqAi = null!;
+    private Label _lblReqRisk = null!;
+    /// <summary>最近一次采购分析结果（供「按建议生成申请」与自测复用）。</summary>
+    private PurchaseAiAnalysis? _currentAiAnalysis;
+    /// <summary>分析时的输入快照（生成申请时按它预填，保证与分析一致）。</summary>
+    private PurchaseAnalysisInput? _currentAiInput;
     /// <summary>分段渲染定时器（懒创建，避免构造期占用资源）。</summary>
     private System.Windows.Forms.Timer? _assistantRenderTimer;
 

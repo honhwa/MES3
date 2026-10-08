@@ -238,3 +238,218 @@ public class PurchaseRequest
         _ => Status
     };
 }
+// ============================================================================
+// 采购数量校验 + 大模型分析 —— 模型层
+//
+// 为什么要专门做超量校验（2026-10-08）：
+//   原实现只校验"申请量 > 0"。这挡不住采购环节最常见也最贵的两种错：
+//     ① 重复请购 —— 同一物料被多张申请单各申请一遍，货到后发现用不完，占压资金
+//     ② 超量请购 —— 一次买远超需求的量，同样占压资金
+//   所以口径必须是：**同物料的未完成申请量 + 本次申请量**，一起跟"需求 / 限额"比。
+// ============================================================================
+
+/// <summary>数量校验结论</summary>
+public static class QtyCheckVerdict
+{
+    /// <summary>通过</summary>
+    public const string Ok = "通过";
+
+    /// <summary>偏高：在需求与超量线之间，不阻断但要提示</summary>
+    public const string High = "偏高";
+
+    /// <summary>超量：超过需求量 × 安全系数，应阻断</summary>
+    public const string Over = "超量";
+
+    /// <summary>超限额：超过该物料的单次采购上限，应阻断</summary>
+    public const string OverLimit = "超限额";
+
+    /// <summary>重复请购：该物料已有未完成申请单在途</summary>
+    public const string Duplicate = "重复请购";
+}
+
+/// <summary>单行数量校验结果（界面与自测共用同一份）</summary>
+public class PurchaseLineCheck
+{
+    public string MaterialCode { get; set; } = "";
+    public string MaterialName { get; set; } = "";
+    public string Unit { get; set; } = "";
+
+    /// <summary>需求量（跨工单累加的资材占用）</summary>
+    public double Requirement { get; set; }
+
+    /// <summary>可用库存（不含待检区 / 退货待处理区）</summary>
+    public double Available { get; set; }
+
+    /// <summary>该物料在<b>未完成申请单</b>里的申请量合计（不含本单）</summary>
+    public double PendingQty { get; set; }
+
+    /// <summary>已下单/已批准的采购量（已计入 PendingQty，此处单列供展示）</summary>
+    public double OrderedQty { get; set; }
+
+    /// <summary>本行申请量</summary>
+    public double RequestQty { get; set; }
+
+    /// <summary>单次采购上限（0 = 不限）</summary>
+    public double MaxPurchaseQty { get; set; }
+
+    /// <summary>超量系数：累计超过需求量的多少倍就判超量</summary>
+    public double OverFactor { get; set; } = 1.2;
+
+    /// <summary>累计申请量 = 未完成申请量 + 本次申请量</summary>
+    public double Cumulative => PendingQty + RequestQty;
+
+    /// <summary>超量线 = 需求量 × 超量系数</summary>
+    public double OverLine => Requirement * OverFactor;
+
+    /// <summary>是否命中"已有未完成申请单"</summary>
+    public bool HasPending => PendingQty > 1e-9;
+
+    /// <summary>是否命中限额（限额 > 0 时才生效）</summary>
+    public bool OverLimitHit => MaxPurchaseQty > 1e-9 && Cumulative > MaxPurchaseQty;
+
+    /// <summary>结论</summary>
+    public string Verdict { get; set; } = QtyCheckVerdict.Ok;
+
+    /// <summary>是否应阻断提交</summary>
+    public bool Blocking => Verdict is QtyCheckVerdict.Over or QtyCheckVerdict.OverLimit or QtyCheckVerdict.Duplicate;
+
+    /// <summary>提示文案（已按优先级组织，直接可读）</summary>
+    public string Message
+    {
+        get
+        {
+            if (OverLimitHit)
+                return $"「{MaterialName}」累计申请 {Cumulative:0.##} {Unit} 超过单次采购上限 {MaxPurchaseQty:0.##} {Unit}"
+                     + (HasPending ? $"（其中 {PendingQty:0.##} {Unit} 已在未完成申请单中）" : "") + "。请拆分批次或先关闭多余申请单。";
+            if (Verdict == QtyCheckVerdict.Over)
+                return $"「{MaterialName}」累计申请 {Cumulative:0.##} {Unit} 超过需求量 {Requirement:0.##} {Unit} 的 {OverFactor:0.##} 倍"
+                     + $"（超量线 {OverLine:0.##} {Unit}）" + (HasPending ? $"，其中 {PendingQty:0.##} {Unit} 已在未完成申请单中" : "") + "。";
+            if (Verdict == QtyCheckVerdict.Duplicate)
+                return $"「{MaterialName}」已有未完成申请单 {PendingQty:0.##} {Unit}，本次申请会造成重复请购。"
+                     + "请先处理已有申请单，或确认原单已取消后再申请。";
+            if (Verdict == QtyCheckVerdict.High)
+                return $"「{MaterialName}」累计申请 {Cumulative:0.##} {Unit} 已超过需求量 {Requirement:0.##} {Unit}"
+                     + (HasPending ? $"（另有 {PendingQty:0.##} {Unit} 在未完成申请单中）" : "") + "，建议确认是否买多。";
+            return $"「{MaterialName}」校验通过：累计申请 {Cumulative:0.##} {Unit}，需求 {Requirement:0.##} {Unit}，可用 {Available:0.##} {Unit}。";
+        }
+    }
+}
+
+/// <summary>采购 AI 分析结果（模型产出，<b>建议数量须经规则钳制后才可采用</b>）</summary>
+public class PurchaseAiAnalysis
+{
+    /// <summary>推理结论（一段话）</summary>
+    public string Conclusion { get; set; } = "";
+
+    /// <summary>风险等级：低 / 中 / 高</summary>
+    public string RiskLevel { get; set; } = PurchaseRisk.Medium;
+
+    /// <summary>模型给的建议采购量（<b>未经钳制</b>，仅供对比）</summary>
+    public double RawSuggestedQty { get; set; }
+
+    /// <summary>最终建议采购量（经规则钳制：不低于净缺口、不超限额、不超需求×安全系数）</summary>
+    public double SuggestedQty { get; set; }
+
+    /// <summary>判定依据（逐条）</summary>
+    public List<string> Reasons { get; set; } = new();
+
+    /// <summary>处置建议</summary>
+    public List<string> Actions { get; set; } = new();
+
+    /// <summary>结果来源：模型 / 规则</summary>
+    public string Source { get; set; } = LlmSources.Rule;
+
+    /// <summary>降级/钳制说明（来源为规则、或建议量被钳制过都要写明）</summary>
+    public string Note { get; set; } = "";
+
+    /// <summary>模型置信度</summary>
+    public double Confidence { get; set; }
+
+    /// <summary>建议量是否被规则钳制过（界面必须显示，不能让用户以为模型说的就是这个数）</summary>
+    public bool Clamped { get; set; }
+}
+
+/// <summary>库存风险等级</summary>
+public static class PurchaseRisk
+{
+    public const string Low = "低";
+    public const string Medium = "中";
+    public const string High = "高";
+
+    public static readonly string[] All = { Low, Medium, High };
+}
+
+public class PurchaseAnalysisInput
+{
+    public string MaterialCode { get; set; } = "";
+    public string MaterialName { get; set; } = "";
+    public string Unit { get; set; } = "";
+    public string MaterialType { get; set; } = "";
+
+    /// <summary>可用库存（不含待检区 / 退货待处理区）</summary>
+    public double Available { get; set; }
+    /// <summary>安全库存（低于此值需补货）</summary>
+    public double SafetyStock { get; set; }
+    /// <summary>单次采购限额（0 = 不限）</summary>
+    public double MaxPurchaseQty { get; set; }
+
+    /// <summary>需求量（跨工单累加的资材占用）</summary>
+    public double Requirement { get; set; }
+    /// <summary>未完成申请单里的申请量合计（在途）</summary>
+    public double PendingQty { get; set; }
+    /// <summary>历史领用量（近 N 天）</summary>
+    public double ConsumedQty { get; set; }
+    /// <summary>历史领用样本行数（判断样本是否够）</summary>
+    public int ConsumptionSamples { get; set; }
+    /// <summary>占用它的在手工单数</summary>
+    public int RelatedWoCount { get; set; }
+
+    /// <summary>净缺口 = max(0, 需求 − 可用 − 在途)</summary>
+    public double NetShortage => Math.Max(0, Requirement - Available - PendingQty);
+    /// <summary>安全库存缺口 = max(0, 安全库存 − 可用)</summary>
+    public double SafetyGap => Math.Max(0, SafetyStock - Available);
+    /// <summary>规则建议采购量 = 净缺口 + 安全库存缺口（低于安全库存时补到安全线）</summary>
+    public double RuleSuggestedQty => NetShortage + SafetyGap;
+    /// <summary>日均消耗（历史样本够时才有效，否则为 0）</summary>
+    public double DailyConsumption => ConsumptionSamples > 0 ? ConsumedQty / 90.0 : 0;
+    /// <summary>按日均消耗，净缺口还能撑几天（0 = 不可估）</summary>
+    public double CoverDays => DailyConsumption > 1e-9 ? (Available + PendingQty) / DailyConsumption : 0;
+    /// <summary>历史样本是否足够支撑预测（少于 2 条领用记录不足以谈趋势）</summary>
+    public bool EnoughSamples => ConsumptionSamples >= 2;
+
+}
+
+/// <summary>规则版建议（模型不可用时的降级路径，也用于钳制模型给的建议量）。</summary>
+public static class PurchaseSuggest
+{
+    /// <summary>建议量上限：需求 × 1.2 与采购限额取小（0 = 不限则忽略该项）</summary>
+    public static double UpperBound(PurchaseAnalysisInput i, double overFactor = 1.2)
+    {
+        var byOver = i.Requirement > 1e-9 ? i.Requirement * overFactor : double.MaxValue;
+        return i.MaxPurchaseQty > 1e-9 ? Math.Min(byOver, i.MaxPurchaseQty) : byOver;
+    }
+
+    /// <summary>
+    /// 钳制一个建议采购量：下限补足净缺口与安全库存缺口，上限不超超量线与限额。
+    /// 返回 (最终值, 是否被钳制)。<b>模型给的数必须过这一关才能展示与采用。</b>
+    /// </summary>
+    public static (double Value, bool Clamped) Clamp(PurchaseAnalysisInput i, double suggested, double overFactor = 1.2)
+    {
+        var lower = i.RuleSuggestedQty;         // 至少要补足缺口 + 补到安全线
+        var upper = UpperBound(i, overFactor);   // 最多不超过超量线 / 限额
+        if (lower > upper) lower = upper;        // 下限高于上限时以上限为准（限额更严）
+
+        var v = suggested <= 0 ? lower : suggested;
+        var clamped = v < lower - 1e-9 || v > upper + 1e-9;
+        return (Math.Clamp(v, lower, upper), clamped);
+    }
+
+    /// <summary>规则版风险等级（模型不可用时用它，模型给了也要与之比对）</summary>
+    public static string RuleRisk(PurchaseAnalysisInput i)
+    {
+        if (i.NetShortage > 1e-9) return PurchaseRisk.High;              // 已经缺料
+        if (i.SafetyGap > 1e-9) return PurchaseRisk.Medium;              // 低于安全库存
+        if (i.EnoughSamples && i.CoverDays > 0 && i.CoverDays < 15) return PurchaseRisk.Medium;
+        return PurchaseRisk.Low;
+    }
+}

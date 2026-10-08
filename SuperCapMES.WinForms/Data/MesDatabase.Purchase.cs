@@ -246,6 +246,13 @@ public static partial class MesDatabase
             if (l.RequestQty <= 1e-9) return (false, $"「{l.MaterialName}」的申请量必须大于 0。", "");
         }
 
+        // 数量校验（超量 / 超限额 / 重复请购）：创建时拦住，别等到审批才发现买多
+        var badLines = lines.Select(l => CheckLineQuantity(l)).Where(c => c.Blocking).ToList();
+        if (badLines.Count > 0)
+            return (false, $"数量校验不通过：{badLines[0].Message}"
+                          + (badLines.Count > 1 ? $"（另有 {badLines.Count - 1} 项同样不通过）" : "")
+                          + "。请调整数量，或先处理已有的未完成申请单。", "");
+
         WorkOrder? wo = null;
         if (!string.IsNullOrWhiteSpace(woNo))
         {
@@ -372,10 +379,20 @@ public static partial class MesDatabase
             string.Equals(l.MaterialCode, materialCode?.Trim(), StringComparison.OrdinalIgnoreCase));
         if (line is null) return (false, $"明细里没有物料 {materialCode}。");
 
+        var oldQty = line.RequestQty;
         line.RequestQty = requestQty;
         if (!string.IsNullOrWhiteSpace(supplier)) line.Supplier = supplier.Trim();
         line.Remark = remark ?? "";
-        return (true, $"已更新「{line.MaterialName}」的申请量为 {line.RequestQtyText} {line.Unit}。");
+
+        // 改完立刻复核数量（排除本单自身，避免自己拦自己）
+        var chk = CheckLineQuantity(line, req.ReqNo);
+        if (chk.Blocking)
+        {
+            line.RequestQty = oldQty;   // 回滚，不留半改状态
+            return (false, chk.Message);
+        }
+        return (true, $"已更新「{line.MaterialName}」的申请量为 {line.RequestQtyText} {line.Unit}。"
+                      + (chk.Verdict == QtyCheckVerdict.High ? " 注意：已超过需求量，请确认是否买多。" : ""));
     }
 
     /// <summary>删掉一行明细。</summary>
@@ -411,6 +428,10 @@ public static partial class MesDatabase
             return (false, "明细为空，无法提交。");
         if (req.Lines.Any(l => l.RequestQty <= 1e-9))
             return (false, "明细里存在申请量为 0 的行，请补齐后再提交。");
+
+        // 写前重算数量校验：草稿可能放了多天，期间别人可能已提交同一物料
+        var (blockQty, qtyMsg, _) = ValidateRequestQuantity(req);
+        if (blockQty) return (false, "提交被拦下（提交时重新校验）：" + qtyMsg);
 
         // 提交时重校验资源占用：草稿期间占用状况可能已变
         var occupancyNote = BuildOccupancyNoteForRequest(req);
@@ -569,4 +590,202 @@ public class PurchaseRequestSummary
     public int PendingApprovalLines { get; set; }
 
     public string PendingText => $"待审批 {Submitted} 张 / {PendingApprovalLines} 个采购项";
+}
+
+public static partial class MesDatabase
+{
+// ============================================================================
+// 采购数量校验（超量 / 超限额 / 重复请购）
+//
+// 统计口径（2026-10-08 明确，写下来是为了别处不再各想一套）：
+//   · **参与汇总的申请单**：状态为 草稿 / 待审批 / 已批准 / 已下单（即 `!IsFinal`）。
+//     **已关闭不计入** —— 关闭只是这次请购事务结束，货没到、需求还在，不该重复请购。
+//   · **按物料汇总**：同一物料在上述所有单据里的申请量合计；校验某单时排除该单自身。
+//   · **比较基准**：需求量（跨工单累加的资材占用）���可用库存（只作参考，不作超量依据）、
+//     单次采购限额（`WmsMaterial.MaxPurchaseQty`，0 = 不限）。
+//
+// 超量判定：可用库存小**不是**超量的理由（采购本来就是为了补缺口），
+//   真正要拦的是"买多了"：累计申请量 > 需求量 × 1.2，或 > 单次限额。
+//
+// 并发一致性：① 校验纯查询不锁；② **写前重算**——保存/提交时重新跑一遍本方法，
+//   因为草稿可能放了好几天，期间别人可能已提交同一物料；③ 单据自身在汇总里被排除，避免自己拦自己。
+// ============================================================================
+
+/// <summary>某物料在**未完成申请单**里的申请量合计（已关闭不计入）。纯查询。</summary>
+public static double GetMaterialPendingQty(string materialCode, string? excludeReqNo = null)
+{
+    if (string.IsNullOrWhiteSpace(materialCode)) return 0;
+    return PurchaseRequests
+        .Where(r => !PurchaseRequestStatus.IsFinal(r.Status))
+        .Where(r => excludeReqNo is null
+                    || !string.Equals(r.ReqNo, excludeReqNo.Trim(), StringComparison.OrdinalIgnoreCase))
+        .SelectMany(r => r.Lines)
+        .Where(l => string.Equals(l.MaterialCode, materialCode.Trim(), StringComparison.OrdinalIgnoreCase))
+        .Sum(l => l.RequestQty);
+}
+
+/// <summary>某物料"已批准 + 已下单"的量（PendingQty 的子集，单列供界面展示）。纯查询。</summary>
+public static double GetMaterialOrderedQty(string materialCode, string? excludeReqNo = null)
+{
+    if (string.IsNullOrWhiteSpace(materialCode)) return 0;
+    return PurchaseRequests
+        .Where(r => r.Status == PurchaseRequestStatus.Approved || r.Status == PurchaseRequestStatus.Ordered)
+        .Where(r => excludeReqNo is null
+                    || !string.Equals(r.ReqNo, excludeReqNo.Trim(), StringComparison.OrdinalIgnoreCase))
+        .SelectMany(r => r.Lines)
+        .Where(l => string.Equals(l.MaterialCode, materialCode.Trim(), StringComparison.OrdinalIgnoreCase))
+        .Sum(l => l.RequestQty);
+}
+
+/// <summary>取物料的采购限额（0 = 不限）。</summary>
+public static double GetMaterialPurchaseLimit(string materialCode)
+    => string.IsNullOrWhiteSpace(materialCode)
+        ? 0
+        : FindWmsMaterial(materialCode)?.MaxPurchaseQty ?? 0;
+
+/// <summary>
+/// 单行数量校验：把"同物料未完成申请量 + 本次申请量"与需求/限额一起比，给出结论与提示文案。
+/// 纯查询，不改任何数据。<paramref name="excludeReqNo"/> 传入被校验单自身单号，避免自己拦自己。
+/// </summary>
+public static PurchaseLineCheck CheckLineQuantity(PurchaseRequestLine line, string? excludeReqNo = null, double overFactor = 1.2)
+{
+    ArgumentNullException.ThrowIfNull(line);
+    var check = new PurchaseLineCheck
+    {
+        MaterialCode = line.MaterialCode,
+        MaterialName = string.IsNullOrWhiteSpace(line.MaterialName)
+            ? (FindWmsMaterial(line.MaterialCode)?.MaterialName ?? line.MaterialCode)
+            : line.MaterialName,
+        Unit = string.IsNullOrWhiteSpace(line.Unit) ? (FindWmsMaterial(line.MaterialCode)?.Unit ?? "") : line.Unit,
+        Requirement = line.Requirement,
+        Available = line.Available > 0 ? line.Available : GetMaterialAvailableQty(line.MaterialCode),
+        RequestQty = line.RequestQty,
+        MaxPurchaseQty = GetMaterialPurchaseLimit(line.MaterialCode),
+        OverFactor = overFactor <= 0 ? 1.2 : overFactor
+    };
+    check.PendingQty = GetMaterialPendingQty(line.MaterialCode, excludeReqNo);
+    check.OrderedQty = GetMaterialOrderedQty(line.MaterialCode, excludeReqNo);
+
+    // 判定优先级：限额 > 超量/重复 > 偏高 > 通过
+    if (check.OverLimitHit)
+        check.Verdict = QtyCheckVerdict.OverLimit;
+    else if (check.Cumulative > check.OverLine)
+        // 已有在途还超额申请 → 归为"重复请购"，提示语更贴近真实原因
+        check.Verdict = check.HasPending ? QtyCheckVerdict.Duplicate : QtyCheckVerdict.Over;
+    else if (check.Cumulative > check.Requirement)
+        check.Verdict = QtyCheckVerdict.High;
+    else
+        check.Verdict = QtyCheckVerdict.Ok;
+
+    return check;
+}
+
+/// <summary>校验一张单据的<b>全部</b>明细行。纯查询。</summary>
+public static List<PurchaseLineCheck> CheckRequestQuantity(PurchaseRequest req, double overFactor = 1.2)
+{
+    if (req is null) return new List<PurchaseLineCheck>();
+    return req.Lines.Select(l => CheckLineQuantity(l, req.ReqNo, overFactor)).ToList();
+}
+
+/// <summary>整单校验结论：是否存在应阻断的行；并汇总最严重的一条提示。</summary>
+public static (bool Blocking, string Message, List<PurchaseLineCheck> Checks) ValidateRequestQuantity(
+    PurchaseRequest req, double overFactor = 1.2)
+{
+    var checks = CheckRequestQuantity(req, overFactor);
+    var blockers = checks.Where(c => c.Blocking).ToList();
+    if (blockers.Count == 0)
+        return (false, "", checks);
+
+    var worst = blockers.OrderByDescending(c => c.Verdict == QtyCheckVerdict.OverLimit ? 2 : 1).First();
+    return (true, $"{blockers.Count} 项物料不通过数量校验：{worst.Message}"
+                  + (blockers.Count > 1 ? $"（另有 {blockers.Count - 1} 项同样不通过）" : ""), checks);
+}
+}
+
+// ============================================================================
+public static partial class MesDatabase
+{
+// 采购分析的数据取数（供大模型推理与规则降级共用，保证两边看到的数完全一致）
+// ============================================================================
+
+/// <summary>
+/// 按「未完工工单 × BOM」现算某物料的需求量（不依赖占用登记）。
+/// 用于占用尚未登记时的需求估算。
+/// </summary>
+public static double GetMaterialDemandByOpenWorkOrders(string materialCode)
+{
+    if (string.IsNullOrWhiteSpace(materialCode)) return 0;
+    var code = materialCode.Trim();
+    double total = 0;
+    foreach (var w in WorkOrders.Where(IsOpenWorkOrder))
+    {
+        var remaining = Math.Max(0, w.PlanQty - w.FinishedQty);
+        if (remaining <= 0) continue;
+        var b = FetchErpBom(w.ProductModel)
+            .FirstOrDefault(x => string.Equals(x.MaterialCode, code, StringComparison.OrdinalIgnoreCase));
+        if (b is not null) total += GetBomRequirement(b, remaining);
+    }
+    return total;
+}
+
+/// <summary>
+/// 构造采购分析的输入快照（放在仓储层实现：Models 不反向依赖 Data，保持分层干净）。
+/// 规则与大模型看到的数来自这同一份，杜绝"两边口径不一致"。
+/// </summary>
+public static PurchaseAnalysisInput BuildPurchaseAnalysisInput(string? materialCode, string? excludeReqNo = null)
+{
+    var code = (materialCode ?? string.Empty).Trim();
+    var mat = FindWmsMaterial(code);
+    var agg = AggregateMaterialOccupancy(null, new[] { code }).FirstOrDefault();
+    var (consumed, samples, _) = GetMaterialConsumption(code);
+    return new PurchaseAnalysisInput
+    {
+        MaterialCode = agg?.MaterialCode ?? mat?.Code ?? code,
+        MaterialName = agg?.MaterialName ?? mat?.MaterialName ?? "",
+        Unit = agg?.Unit ?? mat?.Unit ?? "",
+        MaterialType = agg?.MaterialType ?? mat?.Category ?? "",
+        Available = agg?.Available ?? GetMaterialAvailableQty(code),
+        SafetyStock = mat?.SafetyStock ?? 0,
+        MaxPurchaseQty = mat?.MaxPurchaseQty ?? 0,
+        // 需求：优先用已登记的资材占用；还没登记时回退到"按未完工工单 × BOM 现算"——
+        // 否则用户在工单还没建、占用还没登记时问"这料要不要买"，会得到 0 需求的错误结论。
+        Requirement = agg is { TotalOccupied: > 0 }
+            ? agg.TotalOccupied
+            : GetMaterialDemandByOpenWorkOrders(code),
+        PendingQty = GetMaterialPendingQty(code, excludeReqNo),
+        ConsumedQty = consumed,
+        ConsumptionSamples = samples,
+        RelatedWoCount = agg?.WorkOrderCount ?? 0
+    };
+}
+
+/// <summary>
+/// 某物料近 N 天的历史领用量（WMS 现场领用单，出库方向）。
+/// 这是"历史消耗"口径——它反映**实际领过多少**，比 BOM 推算更接近真实消耗（含损耗、超领）。
+/// 种子数据里领用单较少，样本不足时返回 false，界面必须如实标注。
+/// </summary>
+public static (double Qty, int SampleCount, int Days) GetMaterialConsumption(string materialCode, int days = 90)
+{
+    if (string.IsNullOrWhiteSpace(materialCode)) return (0, 0, days);
+    var from = DateTime.Today.AddDays(-days);
+
+    var issued = WmsOrders
+        .Where(o => o.Type == WmsOrderTypes.SiteIssue && o.Status == WmsOrderStatus.Posted)
+        .Where(o => o.PostTime is not null && o.PostTime.Value >= from)
+        .ToList();
+    if (issued.Count == 0) return (0, 0, days);
+
+    var qty = WmsOrderLines
+        .Where(l => issued.Any(o => o.OrderNo == l.OrderNo))
+        .Where(l => string.Equals(l.MaterialCode, materialCode.Trim(), StringComparison.OrdinalIgnoreCase))
+        .Sum(l => l.Quantity);
+    var lines = WmsOrderLines.Count(l => issued.Any(o => o.OrderNo == l.OrderNo)
+                                      && string.Equals(l.MaterialCode, materialCode.Trim(), StringComparison.OrdinalIgnoreCase));
+    return (qty, lines, days);
+}
+
+/// <summary>
+/// 采购分析的**完整输入快照**（规则先算好，模型只负责解读与预测措辞）。
+/// 放在一处定义，保证"模型看到的"与"规则算出的"永远来自同一份数据。
+/// </summary>
 }
