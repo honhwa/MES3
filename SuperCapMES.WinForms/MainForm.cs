@@ -68,6 +68,12 @@ public partial class MainForm : Form
     private FlowLayoutPanel? _flpAssistantQuick;
     /// <summary>导出按钮：把本条问答输出成 Markdown/纯文本，供贴进汇报材料</summary>
     private Button _btnAssistantExport = null!;
+    private DataGridView _gridDelivery = null!;
+    private DataGridView _gridRootCause = null!;
+    private DataGridView _gridSpcTuning = null!;
+    private DataGridView _gridSkillSchedule = null!;
+    private DataGridView _gridDuplicateFai = null!;
+    private DataGridView _gridAbnormalCycle = null!;
     /// <summary>反馈按钮旁的结果提示（"已收到反馈"等）</summary>
     private Label _lblFeedbackTip = null!;
     /// <summary>主动推送提醒区（数据源接「主动预警与决策」）</summary>
@@ -561,6 +567,12 @@ public partial class MainForm : Form
         RegisterPage(NavProduction, BuildFaiTab());          // 首件检验：换型/开班首件判定
         RegisterPage(NavProduction, BuildModuleTab());       // 模组装配：模组级装配与追溯
         RegisterPage(NavProduction, BuildSchedulingTab());   // 智能排产：历史工单推理 → 投产数/线体/工期 + 齐套预警
+        RegisterPage(NavProduction, BuildDeliveryRiskTab());    // ① 工单交期风险（复用产能引擎口径）
+        RegisterPage(NavQuality, BuildRootCauseTab());        // ② 质量根因交叉（工序×设备×批次）
+        RegisterPage(NavQuality, BuildSpcTuningTab());        // ③ SPC 调机建议（复用 Cpk）
+        RegisterPage(NavQuality, BuildDuplicateFaiTab());     // ⑤ 首检重复送检提醒
+        RegisterPage(NavResource, BuildSkillScheduleTab());   // ④ 资质 × 排班匹配
+        RegisterPage(NavTrace, BuildAbnormalCycleTab());      // ⑥ 异常闭环时长分析
 
         // 【质量管理】不合格的发现 → 隔离 → 处置 → 归零闭环
         RegisterPage(NavQuality, BuildAbnormalTab());        // 异常登记：发现异常时录单
@@ -876,6 +888,7 @@ public partial class MainForm : Form
         EnsurePurchaseReady(); // 资材采购申请兜底初始化（幂等：载入申请单列表）
         LoadInsights();          // 主动预警与决策：数据量小，纯计算，直接算出来
         AssistantFeedbackStore.Load();   // 载入历史反馈（重启后统计不丢）
+        LoadAnalytics();               // 六项分析：数据量小，纯计算，启动时直接算出来
     }
 
     /// <summary>执行「Trace」业务动作（校验 → 执行 → 刷新界面）。</summary>
