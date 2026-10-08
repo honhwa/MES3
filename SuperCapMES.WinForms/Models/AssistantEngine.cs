@@ -68,8 +68,14 @@ public sealed class RuleBasedAssistant : IAssistantBackend
             new[] { "谁", "哪个" }),
 
         (AssistantIntent.Inventory,
-            new[] { "库存", "存货", "库房", "仓库", "仓储", "物料", "料的", "效期", "过期", "临期", "批次", "库位", "账实", "盘点", "库龄", "呆滞", "fifo", "先进先出", "料号" },
+            new[] { "库存", "存货", "库房", "仓库", "仓储", "料的", "效期", "过期", "临期", "批次", "库位", "账实", "盘点", "库龄", "呆滞", "fifo", "先进先出", "料号" },
             new[] { "多少", "还有" }),
+
+        // 「物料」归齐套缺料域而不是库存域：中文里说"物料"时，问的几乎都是"够不够开工"，
+        // 而不是"库里还剩多少"。放在这里可避免与 Inventory 抢词。
+        (AssistantIntent.Material,
+            new[] { "齐套", "缺料", "备料", "物料", "够不够", "够用", "缺多少", "缺什么", "物料齐套", "物料够", "能不能开工", "能开工吗", "开工够不够", "投产数量", "投多少", "齐套性" },
+            new[] { "够吗", "缺了吗" }),
 
         (AssistantIntent.Equipment,
             new[] { "设备", "机台", "点检", "保养", "备件", "oee", "稼动", "停机", "维修", "故障", "仪表" },
@@ -133,6 +139,7 @@ public sealed class RuleBasedAssistant : IAssistantBackend
             AssistantIntent.Complaint => AnswerComplaint(q, confidence, hits),
             AssistantIntent.Personnel => AnswerPersonnel(q, norm, ent, confidence, hits),
             AssistantIntent.Inventory => AnswerInventory(q, confidence, hits),
+            AssistantIntent.Material => AnswerMaterial(q, norm, confidence, hits),
             AssistantIntent.Equipment => AnswerEquipment(q, ent, confidence, hits),
             AssistantIntent.Spc => AnswerSpc(q, confidence, hits),
             AssistantIntent.Trace => AnswerTraceNeedTarget(q, confidence, hits),
@@ -855,6 +862,98 @@ public sealed class RuleBasedAssistant : IAssistantBackend
         return reply;
     }
 
+    /// <summary>
+    /// 齐套 / 缺料：站在"计划员今天最该知道什么"的角度回答。
+    /// 两种问法分别处理：点名了型号就按该型号的 BOM 算；没点名就按"在手全部未完工工单"汇总——
+    /// 后者才是计划员每天真正要问的（"我手上这堆单，料够不够？"）。
+    /// </summary>
+    private static AssistantReply AnswerMaterial(string q, string norm, int confidence, List<string> hits)
+    {
+        var models = MesDatabase.GetProductModels();
+        var model = models.FirstOrDefault(m => norm.Contains(m, StringComparison.OrdinalIgnoreCase));
+
+        MaterialCheckResult check;
+        string scopeText;
+        if (model is not null)
+        {
+            // 点名了型号：按该型号在手工单的最大剩余量算（保守口径，不虚报齐套）
+            var openOfModel = MesDatabase.WorkOrders
+                .Where(w => MesDatabase.IsOpenWorkOrder(w)
+                            && string.Equals(w.ProductModel, model, StringComparison.OrdinalIgnoreCase))
+                .ToList();
+            var needQty = openOfModel.Sum(w => Math.Max(0, w.PlanQty - w.FinishedQty));
+            if (needQty <= 0) needQty = openOfModel.Count > 0 ? openOfModel.Sum(w => w.PlanQty) : 1000;
+            check = MesDatabase.CheckBomAvailability(model, needQty);
+            scopeText = $"型号 {model} 在手工单剩余需求合计 {needQty} 只";
+        }
+        else
+        {
+            var all = MesDatabase.GetOpenWorkOrderShortage();
+            var openWo = MesDatabase.WorkOrders.Count(MesDatabase.IsOpenWorkOrder);
+            check = new MaterialCheckResult
+            {
+                ProductModel = "（在手全部未完工工单）",
+                PlanQty = openWo,
+                Rows = all
+            };
+            scopeText = $"在手 {openWo} 张未完工工单的整体物料需求";
+        }
+
+        var shortRows = check.Rows.Where(r => r.Status == ShortageStatus.Short).ToList();
+        var tightRows = check.Rows.Where(r => r.Status == ShortageStatus.Tight).ToList();
+        var openCount = MesDatabase.WorkOrders.Count(MesDatabase.IsOpenWorkOrder);
+
+        var reply = new AssistantReply
+        {
+            Question = q,
+            Intent = AssistantIntent.Material,
+            Confidence = confidence,
+            BackendName = BackendLabel,
+            Headline = check.Rows.Count == 0
+                ? "当前没有需要核算的物料需求（在手工单为空或该型号暂无 BOM）。"
+                : shortRows.Count == 0
+                    ? $"{scopeText}：{check.Rows.Count} 项物料全部满足，可以正常投产。"
+                    : $"{scopeText}：{shortRows.Count} 项物料缺料 —— "
+                      + string.Join("、", shortRows.Take(3).Select(r => r.MaterialName))
+                      + (shortRows.Count > 3 ? $" 等 {shortRows.Count} 项" : "") + "。",
+            Facts =
+            {
+                new AssistantFact { Label = "核算范围", Value = scopeText },
+                new AssistantFact { Label = "物料项数", Value = $"{check.Rows.Count} 项" },
+                new AssistantFact { Label = "满足", Value = $"{check.OkCount} 项", Level = FactLevel.Normal },
+                new AssistantFact { Label = "紧张", Value = $"{tightRows.Count} 项", Note = "够用但无缓冲", Level = tightRows.Count > 0 ? FactLevel.Watch : FactLevel.Normal },
+                new AssistantFact { Label = "短缺", Value = $"{shortRows.Count} 项", Level = shortRows.Count > 0 ? FactLevel.Warn : FactLevel.Normal },
+                new AssistantFact { Label = "在手工单", Value = $"{openCount} 张", Note = "未开始 + 生产中" }
+            },
+            Evidence =
+            {
+                $"数据来源：{(model is null ? "MesDatabase.GetOpenWorkOrderShortage()" : $"MesDatabase.CheckBomAvailability(\"{model}\", {check.PlanQty})")}",
+                "口径：可用量不含待检区与退货待处理区（物料未判定合格，不能直接投产）",
+                "口径：需求 = 单位用量 × (1 + 损耗率%) × 投产数量"
+            },
+            Actions = ActionsOf(("scheduling", "去做智能排产"), ("stock.kitting", "去建单并查缺料"))
+        };
+
+        if (shortRows.Count > 0)
+        {
+            reply.Body.Add("缺料明细（缺口由大到小）：");
+            foreach (var r in shortRows.Take(6))
+                reply.Body.Add($"· {r.MaterialName}｜需 {r.RequirementText} {r.Unit}｜可用 {r.AvailableText}｜缺 {r.ShortageText} {r.Unit}");
+
+            var totalGap = shortRows.Count;
+            reply.Body.Add($"建议：先按缺口补料（合计 {totalGap} 项），或与计划协商把投产数降到现有库存可覆盖的水平。");
+        }
+        if (tightRows.Count > 0)
+        {
+            reply.Body.Add("刚好够用、但没有缓冲的物料：");
+            foreach (var r in tightRows.Take(4))
+                reply.Body.Add($"· {r.MaterialName}｜需 {r.RequirementText} {r.Unit}｜可用 {r.AvailableText}（富余 {r.Surplus:0.##}）");
+        }
+
+        return reply;
+    }
+
+    /// <summary>库存台账 / 效期 / 账实对账。</summary>
     private static AssistantReply AnswerInventory(string q, int confidence, List<string> hits)
     {
         var total = MesDatabase.GetWmsStockTotal();

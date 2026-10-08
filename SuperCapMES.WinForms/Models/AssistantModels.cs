@@ -19,6 +19,9 @@ public static class AssistantIntent
     public const string Complaint = "客户投诉";
     public const string Personnel = "人员资质";
     public const string Inventory = "库存物料";
+
+    /// <summary>齐套 / 缺料：投产前的物料够不够（与「库存有多少」是两回事）</summary>
+    public const string Material = "齐套缺料";
     public const string Equipment = "设备状态";
     public const string Spc = "SPC 参数";
     public const string Trace = "电芯追溯";
@@ -29,7 +32,7 @@ public static class AssistantIntent
     public static readonly string[] All =
     {
         Overview, Alert, Abnormal, Hold, Rework, Complaint,
-        Personnel, Inventory, Equipment, Spc, Trace, Guide
+        Personnel, Inventory, Material, Equipment, Spc, Trace, Guide
     };
 
     /// <summary>意图的中文说明（可解释面板展示"系统是怎么理解这句话的"）</summary>
@@ -43,6 +46,7 @@ public static class AssistantIntent
         Complaint => "问的是客户投诉 / 8D 的进度",
         Personnel => "问的是人员资质、能否上岗",
         Inventory => "问的是库存数量、效期、账实差异",
+        Material => "问的是投产前物料够不够（齐套、缺料、能不能开工）",
         Equipment => "问的是设备状态、点检保养、备件",
         Spc => "问的是工艺参数是否受控、是否触发预警",
         Trace => "问的是某只电芯 / 批次 / 工单的全链追溯",
@@ -372,6 +376,7 @@ public static class AssistantEngine
         "客户投诉处理得怎么样了",
         "张伟能不能开卷绕机",
         "库存有没有快过期的料",
+        "现在缺料吗，能开工吗",
         "设备现在都什么状态",
         "工艺参数有没有失控",
         "SC-A260812-L1-00001 这只电芯怎么回事",

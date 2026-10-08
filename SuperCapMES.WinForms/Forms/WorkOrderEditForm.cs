@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Drawing;
 using System.Linq;
 using System.Windows.Forms;
@@ -27,6 +28,10 @@ public class WorkOrderEditForm : Form
     private ComboBox _cboStatus = null!;
     private DateTimePicker _dtStart = null!;
     private DateTimePicker _dtDue = null!;
+    private Label _lblStock = null!;
+    private DataGridView _gridStock = null!;
+    /// <summary>最近一次齐套校验结果（保存时据此做缺料预警）。</summary>
+    private MaterialCheckResult? _lastStockCheck;
 
     /// <summary>新建时返回新工单；编辑时返回 null（直接修改传入对象）</summary>
     public WorkOrder? WorkOrder { get; private set; }
@@ -39,7 +44,7 @@ public class WorkOrderEditForm : Form
         MaximizeBox = false;
         MinimizeBox = false;
         StartPosition = FormStartPosition.CenterParent;
-        ClientSize = new Size(470, 470);
+        ClientSize = new Size(700, 700);
         Font = new Font("微软雅黑", 9F);
         BuildUi();
     }
@@ -140,8 +145,35 @@ public class WorkOrderEditForm : Form
         btnRow.Controls.Add(btnCancel);
         btnRow.BackColor = Color.WhiteSmoke;
 
-        Controls.Add(grid);
-        Controls.Add(btnRow);
+        // ---- 齐套检查区：填完型号与计划数即自动算，缺料当场可见 ----
+        var stockBox = new GroupBox
+        {
+            Text = "齐套检查（按上方「生产型号 + 计划数」展开 BOM，与现有库存逐项比对）",
+            Dock = DockStyle.Top,
+            Height = 236,
+            Padding = new Padding(8, 10, 8, 8)
+        };
+        _lblStock = new Label
+        {
+            Dock = DockStyle.Top,
+            Height = 44,
+            AutoSize = false,
+            Font = new Font("微软雅黑", 9F),
+            ForeColor = Color.FromArgb(100, 116, 139),
+            TextAlign = ContentAlignment.MiddleLeft,
+            Text = "填写产品型号后自动做齐套检查。"
+        };
+        _gridStock = MakeStockGrid();
+        stockBox.Controls.Add(_gridStock);  // Fill
+        stockBox.Controls.Add(_lblStock);   // Top
+
+        // 型号或计划数一变就重算——不要让用户点按钮才知道缺料
+        _txtModel.TextChanged += (_, _) => RefreshStockCheck();
+        _numPlan.ValueChanged += (_, _) => RefreshStockCheck();
+
+        Controls.Add(grid);        // Fill 必须最先加
+        Controls.Add(stockBox);    // Top
+        Controls.Add(btnRow);      // Bottom
 
         // 编辑模式预填
         if (_existing is not null)
@@ -260,6 +292,21 @@ public class WorkOrderEditForm : Form
         var dup = MesDatabase.WorkOrders.Any(w => w.WoNo == woNo && !ReferenceEquals(w, _existing));
         if (dup) { Warn($"工单号 {woNo} 已存在，请更换。"); return; }
 
+        // 缺料预警：不静默放行，也不硬拦死——给一次明确选择，紧急插单仍可建单（但要留下确认痕迹）。
+        if (_lastStockCheck is { NoBom: false, AllSatisfied: false })
+        {
+            var ck = _lastStockCheck;
+            var lines = new List<string>();
+            if (ck.ShortCount > 0) lines.Add($"· 缺料 {ck.ShortCount} 项：{ck.ShortageBrief}");
+            if (ck.TightCount > 0) lines.Add($"· 紧张 {ck.TightCount} 项：库存刚好够用、无缓冲");
+            var warnMsg = $"物料不齐套：\n{string.Join("\n", lines)}"
+                        + $"\n\n（按计划数 {(int)_numPlan.Value} 只核算）"
+                        + "\n缺料开工会造成生产中断或半成品积压。仍要保存该工单吗？";
+            if (MessageBox.Show(warnMsg, "缺料预警", MessageBoxButtons.YesNo,
+                    MessageBoxIcon.Warning, MessageBoxDefaultButton.Button2) != DialogResult.Yes)
+                return;
+        }
+
         var line = _cboLine.SelectedItem!.ToString()!;
         var status = _cboStatus.SelectedItem?.ToString() ?? "未开始";
 
@@ -295,6 +342,109 @@ public class WorkOrderEditForm : Form
 
         DialogResult = DialogResult.OK;
         Close();
+    }
+
+    // ================= 齐套检查 =================
+
+    /// <summary>齐套明细网格（列比主站精简，避免把窗体撑太宽）。</summary>
+    private static DataGridView MakeStockGrid()
+    {
+        var g = new DataGridView
+        {
+            Dock = DockStyle.Fill,
+            ReadOnly = true,
+            AllowUserToAddRows = false,
+            AllowUserToDeleteRows = false,
+            AutoSizeColumnsMode = DataGridViewAutoSizeColumnsMode.Fill,
+            BackgroundColor = Color.White,
+            RowHeadersVisible = false,
+            SelectionMode = DataGridViewSelectionMode.FullRowSelect,
+            BorderStyle = BorderStyle.None,
+            EnableHeadersVisualStyles = false,
+            ColumnHeadersDefaultCellStyle = new DataGridViewCellStyle
+            {
+                BackColor = Color.FromArgb(15, 76, 129),
+                ForeColor = Color.White,
+                Font = new Font("微软雅黑", 9F),
+                Alignment = DataGridViewContentAlignment.MiddleCenter,
+                Padding = new Padding(4, 3, 4, 3)
+            }
+        };
+        g.AutoGenerateColumns = false;
+        g.Columns.Add(StockCol("MaterialName", "物料名称", 18));
+        g.Columns.Add(StockCol("RequirementText", "需求量", 9));
+        g.Columns.Add(StockCol("AvailableText", "可用量", 9));
+        g.Columns.Add(StockCol("ShortageText", "缺口", 9));
+        g.Columns.Add(StockCol("Status", "状态", 8));
+        g.Columns.Add(StockCol("Advice", "处置建议", 26));
+
+        g.CellFormatting += (_, e) =>
+        {
+            if (g.Rows.Count == 0 || e.RowIndex < 0) return;
+            if (g.Rows[e.RowIndex].DataBoundItem is not MaterialShortageRow r) return;
+            if (r.Status == ShortageStatus.Short)
+            {
+                e.CellStyle.BackColor = Color.FromArgb(254, 226, 226);
+                e.CellStyle.ForeColor = Color.FromArgb(220, 38, 38);
+            }
+            else if (r.Status == ShortageStatus.Tight)
+            {
+                e.CellStyle.BackColor = Color.FromArgb(255, 247, 237);
+                e.CellStyle.ForeColor = Color.FromArgb(217, 119, 6);
+            }
+            else
+            {
+                e.CellStyle.ForeColor = Color.FromArgb(21, 128, 61);
+            }
+        };
+        return g;
+    }
+
+    private static DataGridViewTextBoxColumn StockCol(string prop, string header, int fillWeight) => new()
+    {
+        Name = prop,
+        DataPropertyName = prop,
+        HeaderText = header,
+        ReadOnly = true,
+        FillWeight = fillWeight
+    };
+
+    /// <summary>按当前型号与计划数重算齐套。纯查询，不改任何数据。</summary>
+    private void RefreshStockCheck()
+    {
+        var model = _txtModel?.Text.Trim() ?? "";
+        if (model.Length == 0 || _gridStock is null)
+        {
+            _lastStockCheck = null;
+            if (_lblStock is not null)
+            {
+                _lblStock.Text = "填写产品型号后自动做齐套检查。";
+                _lblStock.ForeColor = Color.FromArgb(100, 116, 139);
+            }
+            if (_gridStock is not null) _gridStock.DataSource = null;
+            return;
+        }
+
+        var r = MesDatabase.CheckBomAvailability(model, (int)(_numPlan?.Value ?? 0));
+        _lastStockCheck = r;
+        _gridStock.DataSource = r.Rows;
+
+        if (r.NoBom)
+        {
+            _lblStock.Text = $"型号 {model} 暂无 BOM 数据，无法校验物料。";
+            _lblStock.ForeColor = Color.FromArgb(100, 116, 139);
+        }
+        else if (r.AllSatisfied)
+        {
+            _lblStock.Text = $"✓ 齐套通过：{r.Rows.Count} 项物料全部满足，可正常投产。";
+            _lblStock.ForeColor = Color.FromArgb(21, 128, 61);
+        }
+        else
+        {
+            _lblStock.Text = $"⚠ 缺料 {r.ShortCount} 项 → {r.ShortageBrief}"
+                           + (r.TightCount > 0 ? $"；另有 {r.TightCount} 项紧张（够用但无缓冲）。" : "");
+            _lblStock.ForeColor = Color.FromArgb(220, 38, 38);
+        }
     }
 
     private void Warn(string msg) =>

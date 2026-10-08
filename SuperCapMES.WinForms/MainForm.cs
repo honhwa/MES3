@@ -64,6 +64,25 @@ public partial class MainForm : Form
     private int _assistantRound;
     /// <summary>待渲染的对话段落（动画播放队列）。</summary>
     private readonly Queue<Action> _assistantRenderQueue = new();
+
+    // ================= 智能排产 =================
+    private ComboBox _cboSchedulePo = null!;
+    private Button _btnScheduleGen = null!;
+    private Button _btnScheduleCreate = null!;
+    private Label _lblScheduleHeadline = null!;
+    private Label _lblScheduleRisk = null!;
+    private Label _lblScheduleStock = null!;
+    private Label _lblScheduleLine = null!;
+    private Label _lblScheduleInputQty = null!;
+    private Label _lblScheduleFinish = null!;
+    private Label _lblScheduleSlack = null!;
+    private ListBox _lstScheduleEvidence = null!;
+    private DataGridView _gridScheduleStock = null!;
+    private ToolTip _scheduleTip = null!;
+    /// <summary>当前排产建议（供"按建议生成工单"与自测断言复用）。</summary>
+    private ScheduleRecommendation? _currentSchedule;
+    /// <summary>排产页首次加载守卫（幂等）。</summary>
+    private bool _scheduleLoaded;
     /// <summary>分段渲染定时器（懒创建，避免构造期占用资源）。</summary>
     private System.Windows.Forms.Timer? _assistantRenderTimer;
 
@@ -494,6 +513,7 @@ public partial class MainForm : Form
         RegisterPage(NavProduction, BuildFeedingTab());      // 上料防错：上料校验，防止用错料
         RegisterPage(NavProduction, BuildFaiTab());          // 首件检验：换型/开班首件判定
         RegisterPage(NavProduction, BuildModuleTab());       // 模组装配：模组级装配与追溯
+        RegisterPage(NavProduction, BuildSchedulingTab());   // 智能排产：历史工单推理 → 投产数/线体/工期 + 齐套预警
 
         // 【质量管理】不合格的发现 → 隔离 → 处置 → 归零闭环
         RegisterPage(NavQuality, BuildAbnormalTab());        // 异常登记：发现异常时录单
@@ -803,6 +823,7 @@ public partial class MainForm : Form
         EnsureComplaintReady();  // 客户投诉与 8D 兜底初始化（幂等）
         EnsureManualReady();     // 使用手册兜底初始化（幂等，空查询=浏览全部条目）
         EnsureAssistantReady();  // AI 助手兜底初始化（幂等：写欢迎语 + 渲染边界说明）
+        EnsureScheduleReady();   // 智能排产兜底初始化（幂等：载入待下发 PO 并生成首张建议）
     }
 
     /// <summary>执行「Trace」业务动作（校验 → 执行 → 刷新界面）。</summary>

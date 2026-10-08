@@ -7,7 +7,7 @@ namespace SuperCapMES.WinForms.Data;
 /// 原型用内存数据仓储：提供种子数据与追溯查询。
 /// 正式系统替换为数据库（PostgreSQL + 时序库）即可，接口保持不变。
 /// </summary>
-public static class MesDatabase
+public static partial class MesDatabase
 {
     public static List<WorkOrder> WorkOrders { get; } = new();
     public static List<MaterialLot> Materials { get; } = new();
@@ -156,6 +156,7 @@ public static class MesDatabase
         SeedWms();
         SeedShipment();
         SeedErp();
+        SeedSchedulingHistory();   // 历史工单 + 完工报工：为智能排产推理提供足量样本
         SeedErpStocks();
         SeedSpc();
         SeedWipFlow();
@@ -1709,6 +1710,9 @@ public static class MesDatabase
             new WmsMaterial { Code = "M-CAN-ALU-05", MaterialName = "铝壳外壳", Spec = "Φ18×40", Unit = "只", Category = WmsCategories.Raw, SafetyStock = 1000 },
             new WmsMaterial { Code = "M-SEL-RUB-06", MaterialName = "密封圈", Spec = "Φ18", Unit = "只", Category = WmsCategories.Raw, SafetyStock = 1000 },
             new WmsMaterial { Code = "M-TAB-NIC-07", MaterialName = "镍带极耳", Spec = "0.1×5 mm", Unit = "m", Category = WmsCategories.Aux, SafetyStock = 200 },
+            // 包材主数据（2026-10-08 补）：彩盒此前只出现在 BOM 里，物料台账缺主数据，
+            // 齐套校验与库存台账都会拿不到名称/单位。
+            new WmsMaterial { Code = "M-PKG-BOX-11", MaterialName = "彩盒（100F 专用）", Spec = "200×60×40 mm", Unit = "个", Category = WmsCategories.Aux, SafetyStock = 300 },
             new WmsMaterial { Code = "M-INS-PET-08", MaterialName = "绝缘胶带（PET）", Spec = "10 mm", Unit = "m", Category = WmsCategories.Aux, SafetyStock = 150 },
             new WmsMaterial { Code = "M-FG-100F-09", MaterialName = "超级电容成品 SC-CX2026-100F", Spec = "100F/2.7V", Unit = "只", Category = WmsCategories.Finished, SafetyStock = 100 },
             new WmsMaterial { Code = "M-FG-300F-10", MaterialName = "超级电容成品 SC-CX2026-300F", Spec = "300F/2.7V", Unit = "只", Category = WmsCategories.Finished, SafetyStock = 80 },
@@ -1720,8 +1724,16 @@ public static class MesDatabase
         {
             new WmsStock { MaterialCode = "M-ELE-ACN-02", MaterialName = "电解液（ACN基）", Spec = "1 mol/L", Unit = "L", LotNo = "EL-260812-012", Location = WmsLocations.RawA, Quantity = 60, LastUpdate = baseTime },
             new WmsStock { MaterialCode = "M-COL-AL-04", MaterialName = "铝箔集流体", Spec = "20 μm", Unit = "m²", LotNo = "CC-260812-003", Location = WmsLocations.RawA, Quantity = 500, LastUpdate = baseTime },
-            new WmsStock { MaterialCode = "M-CAN-ALU-05", MaterialName = "铝壳外壳", Spec = "Φ18×40", Unit = "只", LotNo = "CAN-260810-001", Location = WmsLocations.RawA, Quantity = 2000, LastUpdate = baseTime },
-            new WmsStock { MaterialCode = "M-SEL-RUB-06", MaterialName = "密封圈", Spec = "Φ18", Unit = "只", LotNo = "SEL-260811-002", Location = WmsLocations.RawA, Quantity = 1500, LastUpdate = baseTime },
+            // ---- 辅材备料：铝壳 / 密封圈按只配套，用量最大（1 只/只 + 损耗）----
+            // 数量口径（2026-10-08 智能排产轮调整）：原先 2000 / 1500 只，撑不住任何一个待下发 PO，
+            // 导致每张单都缺料、"齐套通过"的正常路径演示不出来。调到 5000 后：
+            //   · 小单（4000 只级）→ 满足，可演示齐套通过后正常开工
+            //   · 大单（6000~10000 只级）→ 短缺，可演示缺料预警与补料建议
+            new WmsStock { MaterialCode = "M-CAN-ALU-05", MaterialName = "铝壳外壳", Spec = "Φ18×40", Unit = "只", LotNo = "CAN-260810-001", Location = WmsLocations.RawA, Quantity = 5000, LastUpdate = baseTime },
+            new WmsStock { MaterialCode = "M-SEL-RUB-06", MaterialName = "密封圈", Spec = "Φ18", Unit = "只", LotNo = "SEL-260811-002", Location = WmsLocations.RawA, Quantity = 5000, LastUpdate = baseTime },
+            // 极耳与彩盒：BOM 用量小但必须有料，缺了整单做不出来（此前库存台账里完全没有这两项）
+            new WmsStock { MaterialCode = "M-TAB-NIC-07", MaterialName = "镍带极耳", Spec = "0.1×5 mm", Unit = "m", LotNo = "TAB-260811-001", Location = WmsLocations.RawA, Quantity = 120, LastUpdate = baseTime },
+            new WmsStock { MaterialCode = "M-PKG-BOX-11", MaterialName = "彩盒（100F 专用）", Spec = "200×60×40 mm", Unit = "个", LotNo = "BOX-260811-001", Location = WmsLocations.RawA, Quantity = 700, LastUpdate = baseTime },
             new WmsStock { MaterialCode = "M-FG-100F-09", MaterialName = "超级电容成品 SC-CX2026-100F", Spec = "100F/2.7V", Unit = "只", LotNo = "FG-100F-260812-01", Location = WmsLocations.FinishedB, Quantity = 500, LastUpdate = baseTime },
             new WmsStock { MaterialCode = "M-FG-300F-10", MaterialName = "超级电容成品 SC-CX2026-300F", Spec = "300F/2.7V", Unit = "只", LotNo = "FG-300F-260813-01", Location = WmsLocations.FinishedB, Quantity = 220, LastUpdate = baseTime },
         });
@@ -4039,7 +4051,9 @@ public static class MesDatabase
         var pending = FaiOrders.Count(f => f.Status == FaiStatus.Pending);
         var passed = FaiOrders.Count(f => f.Status == FaiStatus.Passed);
         var failed = FaiOrders.Count(f => f.Status == FaiStatus.Failed);
-        var notReleased = WorkOrders.Count(w => !IsFaiPassed(w.WoNo));
+        // 未放行只统计"还在做"的工单：已完成/已关闭的工单本就已经做完，不该再挂在待放行列里。
+        // 口径修正（2026-10-08）：原先统计全部工单，补入历史已完工工单后该数字会虚高十几张。
+        var notReleased = WorkOrders.Count(w => IsOpenWorkOrder(w) && !IsFaiPassed(w.WoNo));
         return (pending, passed, failed, notReleased);
     }
 
