@@ -97,6 +97,7 @@ public partial class MainForm : Form
     private Button _btnReqReject = null!;
     private Button _btnReqOrder = null!;
     private Button _btnReqClose = null!;
+    private Button _btnReqFinish = null!;
     private Label _lblReqSummary = null!;
     private Label _lblReqInfo = null!;
     private DataGridView _gridReqList = null!;

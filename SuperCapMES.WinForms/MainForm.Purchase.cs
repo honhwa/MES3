@@ -76,6 +76,10 @@ public partial class MainForm
         _btnReqOrder = MakeToolbarButton(PurchaseRequestActions.Order, BtnPurchaseOrder);
         _btnReqOrder.Width = 74;
         toolbar.Controls.Add(_btnReqOrder);
+        _btnReqFinish = MakeToolbarButton(PurchaseRequestActions.Finish, BtnPurchaseFinish);
+        _btnReqFinish.Width = 94;
+        toolbar.Controls.Add(_btnReqFinish);
+
         _btnReqClose = MakeToolbarButton(PurchaseRequestActions.Close, BtnPurchaseClose);
         _btnReqClose.Width = 74;
         toolbar.Controls.Add(_btnReqClose);
@@ -448,6 +452,7 @@ public partial class MainForm
         Set(_btnReqReject, PurchaseRequestActions.Reject);
         Set(_btnReqOrder, PurchaseRequestActions.Order);
         Set(_btnReqClose, PurchaseRequestActions.Close);
+        Set(_btnReqFinish, PurchaseRequestActions.Finish);
     }
 
     /// <summary>不可执行的动作给出原因，而不是让按钮默默灰着让人猜。</summary>
@@ -577,6 +582,42 @@ public partial class MainForm
         _lblReqAi.Text = msg;
         LoadPurchaseRequests();   // 列表 + 采购汇总统计（待审批张数/采购项数）一并刷新
         Warn(msg);
+    }
+
+    /// <summary>
+    /// 完结入库：采购完成，货到。把本单采购数量累加进 WMS 库存。
+    /// 二次确认里写明"会改库存、不可撤销"，让人清楚这一步和前面几步不是一个量级。
+    /// </summary>
+    private void BtnPurchaseFinish(object? sender, EventArgs e)
+    {
+        var req = _currentRequest;
+        if (req is null) { Warn("请先选择一张采购申请单。"); return; }
+
+        // 前置校验复用后端同一套判定——界面与接口不可能出现口径不一致
+        var blocked = MesDatabase.FinishBlockedReason(req);
+        if (blocked.Length > 0) { Warn(blocked); return; }
+
+        var detail = string.Join("\n", req.Lines.Take(5)
+            .Select(l => $"· {l.MaterialName}：{l.RequestQtyText}"));
+        var confirm = $"确认采购单 <b>{req.ReqNo}</b> 已完结入库吗？\n\n{detail}"
+                    + $"{(req.Lines.Count > 5 ? $"\n…… 共 {req.Lines.Count} 项" : "")}\n\n"
+                    + "<b>系统将自动生成 WMS 采购入库单并过账，库存数量会增加。</b>\n"
+                    + "这一步<b>不可撤销</b>；若货其实没到，请改用「关闭」取消本次采购。";
+        if (MessageBox.Show(confirm, "完结入库（将修改库存）", MessageBoxButtons.YesNo,
+                MessageBoxIcon.Warning, MessageBoxDefaultButton.Button2) != DialogResult.Yes)
+            return;
+
+        var (ok, msg, orderNo) = MesDatabase.FinishRequest(req.ReqNo, CurrentOperator);
+        if (!ok)
+        {
+            MessageBox.Show(msg, "完结入库失败", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            return;
+        }
+
+        MessageBox.Show(msg + "\n\n可在「仓储与出货 › WMS 仓储 › 入库单」查到该单据。",
+            "已完结入库", MessageBoxButtons.OK, MessageBoxIcon.Information);
+        _currentRequest = MesDatabase.FindPurchaseRequest(req.ReqNo);
+        LoadPurchaseRequests();   // 列表 + 汇总统计一并刷新
     }
 
     // ================= AI 库存分析 =================

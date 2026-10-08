@@ -32,14 +32,22 @@ public static class PurchaseRequestStatus
     /// <summary>已下单（已向供应商下达订单）</summary>
     public const string Ordered = "已下单";
 
-    /// <summary>已关闭（入库完成或已取消）</summary>
+    /// <summary>已关闭（本次请购事务取消 / 终止，货没来）</summary>
     public const string Closed = "已关闭";
 
-    public static readonly string[] All = { Draft, Submitted, Approved, Rejected, Ordered, Closed };
+    /// <summary>
+    /// 已完结：采购完成、<b>货已入 WMS 库存</b>（终态）。
+    /// 与「已关闭」是两件事，语义不能混：关闭 = 取消/终止（货没到），完结 = 货真到了（库存已加）。
+    /// 因此完结只允许从「已下单」进入，且会触发库存累加。
+    /// </summary>
+    public const string Finished = "已完结";
+
+    public static readonly string[] All = { Draft, Submitted, Approved, Rejected, Ordered, Closed, Finished };
 
     /// <summary>终态（不可再流转）</summary>
     public static bool IsFinal(string? status) =>
-        string.Equals(status, Closed, StringComparison.Ordinal);
+        string.Equals(status, Closed, StringComparison.Ordinal)
+        || string.Equals(status, Finished, StringComparison.Ordinal);
 
     /// <summary>是否处于可编辑状态（只有草稿与已驳回能改明细）</summary>
     public static bool IsEditable(string? status) =>
@@ -79,7 +87,10 @@ public static class PurchaseRequestActions
     /// <summary>删除：仅草稿 → 单据消失（不可恢复，删除前必须二次确认）</summary>
     public const string Delete = "删除";
 
-    public static readonly string[] All = { Submit, Approve, Reject, Order, Close, Delete };
+    /// <summary>完结入库：已下单 → 已完结，并把采购数量累加进 WMS 库存</summary>
+    public const string Finish = "完结入库";
+
+    public static readonly string[] All = { Submit, Approve, Reject, Order, Close, Delete, Finish };
 
     /// <summary>该状态下允许执行的动作；不允许返回空集。</summary>
     public static string[] AllowedIn(string? status) => status switch
@@ -90,8 +101,10 @@ public static class PurchaseRequestActions
         PurchaseRequestStatus.Rejected => new[] { Submit },
         PurchaseRequestStatus.Submitted => new[] { Approve, Reject },
         PurchaseRequestStatus.Approved => new[] { Order, Close },
-        PurchaseRequestStatus.Ordered => new[] { Close },
+        // 已下单既可以"完结入库"，也可以"关闭取消"——两条路都合理，由人决定货到底到没到
+        PurchaseRequestStatus.Ordered => new[] { Finish, Close },
         PurchaseRequestStatus.Closed => Array.Empty<string>(),
+        PurchaseRequestStatus.Finished => Array.Empty<string>(),   // 终态：货已入库，不可再流转
         _ => Array.Empty<string>()
     };
 
@@ -204,6 +217,15 @@ public class PurchaseRequest
     /// <summary>是否工单缺料自动生成（手工建的可为 false）</summary>
     public bool AutoCreated { get; set; }
 
+    /// <summary>完结时自动生成的 WMS 采购入库单号（未完结为空；用于反查与防重复入库）</summary>
+    public string WmsInOrderNo { get; set; } = "";
+
+    /// <summary>实际入库总量（累加进 WMS 的数量之和，供回执与核对）</summary>
+    public double FinishedQty => Lines.Sum(l => l.RequestQty);
+
+    /// <summary>是否已入库（完结且有入库单号）</summary>
+    public bool InStocked => Status == PurchaseRequestStatus.Finished && WmsInOrderNo.Length > 0;
+
     // ---- 派生显示 ----
 
     public int LineCount => Lines.Count;
@@ -240,6 +262,7 @@ public class PurchaseRequest
         PurchaseRequestStatus.Rejected => "已驳回",
         PurchaseRequestStatus.Ordered => "已下单",
         PurchaseRequestStatus.Closed => "已关闭",
+        PurchaseRequestStatus.Finished => "已完结",
         _ => Status
     };
 }
