@@ -76,12 +76,17 @@ public static class PurchaseRequestActions
     /// <summary>关闭：已批准 / 已下单 → 已关闭</summary>
     public const string Close = "关闭";
 
-    public static readonly string[] All = { Submit, Approve, Reject, Order, Close };
+    /// <summary>删除：仅草稿 → 单据消失（不可恢复，删除前必须二次确认）</summary>
+    public const string Delete = "删除";
+
+    public static readonly string[] All = { Submit, Approve, Reject, Order, Close, Delete };
 
     /// <summary>该状态下允许执行的动作；不允许返回空集。</summary>
     public static string[] AllowedIn(string? status) => status switch
     {
-        PurchaseRequestStatus.Draft => new[] { Submit },
+        // 草稿同时允许"提交"与"删除"——删除是不可逆动作，所以它带自己的权限校验与二次确认，
+        // 但**状态上只认草稿**：一旦单据流转出去就只能"关闭"留痕，不许再删。
+        PurchaseRequestStatus.Draft => new[] { Submit, Delete },
         PurchaseRequestStatus.Rejected => new[] { Submit },
         PurchaseRequestStatus.Submitted => new[] { Approve, Reject },
         PurchaseRequestStatus.Approved => new[] { Order, Close },

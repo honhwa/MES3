@@ -105,6 +105,10 @@ public partial class MainForm : Form
     private bool _reqLoaded;
     /// <summary>当前选中的申请单（供状态流转与明细刷新复用）。</summary>
     private PurchaseRequest? _currentRequest;
+    private Button _btnReqDelete = null!;
+    private ComboBox _cboReqOperator = null!;
+    /// <summary>当前操作人（决定草稿删除权限；项目无登录体系，沿用既有"操作人"约定）</summary>
+    private string CurrentOperator => (_cboReqOperator?.SelectedItem as string) ?? "计划员";
     private Button _btnReqAi = null!;
     private Button _btnReqAiGen = null!;
     private Label _lblReqAi = null!;

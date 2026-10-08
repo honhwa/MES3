@@ -90,6 +90,11 @@ public partial class MainForm
         _btnReqAiGen.Enabled = false;
         toolbar.Controls.Add(_btnReqAiGen);
 
+        _btnReqDelete = MakeToolbarButton("🗑 删除草稿", BtnPurchaseDelete);
+        _btnReqDelete.Width = 104;
+        _btnReqDelete.Enabled = false;
+        toolbar.Controls.Add(_btnReqDelete);
+
         var btnRefresh = MakeToolbarButton("刷新", (_, _) => LoadPurchaseRequests());
         btnRefresh.Width = 84;
         toolbar.Controls.Add(btnRefresh);
@@ -109,6 +114,20 @@ public partial class MainForm
         _cboReqStatus.SelectedIndex = 0;
         _cboReqStatus.SelectedIndexChanged += (_, _) => LoadPurchaseRequests();
         filterBar.Controls.Add(_cboReqStatus);
+
+        filterBar.Controls.Add(new Label
+        {
+            Text = "当前操作人：",
+            AutoSize = true,
+            Margin = new Padding(12, 7, 4, 0),
+            ForeColor = PrInk
+        });
+        _cboReqOperator = new ComboBox { DropDownStyle = ComboBoxStyle.DropDownList, Width = 110, Margin = new Padding(0, 2, 0, 0) };
+        _cboReqOperator.Items.Add("计划员");   // 无人员档案 → 只能删除本人创建的
+        foreach (var u in MesDatabase.Users) _cboReqOperator.Items.Add(u.Name);
+        _cboReqOperator.SelectedIndex = 0;
+        _cboReqOperator.SelectedIndexChanged += (_, _) => OnPurchaseSelectionChanged();
+        filterBar.Controls.Add(_cboReqOperator);
 
         filterBar.Controls.Add(new Label { Text = "搜索：", AutoSize = true, Margin = new Padding(0, 7, 4, 0) });
         _txtReqSearch = new TextBox { Width = 240, Margin = new Padding(0, 2, 8, 0) };
@@ -416,6 +435,15 @@ public partial class MainForm
             b.Text = allowed ? action : ActionDisabledText(action);
         }
         Set(_btnReqSubmit, PurchaseRequestActions.Submit);
+
+        // 删除：状态与权限两道都过才可用，禁用时把原因挂在 ToolTip 上
+        if (_btnReqDelete is not null)
+        {
+            var reason = MesDatabase.DeleteBlockedReason(_currentRequest, CurrentOperator);
+            _btnReqDelete.Enabled = reason.Length == 0;
+            _btnReqDelete.Text = reason.Length == 0 ? "🗑 删除草稿" : "🗑 删除草稿";
+            _reqTip?.SetToolTip(_btnReqDelete, reason.Length == 0 ? "删除草稿申请单（不可恢复）" : reason);
+        }
         Set(_btnReqApprove, PurchaseRequestActions.Approve);
         Set(_btnReqReject, PurchaseRequestActions.Reject);
         Set(_btnReqOrder, PurchaseRequestActions.Order);
@@ -509,6 +537,45 @@ public partial class MainForm
 
         _currentRequest = MesDatabase.FindPurchaseRequest(r.ReqNo);
         LoadPurchaseRequests();
+        Warn(msg);
+    }
+
+    /// <summary>
+    /// 删除草稿申请单。流程：权限/状态前置校验（界面已拦一道，这里再拦一道）
+    /// → 二次确认（明写不可恢复）→ 调后端 → 刷新列表与统计。
+    /// </summary>
+    private void BtnPurchaseDelete(object? sender, EventArgs e)
+    {
+        var req = _currentRequest;
+        if (req is null) { Warn("请先选择一张采购申请单。"); return; }
+
+        // 前置校验复用后端同一套判定——界面与接口不可能出现口径不一致
+        var blocked = MesDatabase.DeleteBlockedReason(req, CurrentOperator);
+        if (blocked.Length > 0) { Warn(blocked); return; }
+
+        var confirm = $"确定删除草稿申请单 <b>{req.ReqNo}</b> 吗？\n"
+                    + $"申请人：{req.Applicant}　明细：{req.Lines.Count} 项\n"
+                    + "\n<b>删除后不可恢复。</b>该单的采购量会退出在途统计，"
+                    + "原本因此不再计入缺口的部分将重新出现在缺口清单中。"
+                    + "\n资材占用属于工单，不随本次删除释放。";
+        if (MessageBox.Show(confirm, "删除草稿申请单（不可恢复）", MessageBoxButtons.YesNo,
+                MessageBoxIcon.Warning, MessageBoxDefaultButton.Button2) != DialogResult.Yes)
+            return;
+
+        var (ok, msg) = MesDatabase.DeleteRequest(req.ReqNo, CurrentOperator);
+        if (!ok)
+        {
+            MessageBox.Show(msg, "删除失败", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            return;
+        }
+
+        // 清掉与该单绑定的分析结果，避免拿着已删除单据的快照去生成下一张
+        _currentAiAnalysis = null;
+        _currentAiInput = null;
+        _currentRequest = null;
+        _lblReqRisk.Text = "";
+        _lblReqAi.Text = msg;
+        LoadPurchaseRequests();   // 列表 + 采购汇总统计（待审批张数/采购项数）一并刷新
         Warn(msg);
     }
 

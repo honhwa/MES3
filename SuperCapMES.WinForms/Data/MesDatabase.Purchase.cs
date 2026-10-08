@@ -560,15 +560,78 @@ public static partial class MesDatabase
     }
 
     /// <summary>删除草稿单（仅草稿可删，已流转的单据必须留痕）。</summary>
-    public static (bool Ok, string Message) DeleteRequest(string reqNo)
+    /// <summary>
+    /// 删除采购申请草稿单。
+    ///
+    /// 三条硬规则（2026-10-08）：
+    ///   ① **状态**：只认草稿，且判定走状态机 <see cref="PurchaseRequestActions.CanDo"/>，
+    ///      不再在方法里另写一套——将来加动作时才不会出现"两个地方口径不一致"。
+    ///      已提交/待审批/已批准/已下单/已关闭一律不可删；已驳回也不算（它要留痕、改完重提）。
+    ///   ② **权限**：申请人本人，或采购部主管/经理（管理岗）。其他人一律拒绝。
+    ///   ③ **超限不影响可删除性**：超量/超限额/重复请购是一次性**校验结论**，不是单据状态，
+    ///      所以它永远不会成为删除的障碍；反过来说，如果哪天有人把"超限"做成状态，
+    ///      这里也会因为"非草稿"而拒绝——这正是应有的行为（带超限标记的单据不该无痕消失）。
+    ///      本方法**刻意不调任何数量校验**，否则超限单会被"校验失败"挡住删不掉。
+    ///
+    /// 关联记录处理：本单退出在途汇总（<c>GetMaterialPendingQty</c> 自动少掉这部分），
+    /// 采购汇总统计随之重算；**资材占用不受影响**——占用属于工单而非申请单，删申请单不释放占用。
+    /// </summary>
+    public static (bool Ok, string Message) DeleteRequest(string reqNo, string @operator)
     {
         var req = FindPurchaseRequest(reqNo);
-        if (req is null) return (false, $"采购申请 {reqNo} 不存在。");
-        if (req.Status != PurchaseRequestStatus.Draft)
-            return (false, $"只有草稿可以删除（当前 {req.StatusText}）。已流转的单据要留痕，请改用「关闭」。");
+        if (req is null) return (false, $"采购申请 {reqNo} 不存在或已被删除。");
+
+        // ① 状态校验（走状态机，与界面按钮同一口径）
+        if (!PurchaseRequestActions.CanDo(req.Status, PurchaseRequestActions.Delete))
+            return (false, $"只有草稿可以删除（当前「{req.StatusText}」）。已流转的单据要留痕，请改用「关闭」。");
+
+        // ② 权限校验（无论从界面点还是绕过界面直接调用，这一关都会跑）
+        var op = (@operator ?? "").Trim();
+        if (op.Length == 0)
+            return (false, "未提供操作人，无法判定删除权限。");
+        if (!CanDeleteRequest(req, op))
+            return (false, $"没有删除权限：{reqNo} 由「{req.Applicant}」创建，只有申请人本人"
+                        + $"或采购部主管/经理可以删除（当前操作人：{op}）。");
+
+        // ③ 统计影响：删掉多少行采购量会回到缺口清单里，回执要说清楚，方便用户核对
+        var lines = req.Lines.Count;
+        var qty = req.Lines.Sum(l => l.RequestQty);
+        var codes = req.Lines.Select(l => l.MaterialCode).ToList();
 
         PurchaseRequests.Remove(req);
-        return (true, $"草稿 {reqNo} 已删除。");
+        return (true, $"草稿 {reqNo} 已删除（不可恢复）。{lines} 项物料、合计 {qty:0.##} 的采购量"
+                    + "已退出在途统计，若原本因此不再计入缺口，现在会重新出现在缺口清单中。"
+                    + $"涉及物料：{string.Join("、", codes.Take(5))}{(codes.Count > 5 ? $" 等 {codes.Count} 种" : "")}。");
+    }
+
+    /// <summary>
+    /// 能否删除某单（前端按钮启用态与后端校验共用同一个判定，避免两处不一致）。
+    /// 规则：申请人本人，或采购部主管/经理。操作人查不到人员档案时按普通员工处理（只能删本人）。
+    /// </summary>
+    public static bool CanDeleteRequest(PurchaseRequest req, string @operator)
+    {
+        if (req is null) return false;
+        var op = (@operator ?? "").Trim();
+        if (op.Length == 0) return false;
+        if (string.Equals(req.Applicant, op, StringComparison.Ordinal)) return true;   // 本人
+
+        var me = Users.FirstOrDefault(u =>
+            string.Equals(u.Name, op, StringComparison.Ordinal)
+            || string.Equals(u.EmpNo, op, StringComparison.Ordinal));
+        if (me is null) return false;                                                   // 无档案 → 普通员工
+        return me.Dept == "采购部"
+               && (me.Position.Contains("主管") || me.Position.Contains("经理"));     // 管理岗
+    }
+
+    /// <summary>删除按钮的禁用原因（界面上直接显示原因，不让用户对着灰按钮猜）。</summary>
+    public static string DeleteBlockedReason(PurchaseRequest? req, string @operator)
+    {
+        if (req is null) return "请先选择一张申请单。";
+        if (!PurchaseRequestActions.CanDo(req.Status, PurchaseRequestActions.Delete))
+            return $"仅草稿可删除（当前「{req.StatusText}」）";
+        if (!CanDeleteRequest(req, @operator))
+            return $"仅申请人「{req.Applicant}」或采购部主管可删除";
+        return "";
     }
 }
 
