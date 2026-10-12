@@ -386,6 +386,11 @@ public partial class MainForm : Form
     private Button _btnReinspect = null!;
     private DataGridView _reinspectGrid = null!;
     private Label _lblReinspectHint = null!;
+    // ---- 能源与碳（阶段一：能源台账 / 能耗查询）----
+    private DataGridView _gridMeter = null!;
+    private DataGridView _gridEnergyReading = null!;
+    private DataGridView _gridEnergySummary = null!;
+    private DataGridView _gridEnergyQuery = null!;
     private readonly ToolTip _btnScrapToolTip = new();
     private readonly ToolTip _btnReinspectToolTip = new();
     // ---- 首件检验页（顶层第 18 个页签） ----
@@ -573,7 +578,9 @@ public partial class MainForm : Form
         RegisterPage(NavProduction, BuildFaiTab());          // 首件检验：换型/开班首件判定
         RegisterPage(NavProduction, BuildModuleTab());       // 模组装配：模组级装配与追溯
         RegisterPage(NavProduction, BuildSchedulingTab());   // 智能排产：历史工单推理 → 投产数/线体/工期 + 齐套预警
-        RegisterPage(NavProduction, BuildDeliveryRiskTab());    // ① 工单交期风险（复用产能引擎口径）
+        RegisterPage(NavProduction, BuildDeliveryRiskTab());   // ① 工单交期风险（复用产能引擎口径）
+        RegisterPage(NavEnergy, BuildEnergyMeterTab());        // 能源台账：三级计量点 + 抄表录入
+        RegisterPage(NavEnergy, BuildEnergyQueryTab());        // 能耗查询：时间×区域×线体×设备×能源
         RegisterPage(NavQuality, BuildRootCauseTab());        // ② 质量根因交叉（工序×设备×批次）
         RegisterPage(NavQuality, BuildSpcTuningTab());        // ③ SPC 调机建议（复用 Cpk）
         RegisterPage(NavQuality, BuildDuplicateFaiTab());     // ⑤ 首检重复送检提醒
@@ -630,6 +637,7 @@ public partial class MainForm : Form
     internal const string NavWarehouse = "仓储与出货";
     internal const string NavResource = "设备与人员";
     internal const string NavTrace = "追溯与报表";
+    internal const string NavEnergy = "能源与碳";
     internal const string NavHelp = "帮助";
 
     /// <summary>
@@ -894,6 +902,7 @@ public partial class MainForm : Form
         EnsurePurchaseReady(); // 资材采购申请兜底初始化（幂等：载入申请单列表）
         LoadInsights();          // 主动预警与决策：数据量小，纯计算，直接算出来
         AssistantFeedbackStore.Load();   // 载入历史反馈（重启后统计不丢）
+        MesDatabase.EnsureEnergySeed();  // 能源管理：每次启动按当前日期补生成最近 6 个月（幂等 upsert）
         LoadAnalytics();               // 六项分析：数据量小，纯计算，启动时直接算出来
     }
 
