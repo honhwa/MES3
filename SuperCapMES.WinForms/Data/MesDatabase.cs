@@ -2960,6 +2960,7 @@ public static partial class MesDatabase
         var kw = (keyword ?? "").Trim();
         var stocks = WmsStocks
             .Where(s => s.Quantity > 1e-9)
+            .Where(s => !s.IsScrapped)   // 已废弃批次退出 FIFO 队列（数量已归零，这里再加一道标记过滤）
             .Where(s => kw.Length == 0
                         || s.MaterialCode.Contains(kw, StringComparison.OrdinalIgnoreCase)
                         || s.MaterialName.Contains(kw, StringComparison.OrdinalIgnoreCase)

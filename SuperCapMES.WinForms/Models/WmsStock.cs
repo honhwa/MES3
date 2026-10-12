@@ -32,4 +32,14 @@ public class WmsStock
 
     /// <summary>有效期到期日（null = 不进行效期管理）</summary>
     public DateTime? ExpiryDate { get; set; }
+
+    // ---- 废弃标记（物料废弃功能）----
+    // 主表只留"标记 + 时间"，原因与操作人放独立台账：WmsStock 是会被过账改写的"当前状态"，
+    // 台账是只追加的"历史事实"，混在一起历史会被后续过账冲掉，追溯链就断了。
+    public bool IsScrapped { get; set; }
+
+    /// <summary>废弃时间（未废弃为 null）</summary>
+    public DateTime? ScrappedAt { get; set; }
+
+    public string ScrappedText => IsScrapped ? ScrappedAt?.ToString("yyyy-MM-dd HH:mm") ?? "已废弃" : "";
 }

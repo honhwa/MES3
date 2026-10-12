@@ -674,6 +674,16 @@ public partial class MainForm
             _txtExpiryKeyword.Text = "";
             DoQueryExpiryFifo();
         }));
+        _btnReinspect = MakeToolbarButton("🔬 重新进料检", BtnReinspect);
+        _btnReinspect.Width = 118;
+        _btnReinspect.Enabled = false;
+        bar.Controls.Add(_btnReinspect);
+
+        _btnScrap = MakeToolbarButton("🗑 废弃批次", BtnScrap);
+        _btnScrap.Width = 108;
+        _btnScrap.Enabled = false;
+        bar.Controls.Add(_btnScrap);
+
         bar.Controls.Add(new Label
         {
             Text = "（物料编码 / 名称 / 批次）｜ FIFO：同物料多批次时，入库最早的批次标 ★ 优先出库",
@@ -692,11 +702,31 @@ public partial class MainForm
         split.Panel1.Controls.Add(MakeGridGroup("效期预警（已过期 / 临期 ≤30 天；按剩余天数升序）", out _expiryAlertGrid));
         split.Panel2.Controls.Add(MakeGridGroup("FIFO 视图（按物料 + 批次 + 库位；入库时间升序，★ 为优先出库批次）", out _fifoGrid));
 
+        // 进料检历史：按需求"在物料明细下方以列表形式追加" → 用 Bottom 面板，
+        // 不做嵌套 SplitContainer（构造期设 SplitterDistance 会抛异常，本项目已踩过 3 次）
+        var historyHost = new Panel { Dock = DockStyle.Bottom, Height = 176, Padding = new Padding(0, 4, 0, 0) };
+        _lblReinspectHint = new Label
+        {
+            Dock = DockStyle.Top,
+            Height = 20,
+            Font = new Font("微软雅黑", 8.5F),
+            ForeColor = Color.Gray,
+            TextAlign = ContentAlignment.MiddleLeft,
+            Text = "重新进料检历史（选中上方任一批次即按该物料过滤；按进料检时间倒序）"
+        };
+        historyHost.Controls.Add(MakeGridGroup(
+            "进料检历史（原效期 → 新效期 / 进料检人 / 进料检时间 / 结论）；同一批次可多次进料检，全部留痕",
+            out _reinspectGrid));
+        historyHost.Controls.Add(_lblReinspectHint);
+        SetupReinspectColumns();
+
         page.Controls.Add(split);
+        page.Controls.Add(historyHost);
         page.Controls.Add(bar);
         page.Controls.Add(cards);
 
         SetupExpiryFifoColumns();
+        WireExpiryFifoSelection();
         DoQueryExpiryFifo();
 
         page.Enter -= ExpiryFifoTab_Enter;
@@ -778,6 +808,147 @@ public partial class MainForm
         };
     }
 
+    // ================= 废弃 / 重新进料检 =================
+
+    /// <summary>
+    /// 取当前行的库存批次（FIFO 优先，其次效期预警表）。
+    /// 说明：WinForms 的 DataGridView **始终存在一个 CurrentRow**（"完全没有当前行"是做不到的，
+    /// CurrentCell 置空后它会立刻回到第一行），所以这里按当前行判定即可。
+    /// 防误操作不靠"必须先选中"——靠废弃弹窗：它把物料、批次、库位、数量全部列出来，
+    /// 用户在点确认前有机会发现"这不是我要废弃的那一行"。
+    /// </summary>
+    private WmsStock? SelectedStock()
+    {
+        foreach (var grid in new[] { _fifoGrid, _expiryAlertGrid })
+        {
+            if (grid is null || grid.Rows.Count == 0) continue;
+            if (grid.CurrentRow?.DataBoundItem is not StockFifoRow r) continue;
+            var hit = MesDatabase.WmsStocks.FirstOrDefault(s =>
+                string.Equals(s.MaterialCode, r.MaterialCode, StringComparison.OrdinalIgnoreCase)
+                && string.Equals(s.LotNo, r.LotNo, StringComparison.OrdinalIgnoreCase)
+                && string.Equals(s.Location, r.Location, StringComparison.OrdinalIgnoreCase));
+            if (hit is not null) return hit;
+        }
+        return null;
+    }
+
+    /// <summary>两张表的选中行联动 + 按钮启用态。</summary>
+    private void WireExpiryFifoSelection()
+    {
+        void OnSel(object? sender, EventArgs e)
+        {
+            RefreshScrapButtons();
+            LoadReinspectHistory(SelectedStock()?.MaterialCode);
+        }
+        _expiryAlertGrid.SelectionChanged -= OnSel;
+        _expiryAlertGrid.SelectionChanged += OnSel;
+        _fifoGrid.SelectionChanged -= OnSel;
+        _fifoGrid.SelectionChanged += OnSel;
+        RefreshScrapButtons();
+    }
+
+    /// <summary>按钮启用态：禁用时把原因写进 ToolTip（不让用户对着灰按钮猜）。</summary>
+    private void RefreshScrapButtons()
+    {
+        if (_btnScrap is null || _btnReinspect is null) return;
+        var s = SelectedStock();
+        var sReason = MesDatabase.ScrapBlockedReason(s);
+        var rReason = MesDatabase.ReinspectBlockedReason(s);
+        _btnScrap.Enabled = sReason.Length == 0;
+        _btnReinspect.Enabled = rReason.Length == 0;
+        try
+        {
+            _btnScrapToolTip.SetToolTip(_btnScrap,
+                sReason.Length == 0 ? "废弃该批次（不可撤销）" : sReason);
+            _btnReinspectToolTip.SetToolTip(_btnReinspect,
+                rReason.Length == 0 ? "对已过期批次发起重新进料检" : rReason);
+        }
+        catch { }
+    }
+
+    /// <summary>按物料加载进料检历史（时间倒序）。</summary>
+    private void LoadReinspectHistory(string? materialCode)
+    {
+        if (_reinspectGrid is null) return;
+        var list = MesDatabase.GetReinspections(materialCode);
+        _reinspectGrid.DataSource = null;
+        _reinspectGrid.DataSource = list;
+
+        if (_lblReinspectHint is null) return;
+        _lblReinspectHint.Text = materialCode is { Length: > 0 }
+            ? $"「{materialCode}」的重新进料检历史：{list.Count} 条（按进料检时间倒序）"
+              + (list.Count > 0 ? $"　最近一次新效期 {list[0].NewExpiryText}（{list[0].Inspector}）" : "　该物料尚无进料检记录")
+            : $"全部物料的进料检历史：{list.Count} 条（选中上方批次可按物料过滤）";
+    }
+
+    private void SetupReinspectColumns()
+    {
+        _reinspectGrid.AutoGenerateColumns = false;
+        _reinspectGrid.Columns.Clear();
+        _reinspectGrid.Columns.Add(MakeTextCol("ReinspectNo", "进料检单号", true, 17));
+        _reinspectGrid.Columns.Add(MakeTextCol("MaterialName", "物料", true, 15));
+        _reinspectGrid.Columns.Add(MakeTextCol("LotNo", "批次", true, 16));
+        _reinspectGrid.Columns.Add(MakeTextCol("Location", "库位", true, 12));
+        _reinspectGrid.Columns.Add(MakeTextCol("OldExpiryText", "原效期", true, 11));
+        _reinspectGrid.Columns.Add(MakeTextCol("NewExpiryText", "新效期", true, 11));
+        _reinspectGrid.Columns.Add(MakeTextCol("ExtendedText", "延长", true, 8));
+        _reinspectGrid.Columns.Add(MakeTextCol("Inspector", "进料检人", true, 10));
+        _reinspectGrid.Columns.Add(MakeTextCol("InspectAtText", "进料检时间", true, 16));
+        _reinspectGrid.Columns.Add(MakeTextCol("Result", "结论", true, 8));
+        _reinspectGrid.Columns.Add(MakeTextCol("Remark", "备注", true, 24));
+    }
+
+    /// <summary>点「🗑 废弃批次」：弹窗填原因/操作人 → 二次确认 → 写台账 + 主表打标记 → 刷新。</summary>
+    private void BtnScrap(object? sender, EventArgs e)
+    {
+        var s = SelectedStock();
+        var blocked = MesDatabase.ScrapBlockedReason(s);
+        if (blocked.Length > 0) { Warn(blocked); return; }
+
+        using var dlg = new Forms.ScrapForm(s!, CurrentWmsOperator);
+        if (dlg.ShowDialog(this) != DialogResult.OK) return;
+
+        // 二次确认：不可逆动作必须让用户明确知道后果
+        var confirm = $"确认废弃批次 <b>{s!.LotNo}</b>（{s.MaterialName} {s.Quantity:0.##} {s.Unit}）吗？\n\n"
+                    + "<b>废弃不可撤销</b>：该批次数量将归零，并退出可用库存、FIFO 队列与效期待处理列表。\n"
+                    + "如只是效期问题、想争取使用时间，请改用「重新进料检」。";
+        if (MessageBox.Show(confirm, "废弃批次（不可撤销）", MessageBoxButtons.YesNo,
+                MessageBoxIcon.Warning, MessageBoxDefaultButton.Button2) != DialogResult.Yes)
+            return;
+
+        var (ok, msg, _) = MesDatabase.ScrapMaterial(
+            s.MaterialCode, s.LotNo, s.Location, dlg.Reason, dlg.Operator, dlg.Remark);
+        if (!ok) { MessageBox.Show(msg, "废弃失败", MessageBoxButtons.OK, MessageBoxIcon.Warning); return; }
+
+        MessageBox.Show(msg, "已废弃", MessageBoxButtons.OK, MessageBoxIcon.Information);
+        DoQueryExpiryFifo();
+        RefreshScrapButtons();
+    }
+
+    /// <summary>点「🔬 重新进料检」：弹窗填进料检人/新效期 → 写台账 + 更新主表效期 → 刷新。</summary>
+    private void BtnReinspect(object? sender, EventArgs e)
+    {
+        var s = SelectedStock();
+        var blocked = MesDatabase.ReinspectBlockedReason(s);
+        if (blocked.Length > 0) { Warn(blocked); return; }
+
+        using var dlg = new Forms.ReinspectForm(s!, CurrentWmsOperator);
+        dlg.BindOldExpiry(s!.ExpiryDate);
+        if (dlg.ShowDialog(this) != DialogResult.OK) return;
+
+        var (ok, msg, _) = MesDatabase.ReinspectMaterial(
+            s.MaterialCode, s.LotNo, s.Location, dlg.NewExpiry, dlg.Inspector, dlg.Result, dlg.Remark);
+        if (!ok) { MessageBox.Show(msg, "进料检失败", MessageBoxButtons.OK, MessageBoxIcon.Warning); return; }
+
+        MessageBox.Show(msg, "进料检完成", MessageBoxButtons.OK, MessageBoxIcon.Information);
+        DoQueryExpiryFifo();
+        LoadReinspectHistory(s.MaterialCode);
+        RefreshScrapButtons();
+    }
+
+    /// <summary>当前 WMS 操作人（弹窗默认值；项目无登录体系，沿用既有"操作人"约定）</summary>
+    private string CurrentWmsOperator => _txtWmsOperator?.Text.Trim() ?? "";
+
     /// <summary>进入「ExpiryFifoTab」页签时兜底加载数据（控件已挂载、绑定已物化）。</summary>
     private void ExpiryFifoTab_Enter(object? sender, EventArgs e) => EnsureExpiryFifoReady();
 
@@ -802,6 +973,10 @@ public partial class MainForm
         // 先清空数据源再重新绑定：强制网格重建列/行，避免残留旧数据
         _fifoGrid.DataSource = null;
         _fifoGrid.DataSource = MesDatabase.GetStockFifo(kw.Length == 0 ? null : kw);
+
+        // 重新绑定后按当前行刷新按钮状态（DataGridView 必有 CurrentRow，WinForms 特性）
+        RefreshScrapButtons();
+        LoadReinspectHistory(SelectedStock()?.MaterialCode);
 
         var (expired, near, none) = MesDatabase.GetExpirySummary();
         if (_lblExpiryExpired is not null)

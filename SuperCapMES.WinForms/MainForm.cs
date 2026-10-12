@@ -382,6 +382,12 @@ public partial class MainForm : Form
     private DataGridView _expiryAlertGrid = null!;
     private DataGridView _fifoGrid = null!;
     private TextBox _txtExpiryKeyword = null!;
+    private Button _btnScrap = null!;
+    private Button _btnReinspect = null!;
+    private DataGridView _reinspectGrid = null!;
+    private Label _lblReinspectHint = null!;
+    private readonly ToolTip _btnScrapToolTip = new();
+    private readonly ToolTip _btnReinspectToolTip = new();
     // ---- 首件检验页（顶层第 18 个页签） ----
     private Label _lblFaiPending = null!;
     private Label _lblFaiPassed = null!;
