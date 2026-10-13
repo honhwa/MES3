@@ -391,6 +391,17 @@ public partial class MainForm : Form
     private DataGridView _gridEnergyReading = null!;
     private DataGridView _gridEnergySummary = null!;
     private DataGridView _gridEnergyQuery = null!;
+    // ---- 碳排放核算（阶段二）----
+    private DataGridView _gridCarbonItem = null!;
+    private DataGridView _gridCarbonScope = null!;
+    private DataGridView _gridFactor = null!;
+    // ---- 产品碳足迹（阶段三）----
+    private DataGridView _gridFpStage = null!;
+    private DataGridView _gridFpMaterial = null!;
+    private DataGridView _gridMaterialCarbon = null!;
+    // ---- 碳核查支撑（阶段五）----
+    private DataGridView _gridAudit = null!;
+    private DataGridView _gridAuditItem = null!;
     private readonly ToolTip _btnScrapToolTip = new();
     private readonly ToolTip _btnReinspectToolTip = new();
     // ---- 首件检验页（顶层第 18 个页签） ----
@@ -581,6 +592,11 @@ public partial class MainForm : Form
         RegisterPage(NavProduction, BuildDeliveryRiskTab());   // ① 工单交期风险（复用产能引擎口径）
         RegisterPage(NavEnergy, BuildEnergyMeterTab());        // 能源台账：三级计量点 + 抄表录入
         RegisterPage(NavEnergy, BuildEnergyQueryTab());        // 能耗查询：时间×区域×线体×设备×能源
+        RegisterPage(NavEnergy, BuildCarbonTab());              // 碳排放核算：组织/项目边界 + 范围一二三
+        RegisterPage(NavEnergy, BuildCarbonFactorTab());        // 排放因子台账：版本化 + 来源标注
+        RegisterPage(NavEnergy, BuildFootprintTab());             // 产品碳足迹：环节分解 + 单只足迹
+        RegisterPage(NavEnergy, BuildMaterialCarbonTab());        // 物料碳强度：原材料环节的基础数据
+        RegisterPage(NavEnergy, BuildCarbonAuditTab());            // 碳核查支撑：台账存档 + 报告/清单导出
         RegisterPage(NavQuality, BuildRootCauseTab());        // ② 质量根因交叉（工序×设备×批次）
         RegisterPage(NavQuality, BuildSpcTuningTab());        // ③ SPC 调机建议（复用 Cpk）
         RegisterPage(NavQuality, BuildDuplicateFaiTab());     // ⑤ 首检重复送检提醒
@@ -902,7 +918,9 @@ public partial class MainForm : Form
         EnsurePurchaseReady(); // 资材采购申请兜底初始化（幂等：载入申请单列表）
         LoadInsights();          // 主动预警与决策：数据量小，纯计算，直接算出来
         AssistantFeedbackStore.Load();   // 载入历史反馈（重启后统计不丢）
-        MesDatabase.EnsureEnergySeed();  // 能源管理：每次启动按当前日期补生成最近 6 个月（幂等 upsert）
+        MesDatabase.EnsureEnergySeed();  // 能源管理
+        MesDatabase.EnsureCarbonSeed();   // 碳排放因子（模拟园区口径，版本化）
+        MesDatabase.EnsureMaterialCarbonSeed();  // 物料碳强度（模拟值，足迹原材料环节用）：每次启动按当前日期补生成最近 6 个月（幂等 upsert）
         LoadAnalytics();               // 六项分析：数据量小，纯计算，启动时直接算出来
     }
 
