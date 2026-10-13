@@ -201,6 +201,12 @@ public static partial class MesDatabase
             new MaterialLot { LotNo = "SEL-260811-002",  MaterialCode = "M-SEL-RUB-06", MaterialName = "密封圈", Supplier = "氟塑密封件厂", SupplierLot = "FS-20260806-114", ReceivedDate = new DateTime(2026,8,9), IqcResult = "合格", UsedFor = "" },
             new MaterialLot { LotNo = "TAB-260811-001",  MaterialCode = "M-TAB-NIC-07", MaterialName = "镍带极耳", Supplier = "有色金属冶炼厂", SupplierLot = "YS-20260804-057", ReceivedDate = new DateTime(2026,8,7), IqcResult = "合格", UsedFor = "" },
             new MaterialLot { LotNo = "BOX-260811-001",  MaterialCode = "M-PKG-BOX-11", MaterialName = "彩盒（100F 专用）", Supplier = "华瑞包装印刷", SupplierLot = "HR-20260803-036", ReceivedDate = new DateTime(2026,8,6), IqcResult = "合格", UsedFor = "" },
+
+            // ---- 双供应商演示（供应链碳管理·阶段四）----
+            // 活性炭与电解液各补一家备选供应商的真实到货，使"同物料多供应商对比"可演示；
+            // 供应商碳数据种子里对这两家分别给"已提供（更优）"与"未提供（待跟进）"以覆盖两种状态。
+            new MaterialLot { LotNo = "PC-260815-B-009", MaterialCode = "M-ACT-CAR-01", MaterialName = "活性炭电极材料", Supplier = "绿源碳材", SupplierLot = "LY-C-20260812", ReceivedDate = new DateTime(2026,8,14), IqcResult = "合格", UsedFor = "" },
+            new MaterialLot { LotNo = "EL-260815-B-011", MaterialCode = "M-ELE-ACN-02", MaterialName = "电解液（ACN基）", Supplier = "新能源电解液", SupplierLot = "XNY-260808-011", ReceivedDate = new DateTime(2026,8,13), IqcResult = "合格", UsedFor = "" },
         });
 
         // ---- 电芯 SN ----
