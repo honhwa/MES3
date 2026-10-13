@@ -1,0 +1,1267 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>泰州超级电容工厂 · 数字孪生运营大屏</title>
+<style>
+  /* ============================================================
+     设计令牌（Design Tokens）：深色科技感
+     改主题只改这一段，所有组件引用变量，不写死颜色
+     ============================================================ */
+  :root {
+    /* 背景层级：由深到浅，用于营造纵深 */
+    --bg-0: #050b16;          /* 画布最底 */
+    --bg-1: #0a1424;          /* 面板底 */
+    --bg-2: #0f1d31;          /* 卡片底 */
+    --bg-3: #16273f;          /* 悬浮/表头 */
+    /* 主色：科技蓝 */
+    --c-primary: #2f81f7;
+    --c-primary-glow: rgba(47, 129, 247, .35);
+    /* 语义色 */
+    --c-ok:   #2ecc8f;
+    --c-warn: #f5a524;
+    --c-crit: #f4544c;
+    --c-info: #35c6d4;
+    /* 文字层级 */
+    --t-hi:  #eaf2ff;
+    --t-mid: #9fb3d1;
+    --t-lo:  #64789a;
+    --t-dim: #3d4f6b;
+    /* 分割线与描边 */
+    --line:      rgba(80, 140, 210, .16);
+    --line-soft: rgba(80, 140, 210, .09);
+    /* 圆角与阴影 */
+    --r-sm: 4px;
+    --r-md: 8px;
+    --r-lg: 12px;
+    --shadow: 0 4px 20px rgba(0, 0, 0, .45);
+    /* 尺寸（随大屏缩放，由 JS 统一改写 --scale） */
+    --scale: 1;
+    --font: "HarmonyOS Sans SC", "Microsoft YaHei", -apple-system, sans-serif;
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  html, body {
+    width: 100%; height: 100%;
+    background: var(--bg-0);
+    color: var(--t-hi);
+    font-family: var(--font);
+    overflow: hidden;                 /* 大屏不滚动，栅格自适应 */
+    /* 数字用等宽，避免刷新时宽度跳动 */
+    font-variant-numeric: tabular-nums;
+  }
+
+  /* 全局缩放：以 1920×1080 为设计基准，等比缩放铺满任意大屏 */
+  #viewport {
+    position: relative;
+    width: 1920px; height: 1080px;
+    transform-origin: top left;
+    display: flex; flex-direction: column;
+    padding: calc(14px * var(--scale)) calc(18px * var(--scale));
+    gap: calc(12px * var(--scale));
+  }
+
+  /* 背景装饰：径向光晕 + 网格，营造科技感（纯 CSS，不吃性能） */
+  #bg-deco {
+    position: fixed; inset: 0; z-index: 0; pointer-events: none;
+    background:
+      radial-gradient(ellipse 60% 45% at 50% -10%, rgba(47,129,247,.20), transparent 70%),
+      radial-gradient(ellipse 45% 40% at 8% 100%, rgba(53,198,212,.10), transparent 70%),
+      radial-gradient(ellipse 45% 40% at 95% 100%, rgba(244,84,76,.07), transparent 70%);
+  }
+  #bg-grid {
+    position: fixed; inset: 0; z-index: 0; pointer-events: none; opacity: .5;
+    background-image:
+      linear-gradient(rgba(70,130,200,.055) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(70,130,200,.055) 1px, transparent 1px);
+    background-size: 48px 48px;
+  }
+
+  /* ---------- 通用面板 ---------- */
+  .panel {
+    position: relative; z-index: 1;
+    background: linear-gradient(160deg, var(--bg-1) 0%, rgba(10,20,36,.72) 100%);
+    border: 1px solid var(--line);
+    border-radius: var(--r-lg);
+    box-shadow: var(--shadow);
+    display: flex; flex-direction: column;
+    min-height: 0;                    /* 关键：栅格子项允许收缩，否则内容撑破布局 */
+    overflow: hidden;
+  }
+  /* 面板左上角装饰角标（大屏常见工艺细节） */
+  .panel::before, .panel::after {
+    content: ''; position: absolute; width: 14px; height: 14px;
+    border-color: var(--c-primary); opacity: .8;
+  }
+  .panel::before { top: -1px; left: -1px; border-top: 2px solid; border-left: 2px solid; border-top-left-radius: var(--r-lg); }
+  .panel::after  { bottom: -1px; right: -1px; border-bottom: 2px solid; border-right: 2px solid; border-bottom-right-radius: var(--r-lg); }
+
+  .panel-head {
+    flex: 0 0 auto;
+    display: flex; align-items: center; gap: calc(8px * var(--scale));
+    padding: calc(8px * var(--scale)) calc(12px * var(--scale));
+    border-bottom: 1px solid var(--line-soft);
+    background: linear-gradient(90deg, rgba(47,129,247,.10), transparent 60%);
+  }
+  .panel-title {
+    font-size: calc(15px * var(--scale)); font-weight: 600; letter-spacing: 1px;
+    display: flex; align-items: center; gap: calc(7px * var(--scale));
+  }
+  .panel-title::before {
+    content: ''; width: 3px; height: calc(14px * var(--scale));
+    background: var(--c-primary); border-radius: 2px;
+    box-shadow: 0 0 calc(8px * var(--scale)) var(--c-primary-glow);
+  }
+  /* 跳转孪生页入口 */
+  .twin-jump {
+    display: inline-flex; align-items: center; gap: 4px;
+    font-size: calc(11.5px * var(--scale));
+    padding: calc(3px * var(--scale)) calc(9px * var(--scale));
+    background: rgba(47,129,247,.14); color: var(--c-info);
+    border: 1px solid rgba(47,129,247,.42); border-radius: var(--r-sm);
+    text-decoration: none; transition: all .16s; white-space: nowrap;
+  }
+  .twin-jump:hover { background: var(--c-primary); color:#fff; box-shadow: 0 0 calc(10px*var(--scale)) var(--c-primary-glow); }
+  .panel-body { flex: 1 1 auto; min-height: 0; padding: calc(10px * var(--scale)); overflow: hidden; }
+
+  /* 模块内容统一走纵向 flex，图表子项必须给 min-height:0，否则内容撑破面板底部被裁 */
+  .mod-body { display: flex; flex-direction: column; gap: calc(9px * var(--scale)); height: 100%; min-height: 0; }
+  .chart-box { position: relative; flex: 1 1 auto; min-height: 60px; }
+  .chart-box canvas { position: absolute; inset: 0; width: 100%; height: 100%; }
+  .alert-list { display: flex; flex-direction: column; gap: calc(5px * var(--scale)); overflow-y: auto; min-height: 0; }
+
+  /* ---------- 顶栏 ---------- */
+  #topbar {
+    flex: 0 0 auto; z-index: 1;
+    display: flex; align-items: center; justify-content: space-between;
+    gap: calc(12px * var(--scale));
+  }
+  .brand { display: flex; align-items: center; gap: calc(12px * var(--scale)); }
+  .brand-logo {
+    width: calc(38px * var(--scale)); height: calc(38px * var(--scale));
+    border-radius: 50%; display: grid; place-items: center;
+    background: radial-gradient(circle at 35% 30%, var(--c-primary), #14406f);
+    border: 1px solid rgba(47,129,247,.6);
+    box-shadow: 0 0 calc(18px * var(--scale)) var(--c-primary-glow);
+    font-size: calc(18px * var(--scale));
+  }
+  .brand-text h1 {
+    font-size: calc(21px * var(--scale)); font-weight: 700; letter-spacing: 2px;
+    background: linear-gradient(90deg, #fff, var(--c-info));
+    -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent;
+  }
+  .brand-text p { font-size: calc(11px * var(--scale)); color: var(--t-lo); letter-spacing: 3px; margin-top: 2px; }
+
+  #clock-box { text-align: right; }
+  #clock { font-size: calc(26px * var(--scale)); font-weight: 700; letter-spacing: 2px; color: #fff; }
+  #update-info { font-size: calc(11px * var(--scale)); color: var(--t-lo); margin-top: 2px; }
+  .live-dot {
+    display: inline-block; width: calc(7px * var(--scale)); height: calc(7px * var(--scale));
+    border-radius: 50%; background: var(--c-ok); margin-right: calc(5px * var(--scale));
+    animation: pulse 1.6s infinite; vertical-align: middle;
+  }
+  @keyframes pulse {
+    0%, 100% { opacity: 1; box-shadow: 0 0 0 0 rgba(46,204,143,.6); }
+    50%      { opacity: .55; box-shadow: 0 0 0 calc(6px * var(--scale)) rgba(46,204,143,0); }
+  }
+
+  /* ---------- 控制条 ---------- */
+  #controlbar {
+    flex: 0 0 auto; z-index: 1;
+    display: flex; align-items: center; gap: calc(8px * var(--scale));
+    padding: calc(6px * var(--scale)) calc(12px * var(--scale));
+    background: rgba(10,20,36,.72);
+    border: 1px solid var(--line); border-radius: var(--r-md);
+    flex-wrap: wrap;
+  }
+  .ctrl-label { font-size: calc(12px * var(--scale)); color: var(--t-lo); letter-spacing: 1px; }
+  .seg { display: flex; gap: 2px; background: var(--bg-2); border-radius: var(--r-sm); padding: 2px; border: 1px solid var(--line-soft); }
+  .seg button {
+    font-family: var(--font); font-size: calc(12px * var(--scale));
+    padding: calc(4px * var(--scale)) calc(11px * var(--scale));
+    background: transparent; color: var(--t-mid); border: 0; border-radius: var(--r-sm);
+    cursor: pointer; transition: all .16s;
+  }
+  .seg button:hover { color: var(--t-hi); background: var(--bg-3); }
+  .seg button.active { background: var(--c-primary); color: #fff; box-shadow: 0 0 calc(10px * var(--scale)) var(--c-primary-glow); }
+  .btn {
+    font-family: var(--font); font-size: calc(12px * var(--scale));
+    padding: calc(5px * var(--scale)) calc(12px * var(--scale));
+    background: var(--bg-2); color: var(--t-mid);
+    border: 1px solid var(--line); border-radius: var(--r-sm); cursor: pointer;
+    transition: all .16s; display: inline-flex; align-items: center; gap: 5px;
+  }
+  .btn:hover { background: var(--bg-3); color: var(--t-hi); border-color: var(--c-primary); }
+  .btn.on { background: rgba(47,129,247,.18); color: var(--c-info); border-color: var(--c-primary); }
+  .spacer { flex: 1 1 auto; }
+
+  /* ---------- 核心指标带 ---------- */
+  #kpi-strip {
+    flex: 0 0 auto; z-index: 1;
+    display: grid; grid-template-columns: repeat(6, 1fr); gap: calc(10px * var(--scale));
+  }
+  .kpi {
+    position: relative; overflow: hidden;
+    background: linear-gradient(150deg, var(--bg-2), rgba(15,29,49,.6));
+    border: 1px solid var(--line); border-radius: var(--r-md);
+    padding: calc(9px * var(--scale)) calc(12px * var(--scale));
+    display: flex; align-items: center; gap: calc(11px * var(--scale));
+    transition: border-color .25s, box-shadow .25s;
+  }
+  /* 左侧色条标识指标类别 */
+  .kpi::before {
+    content: ''; position: absolute; left: 0; top: 0; bottom: 0; width: 3px;
+    background: var(--kpi-color, var(--c-primary));
+  }
+  .kpi-icon {
+    width: calc(34px * var(--scale)); height: calc(34px * var(--scale));
+    flex: 0 0 auto; border-radius: var(--r-sm); display: grid; place-items: center;
+    font-size: calc(17px * var(--scale));
+    background: color-mix(in srgb, var(--kpi-color, var(--c-primary)) 16%, transparent);
+    border: 1px solid color-mix(in srgb, var(--kpi-color, var(--c-primary)) 42%, transparent);
+  }
+  .kpi-info { min-width: 0; flex: 1 1 auto; }
+  .kpi-label { font-size: calc(11px * var(--scale)); color: var(--t-lo); letter-spacing: 1px; white-space: nowrap; }
+  .kpi-value { font-size: calc(23px * var(--scale)); font-weight: 700; line-height: 1.15; white-space: nowrap; }
+  .kpi-value .unit { font-size: calc(12px * var(--scale)); font-weight: 400; color: var(--t-mid); margin-left: 3px; }
+  .kpi-sub { font-size: calc(10px * var(--scale)); color: var(--t-dim); }
+  .kpi-sub .up { color: var(--c-ok); }
+  .kpi-sub .down { color: var(--c-crit); }
+
+  /* 异常告警：呼吸描边 + 角标 */
+  @keyframes alertPulse {
+    0%, 100% { border-color: var(--c-crit); box-shadow: 0 0 calc(14px * var(--scale)) rgba(244,84,76,.30) inset; }
+    50%      { border-color: rgba(244,84,76,.35); box-shadow: 0 0 calc(6px * var(--scale)) rgba(244,84,76,.12) inset; }
+  }
+  /* 可跳转孪生页的 KPI 卡 */
+  .kpi[data-jump] { cursor: pointer; }
+  .kpi[data-jump]:hover { border-color: var(--c-primary); box-shadow: 0 0 calc(16px*var(--scale)) var(--c-primary-glow); }
+  .kpi[data-jump] .kpi-label::after {
+    content: '⇢'; margin-left: 5px; color: var(--c-info); font-size: calc(10px*var(--scale)); opacity: .8;
+  }
+  .kpi.alarm { border-color: var(--c-crit); animation: alertPulse 1.5s infinite; }
+  .kpi.alarm::after {
+    content: '!'; position: absolute; top: calc(4px * var(--scale)); right: calc(6px * var(--scale));
+    width: calc(15px * var(--scale)); height: calc(15px * var(--scale));
+    border-radius: 50%; background: var(--c-crit); color: #fff;
+    font-size: calc(11px * var(--scale)); font-weight: 700;
+    display: grid; place-items: center;
+    box-shadow: 0 0 calc(8px * var(--scale)) rgba(244,84,76,.7);
+  }
+  .kpi.warn { border-color: var(--c-warn); }
+
+  /* ---------- 主体栅格 ---------- */
+  #main {
+    flex: 1 1 auto; z-index: 1; min-height: 0;
+    display: grid;
+    grid-template-columns: 1.35fr 1fr 1fr;
+    grid-template-rows: 1fr 1fr;
+    gap: calc(12px * var(--scale));
+  }
+  /* 模块跨列/跨行：生产占大区，碳排放独立成块 */
+  #m-production { grid-column: 1; grid-row: 1 / span 2; }
+  #m-network    { grid-column: 2; grid-row: 1; }
+  #m-device     { grid-column: 3; grid-row: 1; }
+  #m-carbon     { grid-column: 2 / span 2; grid-row: 2; }
+
+  /* 模块隐藏 */
+  .panel.hidden { display: none; }
+
+  /* 可折叠：折叠时只留标题条 */
+  .panel.collapsed { flex: 0 0 auto; }
+  .panel.collapsed .panel-body { display: none; }
+  .panel.collapsed .collapse-icon::after { content: '▾'; }
+  .collapse-icon { font-size: calc(11px * var(--scale)); color: var(--t-lo); transition: transform .2s; }
+  .collapse-icon::after { content: '▴'; }
+
+  /* 模块内布局 */
+  .stat-row { display: grid; gap: calc(8px * var(--scale)); }
+  .stat-grid-2 { grid-template-columns: repeat(2, 1fr); }
+  .stat-grid-3 { grid-template-columns: repeat(3, 1fr); }
+  .stat-grid-4 { grid-template-columns: repeat(4, 1fr); }
+
+  .stat {
+    background: var(--bg-2); border: 1px solid var(--line-soft);
+    border-radius: var(--r-sm); padding: calc(6px * var(--scale)) calc(9px * var(--scale));
+    position: relative; overflow: hidden;
+  }
+  .stat-name { font-size: calc(11px * var(--scale)); color: var(--t-lo); white-space: nowrap; }
+  .stat-val { font-size: calc(19px * var(--scale)); font-weight: 700; margin-top: 1px; }
+  .stat-val .unit { font-size: calc(11px * var(--scale)); font-weight: 400; color: var(--t-mid); margin-left: 2px; }
+  .stat-trend { font-size: calc(10px * var(--scale)); color: var(--t-dim); }
+  /* 迷你进度条 */
+  .bar { height: calc(4px * var(--scale)); background: var(--bg-3); border-radius: 2px; margin-top: calc(5px * var(--scale)); overflow: hidden; }
+  .bar > i { display: block; height: 100%; border-radius: 2px; background: var(--c-primary); transition: width .5s ease; }
+  .stat.alarm { border-color: var(--c-crit); }
+  .stat.warn { border-color: var(--c-warn); }
+
+  .chart-title {
+    font-size: calc(11px * var(--scale)); color: var(--t-lo);
+    display: flex; align-items: center; justify-content: space-between;
+    margin-bottom: calc(4px * var(--scale));
+  }
+  .legend { display: flex; gap: calc(9px * var(--scale)); }
+  .legend i { display: inline-block; width: calc(7px * var(--scale)); height: calc(7px * var(--scale)); border-radius: 2px; margin-right: 4px; vertical-align: middle; }
+
+  /* 进度环容器 */
+  .ring-wrap { display: flex; align-items: center; justify-content: space-around; height: 100%; gap: calc(10px * var(--scale)); }
+  /* 环形图 canvas 尺寸由 JS 按容器实测后写入，这里只给一个初始占位 */
+  #c-prod-ring { width: calc(120px * var(--scale)); height: calc(120px * var(--scale)); }
+  .ring-item { text-align: center; }
+  .ring-item .ring-name { font-size: calc(11px * var(--scale)); color: var(--t-mid); margin-top: calc(4px * var(--scale)); }
+  .ring-item .ring-val { font-size: calc(12px * var(--scale)); color: var(--t-hi); font-weight: 600; }
+
+  /* 维保提醒条目（.alert-list 已在前面统一定义，这里只管条目样式） */
+  .alert-row {
+    display: flex; align-items: center; gap: calc(8px * var(--scale));
+    padding: calc(5px * var(--scale)) calc(8px * var(--scale));
+    background: var(--bg-2); border: 1px solid var(--line-soft);
+    border-left: 3px solid var(--c-warn); border-radius: var(--r-sm);
+    font-size: calc(11px * var(--scale));
+  }
+  .alert-row.crit { border-left-color: var(--c-crit); }
+  .alert-row .t { color: var(--t-mid); }
+  .alert-row .dev { color: var(--t-hi); font-weight: 600; min-width: calc(78px * var(--scale)); }
+  .alert-row .badge {
+    margin-left: auto; padding: 1px calc(6px * var(--scale)); border-radius: 3px;
+    font-size: calc(10px * var(--scale)); background: rgba(245,165,36,.15); color: var(--c-warn);
+  }
+  .alert-row.crit .badge { background: rgba(244,84,76,.15); color: var(--c-crit); }
+  .empty-hint { color: var(--t-dim); font-size: calc(11px * var(--scale)); text-align: center; padding: calc(12px * var(--scale)); }
+
+  /* 告警滚动条（底部长条） */
+  #alert-ticker {
+    flex: 0 0 auto; z-index: 1;
+    display: flex; align-items: center; gap: calc(10px * var(--scale));
+    background: rgba(244,84,76,.08); border: 1px solid rgba(244,84,76,.28);
+    border-radius: var(--r-md); padding: calc(5px * var(--scale)) calc(12px * var(--scale));
+    font-size: calc(12px * var(--scale)); overflow: hidden; height: calc(30px * var(--scale));
+  }
+  #alert-ticker.ok { background: rgba(46,204,143,.07); border-color: rgba(46,204,143,.25); }
+  #ticker-text { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  @keyframes marquee { 0% { transform: translateX(0); } 100% { transform: translateX(-50%); } }
+
+  /* 轮播模式：隐藏交互控件（真大屏无人操作） */
+  body.cinema #controlbar { opacity: .28; transition: opacity .3s; }
+  body.cinema #controlbar:hover { opacity: 1; }
+
+  /* 提示气泡 */
+  #toast {
+    position: fixed; left: 50%; bottom: 8%; transform: translateX(-50%) translateY(20px);
+    background: rgba(47,129,247,.94); color: #fff;
+    padding: calc(8px * var(--scale)) calc(18px * var(--scale));
+    border-radius: var(--r-sm); font-size: calc(13px * var(--scale));
+    opacity: 0; pointer-events: none; transition: all .28s; z-index: 99;
+    box-shadow: 0 6px 24px rgba(0,0,0,.5);
+  }
+  #toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+</style>
+</head>
+<body>
+<div id="bg-deco"></div>
+<div id="bg-grid"></div>
+
+<div id="viewport">
+  <!-- ================= 顶栏 ================= -->
+  <header id="topbar">
+    <div class="brand">
+      <div class="brand-logo">⚡</div>
+      <div class="brand-text">
+        <h1>泰州超级电容智能工厂 · 数字孪生运营中心</h1>
+        <p>SUPERCAP SMART FACTORY · DIGITAL TWIN OPERATION CENTER</p>
+      </div>
+    </div>
+    <div id="clock-box">
+      <div id="clock">--:--:--</div>
+      <div id="update-info"><span class="live-dot"></span>数据更新：等待中</div>
+    </div>
+  </header>
+
+  <!-- ================= 控制条 ================= -->
+  <nav id="controlbar">
+    <span class="ctrl-label">指标模块</span>
+    <div class="seg" id="seg-modules"></div>
+
+    <span class="ctrl-label" style="margin-left:6px">时间范围</span>
+    <div class="seg" id="seg-range"></div>
+
+    <button class="btn" id="btn-reset">↻ 重置数据</button>
+    <button class="btn" id="btn-carousel">▶ 自动轮播</button>
+    <button class="btn" id="btn-collapse">⇲ 全部折叠</button>
+
+    <span class="spacer"></span>
+    <span class="ctrl-label" id="status-line">就绪</span>
+  </nav>
+
+  <!-- ================= 核心指标带 ================= -->
+  <section id="kpi-strip"></section>
+
+  <!-- ================= 主体四模块 ================= -->
+  <main id="main">
+    <!-- 生产情况 -->
+    <section class="panel" id="m-production">
+      <div class="panel-head">
+        <div class="panel-title">生产情况</div>
+        <span class="spacer"></span>
+        <span class="collapse-icon" data-toggle="m-production"></span>
+      </div>
+      <div class="panel-body">
+        <div class="mod-body">
+          <div class="stat-row stat-grid-4" id="prod-stats"></div>
+          <div style="flex:0 0 62%">
+            <div class="chart-title">
+              <span>产量与良品率趋势</span>
+              <span class="legend"><i style="background:#2f81f7"></i>产量(万只) <i style="background:#2ecc8f"></i>良品率(%)</span>
+            </div>
+            <div class="chart-box" style="flex:1 1 auto"><canvas id="c-prod-trend"></canvas></div>
+          </div>
+          <div style="display:flex;flex-direction:column;flex:0 0 38%;min-height:0">
+            <div class="chart-title"><span>产线产量占比</span><span class="legend"><i style="background:#2f81f7"></i>L1 <i style="background:#35c6d4"></i>L2 <i style="background:#2ecc8f"></i>L3 <i style="background:#f5a524"></i>L4</span></div>
+            <div class="ring-wrap" style="flex:1 1 auto;min-height:0">
+              <div class="ring-item"><canvas id="c-prod-ring"></canvas><div class="ring-name">总产量(万只)</div></div>
+              <div class="ring-item" style="flex:1 1 auto;min-width:0">
+                <div id="prod-line-list" style="font-size:12px"></div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 网络情况 -->
+    <section class="panel" id="m-network">
+      <div class="panel-head">
+        <div class="panel-title">网络情况</div>
+        <a class="twin-jump" href="network-twin.html" title="进入网络数字孪生页">⇢ 进入网络孪生</a>
+        <span class="spacer"></span>
+        <span class="collapse-icon" data-toggle="m-network"></span>
+      </div>
+      <div class="panel-body">
+        <div class="mod-body">
+          <div class="stat-row stat-grid-4" id="net-stats"></div>
+          <div class="chart-title"><span>带宽占用趋势</span><span class="legend"><i style="background:#35c6d4"></i>占用率(%)</span></div>
+          <div class="chart-box" style="flex:1 1 auto"><canvas id="c-net-trend"></canvas></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 设备情况 -->
+    <section class="panel" id="m-device">
+      <div class="panel-head">
+        <div class="panel-title">设备情况</div>
+        <a class="twin-jump" href="device-twin.html" title="进入设备数字孪生页">⇢ 进入设备孪生</a>
+        <span class="spacer"></span>
+        <span class="collapse-icon" data-toggle="m-device"></span>
+      </div>
+      <div class="panel-body">
+        <div class="mod-body">
+          <div class="stat-row stat-grid-3" id="dev-stats"></div>
+          <div class="chart-title"><span>设备状态分布</span></div>
+          <div class="chart-box" style="flex:0 0 30%"><canvas id="c-dev-state"></canvas></div>
+          <div class="chart-title"><span>维保提醒</span><span class="spacer"></span><span id="dev-maint-count" style="color:var(--c-warn)"></span></div>
+          <div class="alert-list" id="dev-alerts" style="flex:1 1 auto"></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 碳排放情况 -->
+    <section class="panel" id="m-carbon">
+      <div class="panel-head">
+        <div class="panel-title">碳排放情况</div>
+        <span class="spacer"></span>
+        <span class="collapse-icon" data-toggle="m-carbon"></span>
+      </div>
+      <div class="panel-body">
+        <div class="mod-body">
+          <div style="display:grid;grid-template-columns:1.5fr 1fr;gap:12px;flex:1 1 auto;min-height:0">
+            <div style="display:flex;flex-direction:column;min-height:0">
+              <div class="stat-row stat-grid-4" id="carbon-stats"></div>
+              <div class="chart-title" style="margin-top:6px">
+                <span>实时排放与能耗趋势</span>
+                <span class="legend"><i style="background:#2ecc8f"></i>排放(t/h) <i style="background:#f5a524"></i>能耗(MWh)</span>
+              </div>
+              <div class="chart-box" style="flex:1 1 auto"><canvas id="c-carbon-trend"></canvas></div>
+            </div>
+            <div style="display:flex;flex-direction:column;min-height:0">
+              <div class="chart-title"><span>碳配额使用率</span></div>
+              <div class="chart-box" style="flex:1 1 auto"><canvas id="c-carbon-gauge"></canvas></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <!-- ================= 告警滚动条 ================= -->
+  <div id="alert-ticker" class="ok">
+    <span style="color:var(--c-ok)">✔</span>
+    <span id="ticker-text">全部指标正常</span>
+  </div>
+</div>
+
+<div id="toast"></div>
+
+<script>
+'use strict';
+/* ============================================================================
+ * 数字孪生运营大屏 —— 单文件实现
+ *
+ * 架构分层（自下而上）：
+ *   ① MockSource  模拟数据源：定时产出四大类指标快照，含阈值判定
+ *   ② Store       单一数据源：保存快照与配置，任何变更走 dispatch
+ *   ③ View        视图层：只读 Store，按需订阅重绘（单向数据流）
+ *   ④ Chart       Canvas 自绘图表：不引第三方库，离线可用
+ *   ⑤ Controller  交互控制：模块折叠/时间筛选/轮播/重置
+ *
+ * 单向数据流：交互 → dispatch → Store 变更 → 通知订阅者 → 局部重绘
+ * 好处：数据与视图解耦，加新指标只需扩 MockSource，不动 UI 逻辑
+ * ========================================================================== */
+
+/* ---------------------------------------------------------------------------
+ * 工具函数
+ * ------------------------------------------------------------------------- */
+const $ = (s) => document.querySelector(s);
+const clamp = (v, a, b) => Math.min(b, Math.max(a, v));
+const fmt = (v, d = 1) => Number(v).toLocaleString('zh-CN', { minimumFractionDigits: d, maximumFractionDigits: d });
+
+/** 确定性伪随机（seeded）：同一 seed 产生同一序列，保证「重置」可复现 */
+function makeRng(seed) {
+  let s = seed >>> 0;
+  return function () {
+    s = (s * 1664525 + 1013904223) >>> 0;
+    return s / 4294967296;
+  };
+}
+
+function pad2(n) { return String(n).padStart(2, '0'); }
+function hhmmss(d) { return `${pad2(d.getHours())}:${pad2(d.getMinutes())}:${pad2(d.getSeconds())}`; }
+function hhmm(d) { return `${pad2(d.getHours())}:${pad2(d.getMinutes())}`; }
+
+/* ---------------------------------------------------------------------------
+ * ① MockSource —— 模拟数据源
+ * ------------------------------------------------------------------------- */
+/* id 必须与 HTML 里 section.panel 的 id 完全一致：
+   否则 getElementById 落空（渲染抛错），且 collapsed 集合的 key 与 data-toggle 对不上。
+   这三者共用同一套key：panel id / data-mod / data-toggle。 */
+const MODULES = [
+  { id: 'm-production', name: '生产情况', color: '#2f81f7', icon: '🏭' },
+  { id: 'm-network', name: '网络情况', color: '#35c6d4', icon: '🌐' },
+  { id: 'm-device', name: '设备情况', color: '#f5a524', icon: '⚙️' },
+  { id: 'm-carbon', name: '碳排放情况', color: '#2ecc8f', icon: '🌱' },
+];
+
+const RANGES = [
+  { id: '1h', name: '近1小时', points: 12, stepMs: 5 * 60e3 },
+  { id: '6h', name: '近6小时', points: 12, stepMs: 30 * 60e3 },
+  { id: '24h', name: '近24小时', points: 12, stepMs: 2 * 3600e3 },
+  { id: '7d', name: '近7天', points: 7, stepMs: 24 * 3600e3 },
+];
+
+const LINES = ['L1 卷绕线', 'L2 涂布线', 'L3 装配线', 'L4 化成线'];
+
+/** 单个指标定义：含阈值，越界即产生告警 */
+function metric(key, label, unit, base, opts = {}) {
+  return { key, label, unit, base, ...opts };
+}
+
+/** 全局告警阈值表（真实项目里这份表应来自配置中心/设备台账） */
+const THRESHOLDS = {
+  yieldRate: { warn: 97.5, crit: 96.0, dir: 'below' },   // 良品率越低越差
+  oee: { warn: 80, crit: 72, dir: 'below' },
+  availability: { warn: 85, crit: 78, dir: 'below' },
+  latency: { warn: 35, crit: 60, dir: 'above' },        // 时延越高越差
+  packetLoss: { warn: 0.8, crit: 1.5, dir: 'above' },
+  bandwidth: { warn: 85, crit: 93, dir: 'above' },
+  faultCount: { warn: 4, crit: 7, dir: 'above' },
+};
+
+const MockSource = {
+  _rng: null,
+  _history: [],      // 历史快照序列，供趋势图使用
+  _seed: 20261013,
+
+  reset(seed) {
+    this._seed = seed ?? this._seed;
+    this._rng = makeRng(this._seed);
+    this._history = [];
+    // 预填充历史，保证首屏趋势图不是空的
+    for (let i = 24; i > 0; i--) this._history.push(this._build(new Date(Date.now() - i * 3600e3)));
+  },
+
+  /** 产出一条快照 */
+  tick() {
+    const snap = this._build(new Date());
+    this._history.push(snap);
+    if (this._history.length > 400) this._history.shift();
+    return snap;
+  },
+
+  /** 按时间范围取趋势序列 */
+  series(rangeId, key) {
+    const r = RANGES.find((x) => x.id === rangeId) || RANGES[2];
+    const now = Date.now();
+    const out = [];
+    for (let i = r.points - 1; i >= 0; i--) {
+      const t = now - i * r.stepMs;
+      // 优先取历史中时间最接近的点；历史不足则用当前值近似（演示可接受）
+      let snap = null, best = Infinity;
+      for (const h of this._history) {
+        const d = Math.abs(h.t - t);
+        if (d < best) { best = d; snap = h; }
+      }
+      out.push({ t, v: snap ? snap[key] : 0, label: r.stepMs >= 24 * 3600e3 ? `${new Date(t).getMonth() + 1}/${new Date(t).getDate()}` : hhmm(new Date(t)) });
+    }
+    return out;
+  },
+
+  _jitter(base, pct, rng) { return base * (1 + (rng() - 0.5) * 2 * pct); },
+
+  _build(t) {
+    const rng = this._rng;
+    const u = rng();                              // 统一随机源，保证确定性
+
+    // —— 生产 ——
+    const output = this._jitter(12800, .06, rng);                        // 只
+    const oee = clamp(this._jitter(86, .05, rng), 60, 99);
+    const availability = clamp(this._jitter(92, .04, rng), 65, 99);
+    const yieldRate = clamp(this._jitter(98.4, .012, rng), 93, 100);
+    const lineOutputs = LINES.map(() => Math.round(this._jitter(output / 4, .18, rng)));
+
+    // —— 网络 ——
+    const bandwidth = clamp(this._jitter(63, .22, rng), 12, 99);
+    const latency = clamp(this._jitter(18, .35, rng), 3, 120);
+    const onlineDevices = Math.round(this._jitter(1247, .02, rng));
+    const totalDevices = 1320;
+    const packetLoss = clamp(this._jitter(0.12, .8, rng), 0, 8);
+
+    // —— 设备 ——
+    const faultCount = clamp(Math.round(this._jitter(2.5, .9, rng)), 0, 12);
+    const standby = clamp(Math.round(this._jitter(38, .3, rng)), 5, 90);
+    const running = clamp(totalDevices - faultCount - standby - 26, 0, totalDevices); // 余 26 台为离线/维保中
+
+    // —— 碳排放 ——
+    const emissionRate = this._jitter(12.6, .10, rng);                     // t/h
+    const unitCarbon = this._jitter(0.42, .08, rng);                       // t/万只
+    const energyUse = this._jitter(86, .09, rng);                          // MWh
+    const quotaUsed = clamp(58 + u * 26, 20, 96);                          // 配额使用率 %
+
+    // —— 维保提醒（3~6 条）——
+    const MAINT = [
+      ['卷绕机 R-03', '轴承温升偏高', 'crit'], ['化成炉 C-02', '滤芯到期更换', 'warn'],
+      ['涂布机 T-01', '辊面磨损待打磨', 'warn'], ['装配机 A-07', '润滑周期临近', 'warn'],
+      ['空压机 K-02', '年度检修计划', 'warn'], ['检测仪 Q-04', '探头校准超期', 'crit'],
+      ['除尘机 D-01', '滤袋压差高', 'warn'], ['注液机 I-05', '密封件更换', 'warn'],
+    ];
+    const maint = [];
+    const n = 3 + Math.floor(u * 4);
+    for (let i = 0; i < n && i < MAINT.length; i++) {
+      const idx = (Math.floor(u * 997) + i * 3) % MAINT.length;
+      const [dev, reason, level] = MAINT[idx];
+      const hours = 1 + Math.floor(rng() * 72);
+      maint.push({ dev, reason, level, hours });
+    }
+
+    return {
+      t: t.getTime(), time: hhmmss(t),
+      output, oee, availability, yieldRate, lineOutputs,
+      bandwidth, latency, onlineDevices, totalDevices, packetLoss,
+      faultCount, standby, running, maint,
+      emissionRate, unitCarbon, energyUse, quotaUsed,
+    };
+  },
+};
+
+/* 告警判定：统一入口，避免各处各写一套判断 */
+function evalThreshold(key, value) {
+  const th = THRESHOLDS[key];
+  if (!th) return 'ok';
+  const v = Number(value);
+  if (th.dir === 'below') {
+    if (v <= th.crit) return 'crit';
+    if (v <= th.warn) return 'warn';
+  } else {
+    if (v >= th.crit) return 'crit';
+    if (v >= th.warn) return 'warn';
+  }
+  return 'ok';
+}
+
+/** 汇总当前快照的全部告警 */
+function collectAlerts(snap) {
+  const out = [];
+  const add = (k, v, text, unit) => {
+    const lv = evalThreshold(k, v);
+    if (lv !== 'ok') out.push({ key: k, level: lv, text, unit });
+  };
+  add('yieldRate', snap.yieldRate, `良品率 ${fmt(snap.yieldRate, 2)}%`);
+  add('oee', snap.oee, `产能利用率 ${fmt(snap.oee, 1)}%`);
+  add('availability', snap.availability, `设备稼动率 ${fmt(snap.availability, 1)}%`);
+  add('bandwidth', snap.bandwidth, `带宽占用 ${fmt(snap.bandwidth, 1)}%`);
+  add('latency', snap.latency, `网络时延 ${fmt(snap.latency, 1)} ms`);
+  add('packetLoss', snap.packetLoss, `丢包率 ${fmt(snap.packetLoss, 2)}%`);
+  add('faultCount', snap.faultCount, `设备故障 ${snap.faultCount} 台`);
+  if (snap.quotaUsed >= 85) out.push({ key: 'quotaUsed', level: snap.quotaUsed >= 92 ? 'crit' : 'warn', text: `碳配额使用率 ${fmt(snap.quotaUsed, 1)}%` });
+  return out;
+}
+
+/* ---------------------------------------------------------------------------
+ * ② Store —— 单一数据源
+ * ------------------------------------------------------------------------- */
+const Store = {
+  state: {
+    snap: null,
+    range: '24h',
+    activeModules: new Set(MODULES.map((m) => m.id)),
+    collapsed: new Set(),
+    carousel: false,
+    lastUpdate: null,
+    tickCount: 0,
+  },
+  _subs: [],
+
+  subscribe(fn) { this._subs.push(fn); return () => { this._subs = this._subs.filter((f) => f !== fn); }; },
+  get() { return this.state; },
+
+  /** 唯一的状态写入口 */
+  dispatch(action) {
+    const s = this.state;
+    switch (action.type) {
+      case 'TICK':
+        s.snap = action.snap;
+        s.lastUpdate = new Date();
+        s.tickCount++;
+        break;
+      case 'RANGE':
+        s.range = action.range;
+        break;
+      case 'TOGGLE_MODULE': {
+        const id = action.id;
+        s.activeModules.has(id) ? s.activeModules.delete(id) : s.activeModules.add(id);
+        break;
+      }
+      case 'COLLAPSE':
+        s.collapsed.has(action.id) ? s.collapsed.delete(action.id) : s.collapsed.add(action.id);
+        break;
+      case 'COLLAPSE_ALL': {
+        const all = MODULES.every((m) => s.collapsed.has(m.id));
+        s.collapsed.clear();
+        if (!all) MODULES.forEach((m) => s.collapsed.add(m.id));
+        break;
+      }
+      case 'CAROUSEL':
+        s.carousel = !s.carousel;
+        break;
+    }
+    this._subs.forEach((f) => f(s, action));
+  },
+};
+
+/* ---------------------------------------------------------------------------
+ * ③+④ 视图 & 图表
+ * ------------------------------------------------------------------------- */
+const View = {
+  _timer: null,
+
+  init() {
+    MockSource.reset();
+    this.buildKpiStrip();
+    this.buildModuleSegs();
+    this.buildRangeSegs();
+    this.bindEvents();
+    Store.dispatch({ type: 'TICK', snap: MockSource.tick() });
+    this.startTimer();
+    this.startClock();
+  },
+
+  /** KPI 带：四大类各取一个核心指标 */
+  buildKpiStrip() {
+    const defs = [
+      { key: 'output', label: '今日产量', unit: '万只', color: '#2f81f7', icon: '🏭', get: (s) => fmt(s.output / 10000, 2), sub: (s) => `计划 ${fmt(13500 / 10000, 1)} 万只` },
+      { key: 'oee', label: '产能利用率', unit: '%', color: '#2f81f7', icon: '📈', get: (s) => fmt(s.oee, 1), sub: (s) => `OEE 目标 85%` },
+      { key: 'availability', label: '设备稼动率', unit: '%', color: '#2f81f7', icon: '⚙️', get: (s) => fmt(s.availability, 1), sub: () => `停机 26 台`, jump: 'device-twin.html' },
+      { key: 'bandwidth', label: '带宽占用', unit: '%', color: '#35c6d4', icon: '🌐', get: (s) => fmt(s.bandwidth, 1), sub: (s) => `上行 1.2 Gbps`, jump: 'network-twin.html' },
+      { key: 'latency', label: '网络时延', unit: 'ms', color: '#35c6d4', icon: '⏱️', get: (s) => fmt(s.latency, 1), sub: (s) => `丢包 ${fmt(s.packetLoss, 2)}%`, jump: 'network-twin.html' },
+      { key: 'quotaUsed', label: '碳配额使用率', unit: '%', color: '#2ecc8f', icon: '🌱', get: (s) => fmt(s.quotaUsed, 1), sub: (s) => `剩余 ${fmt(100 - s.quotaUsed, 1)}%` },
+    ];
+    $('#kpi-strip').innerHTML = defs.map((d) => `
+      <div class="kpi" id="kpi-${d.key}" style="--kpi-color:${d.color}"${d.jump ? ` data-jump="${d.jump}" title="点击进入孪生页"` : ''}>
+        <div class="kpi-icon">${d.icon}</div>
+        <div class="kpi-info">
+          <div class="kpi-label">${d.label}</div>
+          <div class="kpi-value"><span class="v"></span><span class="unit">${d.unit}</span></div>
+          <div class="kpi-sub"></div>
+        </div>
+      </div>`).join('');
+    // 跳转绑定：设备/网络类 KPI 卡可直接进入对应孪生页
+    $('#kpi-strip').querySelectorAll('.kpi[data-jump]').forEach(el => {
+      el.onclick = () => { location.href = el.dataset.jump; };
+    });
+    this._kpiDefs = defs;
+  },
+
+  buildModuleSegs() {
+    const box = $('#seg-modules');
+    box.innerHTML = MODULES.map((m) =>
+      `<button data-mod="${m.id}" class="active">${m.icon} ${m.name}</button>`).join('');
+    box.onclick = (e) => {
+      const b = e.target.closest('button'); if (!b) return;
+      Store.dispatch({ type: 'TOGGLE_MODULE', id: b.dataset.mod });
+    };
+  },
+
+  buildRangeSegs() {
+    const box = $('#seg-range');
+    box.innerHTML = RANGES.map((r) =>
+      `<button data-range="${r.id}"${r.id === '24h' ? ' class="active"' : ''}>${r.name}</button>`).join('');
+    box.onclick = (e) => {
+      const b = e.target.closest('button'); if (!b) return;
+      Store.dispatch({ type: 'RANGE', range: b.dataset.range });
+    };
+  },
+
+  bindEvents() {
+    $('#btn-reset').onclick = () => {
+      MockSource.reset(Date.now() % 100000);
+      Store.dispatch({ type: 'TICK', snap: MockSource.tick() });
+      this.toast('模拟数据已重置');
+    };
+    $('#btn-carousel').onclick = () => Store.dispatch({ type: 'CAROUSEL' });
+    $('#btn-collapse').onclick = () => Store.dispatch({ type: 'COLLAPSE_ALL' });
+    document.querySelectorAll('.collapse-icon').forEach((el) => {
+      el.onclick = () => Store.dispatch({ type: 'COLLAPSE', id: el.dataset.toggle });
+    });
+    Store.subscribe((s, a) => this.render(s, a));
+    window.addEventListener('resize', () => this.fitScreen());
+    this.fitScreen();
+  },
+
+  /** 大屏自适应：按窗口尺寸等比缩放 1920×1080 画布 */
+  fitScreen() {
+    const scale = Math.min(window.innerWidth / 1920, window.innerHeight / 1080);
+    document.documentElement.style.setProperty('--scale', scale);
+    const vp = $('#viewport');
+    vp.style.transform = `scale(${scale})`;
+    vp.style.left = `${(window.innerWidth - 1920 * scale) / 2}px`;
+    vp.style.top = `${(window.innerHeight - 1080 * scale) / 2}px`;
+    vp.style.position = 'fixed';
+  },
+
+  startTimer() {
+    if (this._timer) clearInterval(this._timer);
+    this._timer = setInterval(() => {
+      Store.dispatch({ type: 'TICK', snap: MockSource.tick() });
+      // 轮播模式：每 3 次刷新切一次焦点模块（高亮+置顶顺序）
+      if (Store.get().carousel && Store.get().tickCount % 3 === 0) this.rotateFocus();
+    }, 3000);
+  },
+
+  startClock() {
+    setInterval(() => {
+      $('#clock').textContent = hhmmss(new Date());
+    }, 1000);
+    $('#clock').textContent = hhmmss(new Date());
+  },
+
+  /** 轮播：循环切换焦点模块的边框高亮 */
+  rotateFocus() {
+    const s = Store.get();
+    const ids = MODULES.filter((m) => s.activeModules.has(m.id)).map((m) => m.id);
+    if (!ids.length) return;
+    this._focusIdx = ((this._focusIdx ?? -1) + 1) % ids.length;
+    ids.forEach((id, i) => {
+      const el = document.getElementById(id);
+      if (!el) return;
+      el.style.borderColor = i === this._focusIdx ? 'var(--c-primary)' : '';
+      el.style.boxShadow = i === this._focusIdx ? '0 0 18px var(--c-primary-glow)' : '';
+    });
+  },
+
+  toast(msg) {
+    const t = $('#toast');
+    t.textContent = msg; t.classList.add('show');
+    clearTimeout(this._tt);
+    this._tt = setTimeout(() => t.classList.remove('show'), 1800);
+  },
+
+  /* ---------- 渲染 ---------- */
+  render(s, action) {
+    if (!s.snap) return;
+    const snap = s.snap;
+
+    // KPI 带
+    this._kpiDefs.forEach((d) => {
+      const el = $(`#kpi-${d.key}`);
+      el.querySelector('.v').textContent = d.get(snap);
+      el.querySelector('.kpi-sub').textContent = d.sub(snap);
+      const lv = evalThreshold(d.key, snap[d.key]);
+      el.classList.toggle('alarm', lv === 'crit');
+      el.classList.toggle('warn', lv === 'warn');
+    });
+
+    // 模块显示/折叠
+    MODULES.forEach((m) => {
+      const el = document.getElementById(m.id);
+      el.classList.toggle('hidden', !s.activeModules.has(m.id));
+      el.classList.toggle('collapsed', s.collapsed.has(m.id));
+    });
+    document.querySelectorAll('#seg-modules button').forEach((b) =>
+      b.classList.toggle('active', s.activeModules.has(b.dataset.mod)));
+    document.querySelectorAll('#seg-range button').forEach((b) =>
+      b.classList.toggle('active', b.dataset.range === s.range));
+
+    // 轮播态：淡出控制条
+    document.body.classList.toggle('cinema', s.carousel);
+    $('#btn-carousel').classList.toggle('on', s.carousel);
+    $('#btn-carousel').textContent = s.carousel ? '⏸ 停止轮播' : '▶ 自动轮播';
+
+    // 更新时间
+    $('#update-info').innerHTML = `<span class="live-dot"></span>数据更新：${hhmmss(s.lastUpdate)}　·　第 ${s.tickCount} 次刷新`;
+
+    this.renderProduction(snap, s.range);
+    this.renderNetwork(snap, s.range);
+    this.renderDevice(snap);
+    this.renderCarbon(snap, s.range);
+    this.renderTicker(snap);
+  },
+
+  /** 生产模块 */
+  renderProduction(snap, range) {
+    const stats = [
+      { n: '产量', v: fmt(snap.output, 0), u: '只', k: 'output' },
+      { n: '产能利用率', v: fmt(snap.oee, 1), u: '%', k: 'oee', pct: snap.oee },
+      { n: '良品率', v: fmt(snap.yieldRate, 2), u: '%', k: 'yieldRate', pct: snap.yieldRate },
+      { n: '稼动率', v: fmt(snap.availability, 1), u: '%', k: 'availability', pct: snap.availability },
+    ];
+    $('#prod-stats').innerHTML = stats.map((x) => {
+      const lv = evalThreshold(x.k, snap[x.k]);
+      return `<div class="stat ${lv === 'crit' ? 'alarm' : lv === 'warn' ? 'warn' : ''}">
+        <div class="stat-name">${x.n}</div>
+        <div class="stat-val">${x.v}<span class="unit">${x.u}</span></div>
+        ${x.pct != null ? `<div class="bar"><i style="width:${clamp(x.pct, 0, 100)}%;background:${lv === 'ok' ? 'var(--c-primary)' : lv === 'warn' ? 'var(--c-warn)' : 'var(--c-crit)'}"></i></div>` : ''}
+      </div>`;
+    }).join('');
+
+    const prod = MockSource.series(range, 'output').map((p) => p.v / 10000);
+    const yield_ = MockSource.series(range, 'yieldRate');
+    Chart.line('#c-prod-trend', [
+      { data: prod, color: '#2f81f7', fill: true },
+      { data: yield_.map((p) => p.v), color: '#2ecc8f', axis: 'right', min: 94, max: 100 },
+    ], prod.map((_, i) => yield_[i].label));
+
+    // 环形图 + 产线列表
+    const total = snap.lineOutputs.reduce((a, b) => a + b, 0) || 1;
+    Chart.ring('#c-prod-ring', LINES.map((n, i) => ({ name: n, value: snap.lineOutputs[i] })), total);
+    $('#prod-line-list').innerHTML = LINES.map((n, i) => `
+      <div style="display:flex;align-items:center;gap:8px;padding:3px 0;border-bottom:1px dashed var(--line-soft)">
+        <span style="color:var(--c-primary)">■</span>
+        <span style="flex:1 1 auto;color:var(--t-mid)">${n}</span>
+        <span style="font-weight:600">${fmt(snap.lineOutputs[i], 0)}</span>
+        <span style="color:var(--t-dim);width:52px;text-align:right">${fmt(snap.lineOutputs[i] / total * 100, 1)}%</span>
+      </div>`).join('');
+  },
+
+  /** 网络模块 */
+  renderNetwork(snap, range) {
+    const stats = [
+      { n: '带宽占用', v: fmt(snap.bandwidth, 1), u: '%', k: 'bandwidth', pct: snap.bandwidth },
+      { n: '时延', v: fmt(snap.latency, 1), u: 'ms', k: 'latency' },
+      { n: '在线设备', v: fmt(snap.onlineDevices, 0), u: '/ ' + snap.totalDevices, k: 'online', pct: snap.onlineDevices / snap.totalDevices * 100 },
+      { n: '丢包率', v: fmt(snap.packetLoss, 2), u: '%', k: 'packetLoss' },
+    ];
+    $('#net-stats').innerHTML = stats.map((x) => {
+      const lv = evalThreshold(x.k, snap[x.k]);
+      return `<div class="stat ${lv === 'crit' ? 'alarm' : lv === 'warn' ? 'warn' : ''}">
+        <div class="stat-name">${x.n}</div>
+        <div class="stat-val">${x.v}<span class="unit">${x.u}</span></div>
+        ${x.pct != null ? `<div class="bar"><i style="width:${clamp(x.pct, 0, 100)}%;background:${lv === 'ok' ? 'var(--c-info)' : lv === 'warn' ? 'var(--c-warn)' : 'var(--c-crit)'}"></i></div>` : ''}
+      </div>`;
+    }).join('');
+
+    Chart.line('#c-net-trend', [{ data: MockSource.series(range, 'bandwidth').map((p) => p.v), color: '#35c6d4', fill: true }],
+      MockSource.series(range, 'bandwidth').map((p) => p.label));
+  },
+
+  /** 设备模块 */
+  renderDevice(snap) {
+    const stats = [
+      { n: '运行', v: fmt(snap.running, 0), u: '台', c: 'var(--c-ok)' },
+      { n: '故障', v: fmt(snap.faultCount, 0), u: '台', c: 'var(--c-crit)', k: 'faultCount' },
+      { n: '待机', v: fmt(snap.standby, 0), u: '台', c: 'var(--c-warn)' },
+    ];
+    $('#dev-stats').innerHTML = stats.map((x) => {
+      const lv = x.k ? evalThreshold(x.k, snap[x.k]) : 'ok';
+      return `<div class="stat ${lv === 'crit' ? 'alarm' : lv === 'warn' ? 'warn' : ''}">
+        <div class="stat-name">${x.n}</div>
+        <div class="stat-val" style="color:${x.c}">${x.v}<span class="unit">${x.u}</span></div>
+      </div>`;
+    }).join('');
+
+    // 状态分布：堆叠横条
+    const total = snap.totalDevices || 1;
+    Chart.stackBar('#c-dev-state', [
+      { name: '运行', value: snap.running, color: '#2ecc8f' },
+      { name: '待机', value: snap.standby, color: '#f5a524' },
+      { name: '故障', value: snap.faultCount, color: '#f4544c' },
+      { name: '离线', value: total - snap.running - snap.standby - snap.faultCount, color: '#3d4f6b' },
+    ]);
+
+    // 维保提醒
+    $('#dev-maint-count').textContent = `${snap.maint.length} 条`;
+    $('#dev-alerts').innerHTML = snap.maint.map((m) => `
+      <div class="alert-row ${m.level === 'crit' ? 'crit' : ''}">
+        <span class="dev">${m.dev}</span>
+        <span class="t">${m.reason}</span>
+        <span class="badge">${m.level === 'crit' ? '紧急' : '计划'} · ${m.hours}h</span>
+      </div>`).join('') || '<div class="empty-hint">暂无维保提醒</div>';
+  },
+
+  /** 碳排放模块 */
+  renderCarbon(snap, range) {
+    const stats = [
+      { n: '实时排放', v: fmt(snap.emissionRate, 2), u: 't/h', k: 'emissionRate' },
+      { n: '单位碳排', v: fmt(snap.unitCarbon, 3), u: 't/万只', k: 'unitCarbon' },
+      { n: '能耗', v: fmt(snap.energyUse, 1), u: 'MWh', k: 'energyUse' },
+      { n: '配额使用', v: fmt(snap.quotaUsed, 1), u: '%', k: 'quotaUsed', pct: snap.quotaUsed },
+    ];
+    $('#carbon-stats').innerHTML = stats.map((x) => {
+      const lv = evalThreshold(x.k, snap[x.k]);
+      return `<div class="stat ${lv === 'crit' ? 'alarm' : lv === 'warn' ? 'warn' : ''}">
+        <div class="stat-name">${x.n}</div>
+        <div class="stat-val">${x.v}<span class="unit">${x.u}</span></div>
+        ${x.pct != null ? `<div class="bar"><i style="width:${clamp(x.pct, 0, 100)}%;background:${lv === 'ok' ? 'var(--c-ok)' : lv === 'warn' ? 'var(--c-warn)' : 'var(--c-crit)'}"></i></div>` : ''}
+      </div>`;
+    }).join('');
+
+    const em = MockSource.series(range, 'emissionRate');
+    const en = MockSource.series(range, 'energyUse');
+    Chart.line('#c-carbon-trend', [
+      { data: em.map((p) => p.v), color: '#2ecc8f', fill: true },
+      { data: en.map((p) => p.v), color: '#f5a524', axis: 'right' },
+    ], em.map((p) => p.label));
+
+    Chart.gauge('#c-carbon-gauge', snap.quotaUsed);
+  },
+
+  /** 底部告警条 */
+  renderTicker(snap) {
+    const alerts = collectAlerts(snap);
+    const box = $('#alert-ticker');
+    const txt = $('#ticker-text');
+    if (!alerts.length) {
+      box.classList.add('ok');
+      box.querySelector('span').textContent = '✔';
+      box.querySelector('span').style.color = 'var(--c-ok)';
+      txt.textContent = '全部指标正常 · 生产 网络 设备 碳排放 四类指标均在阈值范围内';
+      return;
+    }
+    box.classList.remove('ok');
+    box.querySelector('span').textContent = '⚠';
+    box.querySelector('span').style.color = 'var(--c-crit)';
+    const parts = alerts.map((a) => `[${a.level === 'crit' ? '严重' : '预警'}] ${a.text}`);
+    // 复制一份实现无缝滚动
+    txt.innerHTML = `<span style="display:inline-block;animation:marquee 26s linear infinite">${parts.join('　　｜　　')}　　｜　　${parts.join('　　｜　　')}</span>`;
+  },
+};
+
+/* ---------------------------------------------------------------------------
+ * Canvas 图表引擎（自绘，无第三方依赖，离线可用）
+ * ------------------------------------------------------------------------- */
+const Chart = {
+  /** 按 CSS 尺寸 + DPR 设置画布，避免高分屏模糊 */
+  _prep(sel) {
+    const cv = typeof sel === 'string' ? $(sel) : sel;
+    if (!cv) return null;
+    const rect = cv.getBoundingClientRect();
+    const dpr = window.devicePixelRatio || 1;
+    const w = Math.max(rect.width, 10), h = Math.max(rect.height, 10);
+    cv.width = w * dpr; cv.height = h * dpr;
+    const ctx = cv.getContext('2d');
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx.clearRect(0, 0, w, h);
+    return { ctx, w, h };
+  },
+
+  /** 折线/面积图，支持双 Y 轴 */
+  line(sel, series, labels) {
+    const p = this._prep(sel); if (!p) return;
+    const { ctx, w, h } = p;
+    const padL = 34, padR = 34, padT = 10, padB = 20;
+    const cw = w - padL - padR, ch = h - padT - padB;
+    if (cw <= 0 || ch <= 0) return;
+
+    const leftSeries = series.filter((s) => s.axis !== 'right');
+    const rightSeries = series.filter((s) => s.axis === 'right');
+    const rangeOf = (arr) => {
+      const vs = arr.flatMap((s) => s.data.filter((v) => isFinite(v)));
+      let mn = Math.min(...vs), mx = Math.max(...vs);
+      if (!isFinite(mn) || !isFinite(mx)) { mn = 0; mx = 1; }
+      if (mx === mn) { mx += 1; mn -= 1; }
+      return [mn, mx];
+    };
+    const [lmn, lmx] = rangeOf(leftSeries.length ? leftSeries : series);
+    const [rmn, rmx] = rangeOf(rightSeries);
+    const n = Math.max(...series.map((s) => s.data.length));
+    if (!n) return;
+
+    // 横向网格 + 左轴刻度
+    ctx.font = '10px sans-serif'; ctx.textBaseline = 'middle';
+    for (let i = 0; i <= 4; i++) {
+      const y = padT + ch * i / 4;
+      ctx.strokeStyle = 'rgba(80,140,210,.10)'; ctx.lineWidth = 1;
+      ctx.beginPath(); ctx.moveTo(padL, y); ctx.lineTo(padL + cw, y); ctx.stroke();
+      ctx.fillStyle = '#64789a'; ctx.textAlign = 'right';
+      ctx.fillText(fmt(lmx - (lmx - lmn) * i / 4, lmx - lmn > 20 ? 0 : 1), padL - 5, y);
+    }
+    // 右轴刻度
+    if (rightSeries.length) {
+      ctx.textAlign = 'left'; ctx.fillStyle = '#64789a';
+      for (let i = 0; i <= 4; i++) {
+        const y = padT + ch * i / 4;
+        ctx.fillText(fmt(rmx - (rmx - rmn) * i / 4, rmx - rmn > 20 ? 0 : 1), padL + cw + 5, y);
+      }
+    }
+    // X 轴标签（最多 6 个，避免拥挤）
+    if (labels && labels.length) {
+      ctx.textAlign = 'center'; ctx.fillStyle = '#64789a';
+      const step = Math.max(1, Math.floor(labels.length / 6));
+      for (let i = 0; i < labels.length; i += step) {
+        const x = padL + cw * i / Math.max(1, labels.length - 1);
+        ctx.fillText(labels[i], clamp(x, padL + 14, padL + cw - 14), padT + ch + 11);
+      }
+    }
+
+    // 画每条序列
+    series.forEach((s) => {
+      const mn = s.axis === 'right' ? rmn : lmn, mx = s.axis === 'right' ? rmx : lmx;
+      const lo = s.min != null ? s.min : mn, hi = s.max != null ? s.max : mx;
+      const yOf = (v) => padT + ch - ((clamp(v, lo, hi) - lo) / Math.max(1e-9, hi - lo)) * ch;
+      const xOf = (i) => padL + cw * i / Math.max(1, s.data.length - 1);
+
+      if (s.fill) {
+        const g = ctx.createLinearGradient(0, padT, 0, padT + ch);
+        g.addColorStop(0, s.color + '55'); g.addColorStop(1, s.color + '00');
+        ctx.fillStyle = g; ctx.beginPath(); ctx.moveTo(xOf(0), padT + ch);
+        s.data.forEach((v, i) => ctx.lineTo(xOf(i), yOf(v)));
+        ctx.lineTo(xOf(s.data.length - 1), padT + ch); ctx.closePath(); ctx.fill();
+      }
+      ctx.strokeStyle = s.color; ctx.lineWidth = 1.8; ctx.lineJoin = 'round';
+      ctx.beginPath();
+      s.data.forEach((v, i) => i === 0 ? ctx.moveTo(xOf(i), yOf(v)) : ctx.lineTo(xOf(i), yOf(v)));
+      ctx.stroke();
+      // 末端数据点
+      const lx = xOf(s.data.length - 1), ly = yOf(s.data[s.data.length - 1]);
+      ctx.fillStyle = s.color;
+      ctx.beginPath(); ctx.arc(lx, ly, 2.6, 0, Math.PI * 2); ctx.fill();
+    });
+  },
+
+  /** 环形占比图 */
+  ring(sel, items, total) {
+    const cv = typeof sel === 'string' ? $(sel) : sel; if (!cv) return;
+    const dpr = window.devicePixelRatio || 1;
+    const rect = cv.getBoundingClientRect();
+    // 用容器实际尺寸（上限 150），避免固定尺寸在大屏上悬空
+    const size = Math.max(80, Math.min(150, Math.min(rect.width, rect.height) || 150));
+    cv.width = size * dpr; cv.height = size * dpr;
+    cv.style.width = size + 'px'; cv.style.height = size + 'px';
+    const ctx = cv.getContext('2d');
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx.clearRect(0, 0, size, size);
+    const cx = size / 2, cy = size / 2;
+    const r = size / 2 - 12, lw = size * 0.10;
+    const colors = ['#2f81f7', '#35c6d4', '#2ecc8f', '#f5a524'];
+    let acc = -Math.PI / 2;
+    items.forEach((it, i) => {
+      const ang = (it.value / total) * Math.PI * 2;
+      ctx.beginPath(); ctx.arc(cx, cy, r, acc, acc + ang);
+      ctx.strokeStyle = colors[i % colors.length]; ctx.lineWidth = lw; ctx.stroke();
+      acc += ang;
+    });
+    // 中心文字
+    ctx.fillStyle = '#eaf2ff'; ctx.font = `bold ${Math.round(size * 0.17)}px sans-serif`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.fillText((total / 10000).toFixed(1), cx, cy - size * 0.04);
+    ctx.fillStyle = '#64789a'; ctx.font = `${Math.round(size * 0.1)}px sans-serif`;
+    ctx.fillText('万只', cx, cy + size * 0.11);
+  },
+
+  /** 堆叠状态条 */
+  stackBar(sel, items) {
+    const p = this._prep(sel); if (!p) return;
+    const { ctx, w, h } = p;
+    const total = items.reduce((a, b) => a + b.value, 0) || 1;
+    const barH = 22, gap = 12;
+    const y = (h - barH - gap * 1.4) / 2;
+    let x = 0;
+    items.forEach((it) => {
+      const bw = (it.value / total) * w;
+      ctx.fillStyle = it.color;
+      ctx.beginPath();
+      const r = 4;
+      ctx.roundRect ? ctx.roundRect(x, y, Math.max(bw - 1, 1), barH, r) : ctx.rect(x, y, Math.max(bw - 1, 1), barH);
+      ctx.fill();
+      // 段内文字（宽度够才画）
+      if (bw > 34) {
+        ctx.fillStyle = '#08111f'; ctx.font = 'bold 10px sans-serif';
+        ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+        ctx.fillText(String(it.value), x + bw / 2, y + barH / 2);
+      }
+      x += bw;
+    });
+    // 图例
+    ctx.font = '10px sans-serif'; ctx.textBaseline = 'middle';
+    items.forEach((it, i) => {
+      const lx = 4 + i * (w / items.length);
+      ctx.fillStyle = it.color;
+      ctx.fillRect(lx, y + barH + gap / 2 - 1, 8, 8);
+      ctx.fillStyle = '#9fb3d1'; ctx.textAlign = 'left';
+      ctx.fillText(`${it.name} ${fmt(it.value, 0)}`, lx + 12, y + barH + gap / 2 + 3);
+    });
+  },
+
+  /** 半环仪表盘（用于碳配额使用率） */
+  gauge(sel, value) {
+    const p = this._prep(sel); if (!p) return;
+    const { ctx, w, h } = p;
+    const cx = w / 2, cy = h * 0.62, r = Math.min(w * 0.32, h * 0.52);
+    const lw = 14;
+    const start = Math.PI * 0.75, end = Math.PI * 2.25;
+    const pct = clamp(value, 0, 100);
+
+    // 底槽
+    ctx.beginPath(); ctx.arc(cx, cy, r, start, end);
+    ctx.strokeStyle = '#16273f'; ctx.lineWidth = lw; ctx.lineCap = 'round'; ctx.stroke();
+
+    // 刻度段（85% 以上转橙/红）
+    const seg = (a, b, c) => { ctx.beginPath(); ctx.arc(cx, cy, r, start + (end - start) * a, start + (end - start) * b); ctx.strokeStyle = c; ctx.stroke(); };
+    seg(0, 0.5, '#2ecc8f'); seg(0.5, 0.85, '#2f81f7'); seg(0.85, 1, '#f5a524');
+
+    // 进度
+    ctx.beginPath(); ctx.arc(cx, cy, r, start, start + (end - start) * pct / 100);
+    ctx.strokeStyle = pct >= 92 ? '#f4544c' : pct >= 85 ? '#f5a524' : '#2ecc8f';
+    ctx.lineWidth = lw; ctx.lineCap = 'round'; ctx.stroke();
+
+    // 中心读数
+    ctx.fillStyle = '#eaf2ff'; ctx.font = `bold ${Math.round(r * 0.42)}px sans-serif`;
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.fillText(fmt(pct, 1) + '%', cx, cy);
+    ctx.fillStyle = '#64789a'; ctx.font = '11px sans-serif';
+    ctx.fillText('配额已使用', cx, cy + r * 0.42);
+
+    // 已用/剩余
+    ctx.font = '11px sans-serif';
+    ctx.fillStyle = '#9fb3d1'; ctx.textAlign = 'left';
+    ctx.fillText(`已用 ${fmt(pct, 1)}%`, 6, 14);
+    ctx.textAlign = 'right';
+    ctx.fillText(`剩余 ${fmt(100 - pct, 1)}%`, w - 6, 14);
+  },
+};
+
+/* ---------------------------------------------------------------------------
+ * 启动
+ * ------------------------------------------------------------------------- */
+document.addEventListener('DOMContentLoaded', () => View.init());
+</script>
+</body>
+</html>

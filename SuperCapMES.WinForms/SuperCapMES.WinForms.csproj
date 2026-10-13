@@ -8,4 +8,16 @@
     <ImplicitUsings>enable</ImplicitUsings>
   </PropertyGroup>
 
+  <!--
+    数字孪生网页资产（WebAssets/digital-twin/*.html）。
+    随构建复制到输出目录，保证「直接运行 exe」与「VS 启动」都能找到页面，
+    不依赖源码目录。页面本身零外部依赖，可单独双击打开用于独立演示。
+  -->
+  <ItemGroup>
+    <Content Include="WebAssets\**\*">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
+    </Content>
+  </ItemGroup>
+
 </Project>

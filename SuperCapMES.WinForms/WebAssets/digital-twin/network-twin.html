@@ -1,0 +1,716 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>网络数字孪生 · 泰州超级电容智能工厂</title>
+<style>
+  /* ===== 主题令牌：与运营大屏 / 设备孪生页保持一致 ===== */
+  :root {
+    --bg-0:#050b16; --bg-1:#0a1424; --bg-2:#0f1d31; --bg-3:#16273f;
+    --c-primary:#2f81f7; --c-primary-glow:rgba(47,129,247,.35);
+    --c-ok:#2ecc8f; --c-warn:#f5a524; --c-crit:#f4544c; --c-info:#35c6d4;
+    --t-hi:#eaf2ff; --t-mid:#9fb3d1; --t-lo:#64789a; --t-dim:#3d4f6b;
+    --line:rgba(80,140,210,.16); --line-soft:rgba(80,140,210,.09);
+    --r-sm:4px; --r-md:8px; --r-lg:12px;
+    --shadow:0 4px 20px rgba(0,0,0,.45);
+    --scale:1;
+    --font:"HarmonyOS Sans SC","Microsoft YaHei",-apple-system,sans-serif;
+  }
+  *{margin:0;padding:0;box-sizing:border-box}
+  html,body{width:100%;height:100%;background:var(--bg-0);color:var(--t-hi);
+    font-family:var(--font);overflow:hidden;font-variant-numeric:tabular-nums}
+  #bg-deco{position:fixed;inset:0;z-index:0;pointer-events:none;
+    background:radial-gradient(ellipse 60% 45% at 50% -10%,rgba(53,198,212,.16),transparent 70%),
+               radial-gradient(ellipse 45% 40% at 90% 100%,rgba(47,129,247,.10),transparent 70%)}
+  #bg-grid{position:fixed;inset:0;z-index:0;pointer-events:none;opacity:.5;
+    background-image:linear-gradient(rgba(70,130,200,.055) 1px,transparent 1px),
+                     linear-gradient(90deg,rgba(70,130,200,.055) 1px,transparent 1px);
+    background-size:48px 48px}
+
+  #viewport{position:fixed;width:1920px;height:1080px;transform-origin:top left;
+    display:flex;flex-direction:column;z-index:1;
+    padding:calc(14px*var(--scale)) calc(18px*var(--scale));gap:calc(12px*var(--scale))}
+
+  .panel{position:relative;background:linear-gradient(160deg,var(--bg-1) 0%,rgba(10,20,36,.72) 100%);
+    border:1px solid var(--line);border-radius:var(--r-lg);box-shadow:var(--shadow);
+    display:flex;flex-direction:column;min-height:0;overflow:hidden}
+  .panel::before,.panel::after{content:'';position:absolute;width:14px;height:14px;border-color:var(--c-primary);opacity:.8}
+  .panel::before{top:-1px;left:-1px;border-top:2px solid;border-left:2px solid;border-top-left-radius:var(--r-lg)}
+  .panel::after{bottom:-1px;right:-1px;border-bottom:2px solid;border-right:2px solid;border-bottom-right-radius:var(--r-lg)}
+  .panel-head{flex:0 0 auto;display:flex;align-items:center;gap:calc(8px*var(--scale));
+    padding:calc(8px*var(--scale)) calc(12px*var(--scale));border-bottom:1px solid var(--line-soft);
+    background:linear-gradient(90deg,rgba(53,198,212,.10),transparent 60%)}
+  .panel-title{font-size:calc(15px*var(--scale));font-weight:600;letter-spacing:1px;
+    display:flex;align-items:center;gap:calc(7px*var(--scale))}
+  .panel-title::before{content:'';width:3px;height:calc(14px*var(--scale));
+    background:var(--c-info);border-radius:2px;box-shadow:0 0 calc(8px*var(--scale)) rgba(53,198,212,.35)}
+  .panel-body{flex:1 1 auto;min-height:0;padding:calc(10px*var(--scale));overflow:hidden}
+  .spacer{flex:1 1 auto}
+
+  #topbar{flex:0 0 auto;display:flex;align-items:center;justify-content:space-between;gap:calc(12px*var(--scale))}
+  .brand{display:flex;align-items:center;gap:calc(12px*var(--scale))}
+  .brand-logo{width:calc(38px*var(--scale));height:calc(38px*var(--scale));border-radius:50%;
+    display:grid;place-items:center;font-size:calc(18px*var(--scale));
+    background:radial-gradient(circle at 35% 30%,#35c6d4,#0d4a58);
+    border:1px solid rgba(53,198,212,.6);box-shadow:0 0 calc(18px*var(--scale)) rgba(53,198,212,.35)}
+  .brand-text h1{font-size:calc(21px*var(--scale));font-weight:700;letter-spacing:2px;
+    background:linear-gradient(90deg,#fff,#35c6d4);-webkit-background-clip:text;
+    background-clip:text;-webkit-text-fill-color:transparent}
+  .brand-text p{font-size:calc(11px*var(--scale));color:var(--t-lo);letter-spacing:3px;margin-top:2px}
+  .back-btn{display:inline-flex;align-items:center;gap:6px;font-family:var(--font);
+    font-size:calc(12px*var(--scale));padding:calc(6px*var(--scale)) calc(14px*var(--scale));
+    background:var(--bg-2);color:var(--t-mid);border:1px solid var(--line);
+    border-radius:var(--r-sm);cursor:pointer;transition:all .16s;text-decoration:none}
+  .back-btn:hover{background:var(--bg-3);color:var(--t-hi);border-color:var(--c-primary)}
+  #clock-box{text-align:right}
+  #clock{font-size:calc(26px*var(--scale));font-weight:700;letter-spacing:2px;color:#fff}
+  #update-info{font-size:calc(11px*var(--scale));color:var(--t-lo);margin-top:2px}
+  .live-dot{display:inline-block;width:calc(7px*var(--scale));height:calc(7px*var(--scale));
+    border-radius:50%;background:var(--c-ok);margin-right:calc(5px*var(--scale));animation:pulse 1.6s infinite}
+  @keyframes pulse{0%,100%{opacity:1;box-shadow:0 0 0 0 rgba(46,204,143,.6)}
+    50%{opacity:.55;box-shadow:0 0 0 calc(6px*var(--scale)) rgba(46,204,143,0)}}
+
+  #controlbar{flex:0 0 auto;display:flex;align-items:center;gap:calc(8px*var(--scale));
+    padding:calc(6px*var(--scale)) calc(12px*var(--scale));background:rgba(10,20,36,.72);
+    border:1px solid var(--line);border-radius:var(--r-md);flex-wrap:wrap}
+  .ctrl-label{font-size:calc(12px*var(--scale));color:var(--t-lo);letter-spacing:1px}
+  .seg{display:flex;gap:2px;background:var(--bg-2);border-radius:var(--r-sm);padding:2px;border:1px solid var(--line-soft)}
+  .seg button{font-family:var(--font);font-size:calc(12px*var(--scale));
+    padding:calc(4px*var(--scale)) calc(11px*var(--scale));background:transparent;color:var(--t-mid);
+    border:0;border-radius:var(--r-sm);cursor:pointer;transition:all .16s}
+  .seg button:hover{color:var(--t-hi);background:var(--bg-3)}
+  .seg button.active{background:var(--c-info);color:#04141b;box-shadow:0 0 calc(10px*var(--scale)) rgba(53,198,212,.35)}
+  .btn{font-family:var(--font);font-size:calc(12px*var(--scale));
+    padding:calc(5px*var(--scale)) calc(12px*var(--scale));background:var(--bg-2);color:var(--t-mid);
+    border:1px solid var(--line);border-radius:var(--r-sm);cursor:pointer;transition:all .16s}
+  .btn:hover{background:var(--bg-3);color:var(--t-hi);border-color:var(--c-info)}
+
+  #legend{display:flex;align-items:center;gap:calc(14px*var(--scale));font-size:calc(12px*var(--scale))}
+  .lg{display:inline-flex;align-items:center;gap:calc(5px*var(--scale));color:var(--t-mid)}
+  .lg i{width:calc(10px*var(--scale));height:calc(10px*var(--scale));border-radius:50%;display:inline-block}
+  .lg.alarm i{animation:blink 1.2s infinite}
+  @keyframes blink{0%,100%{opacity:1}50%{opacity:.2}}
+  .lg.line i{width:calc(16px*var(--scale));height:calc(3px*var(--scale));border-radius:2px}
+
+  #main{flex:1 1 auto;min-height:0;display:grid;grid-template-columns:1fr 400px;gap:calc(12px*var(--scale))}
+  #topo-wrap{position:relative;width:100%;height:100%}
+  #topo-wrap canvas{position:absolute;inset:0;width:100%;height:100%;cursor:pointer}
+
+  #right-col{display:flex;flex-direction:column;gap:calc(10px*var(--scale));min-height:0}
+  .kpi-row{display:grid;grid-template-columns:repeat(2,1fr);gap:calc(8px*var(--scale))}
+  .kpi{background:var(--bg-2);border:1px solid var(--line-soft);border-radius:var(--r-sm);
+    padding:calc(7px*var(--scale)) calc(10px*var(--scale));position:relative;overflow:hidden}
+  .kpi::before{content:'';position:absolute;left:0;top:0;bottom:0;width:3px;background:var(--kc,var(--c-primary))}
+  .kpi-name{font-size:calc(11px*var(--scale));color:var(--t-lo)}
+  .kpi-val{font-size:calc(21px*var(--scale));font-weight:700;line-height:1.2}
+  .kpi-val .unit{font-size:calc(11px*var(--scale));font-weight:400;color:var(--t-mid);margin-left:3px}
+  .kpi.crit{border-color:var(--c-crit)} .kpi.crit::before{background:var(--c-crit)}
+
+  #detail{flex:1 1 56%;min-height:0}
+  #detail-body{overflow-y:auto;min-height:0;flex:1 1 auto}
+  .d-title{font-size:calc(15px*var(--scale));font-weight:700;margin-bottom:calc(4px*var(--scale))}
+  .d-sub{font-size:calc(11px*var(--scale));color:var(--t-lo);margin-bottom:calc(8px*var(--scale))}
+  .badge{display:inline-block;padding:1px calc(8px*var(--scale));border-radius:3px;
+    font-size:calc(11px*var(--scale));font-weight:600}
+  .badge.ok{background:rgba(46,204,143,.15);color:var(--c-ok)}
+  .badge.warn{background:rgba(245,165,36,.15);color:var(--c-warn)}
+  .badge.crit{background:rgba(244,84,76,.15);color:var(--c-crit)}
+  .kv{display:grid;grid-template-columns:auto 1fr;gap:calc(4px*var(--scale)) calc(10px*var(--scale));
+    font-size:calc(11.5px*var(--scale));margin-bottom:calc(8px*var(--scale))}
+  .kv dt{color:var(--t-lo);white-space:nowrap}
+  .kv dd{color:var(--t-hi)}
+  .sub-title{font-size:calc(11px*var(--scale));color:var(--t-lo);margin:calc(8px*var(--scale)) 0 calc(4px*var(--scale))}
+  .param-tbl{width:100%;border-collapse:collapse;font-size:calc(11.5px*var(--scale))}
+  .param-tbl th{background:var(--bg-3);color:var(--t-mid);font-weight:500;padding:calc(4px*var(--scale)) calc(7px*var(--scale));text-align:left}
+  .param-tbl td{padding:calc(3px*var(--scale)) calc(7px*var(--scale));border-bottom:1px solid var(--line-soft);color:var(--t-hi)}
+  .param-tbl td.v{text-align:right;font-weight:600}
+  .param-tbl tr.bad td{color:var(--c-crit)}
+  .bar{height:calc(4px*var(--scale));background:var(--bg-3);border-radius:2px;margin-top:calc(3px*var(--scale));overflow:hidden}
+  .bar>i{display:block;height:100%;border-radius:2px}
+
+  #alert-panel{flex:1 1 44%;min-height:0;display:flex;flex-direction:column}
+  #alert-body{flex:1 1 auto;min-height:0;overflow-y:auto}
+  .a-row{display:grid;grid-template-columns:auto 1fr auto;gap:calc(8px*var(--scale));
+    align-items:center;padding:calc(5px*var(--scale)) calc(8px*var(--scale));
+    background:var(--bg-2);border:1px solid var(--line-soft);border-left:3px solid var(--c-warn);
+    border-radius:var(--r-sm);font-size:calc(11.5px*var(--scale));margin-bottom:calc(4px*var(--scale));cursor:pointer}
+  .a-row.crit{border-left-color:var(--c-crit)}
+  .a-row:hover{background:var(--bg-3)}
+  .a-row .lv{font-size:calc(10px*var(--scale));padding:1px calc(5px*var(--scale));border-radius:3px;
+    background:rgba(245,165,36,.15);color:var(--c-warn)}
+  .a-row.crit .lv{background:rgba(244,84,76,.15);color:var(--c-crit)}
+  .a-row .msg{color:var(--t-mid);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .a-row .msg b{color:var(--t-hi)}
+  .a-row .time{color:var(--t-dim);font-size:calc(10.5px*var(--scale))}
+  .empty-hint{color:var(--t-dim);font-size:calc(12px*var(--scale));text-align:center;padding:calc(16px*var(--scale))}
+
+  #tip{position:fixed;z-index:50;pointer-events:none;opacity:0;transition:opacity .12s;
+    background:rgba(6,14,26,.97);border:1px solid var(--c-info);border-radius:var(--r-sm);
+    padding:calc(6px*var(--scale)) calc(10px*var(--scale));font-size:calc(12px*var(--scale));
+    box-shadow:0 6px 20px rgba(0,0,0,.6);max-width:calc(300px*var(--scale))}
+  #tip .t{font-weight:700;margin-bottom:2px}
+  #tip .l{color:var(--t-lo);font-size:calc(11px*var(--scale))}
+  #toast{position:fixed;left:50%;bottom:8%;transform:translateX(-50%) translateY(20px);
+    background:rgba(53,198,212,.95);color:#04141b;padding:calc(8px*var(--scale)) calc(18px*var(--scale));
+    border-radius:var(--r-sm);font-size:calc(13px*var(--scale));opacity:0;pointer-events:none;
+    transition:all .28s;z-index:99;box-shadow:0 6px 24px rgba(0,0,0,.5);font-weight:600}
+  #toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
+</style>
+</head>
+<body>
+<div id="bg-deco"></div><div id="bg-grid"></div>
+
+<div id="viewport">
+  <header id="topbar">
+    <div class="brand">
+      <a class="back-btn" href="digital-twin-dashboard.html">← 返回运营大屏</a>
+      <div class="brand-logo">🌐</div>
+      <div class="brand-text">
+        <h1>网络数字孪生 · 全网拓扑与链路状态</h1>
+        <p>NETWORK DIGITAL TWIN · TOPOLOGY &amp; LINK STATUS</p>
+      </div>
+    </div>
+    <div id="clock-box">
+      <div id="clock">--:--:--</div>
+      <div id="update-info"><span class="live-dot"></span>数据更新：等待中</div>
+    </div>
+  </header>
+
+  <nav id="controlbar">
+    <span class="ctrl-label">网络层级</span>
+    <div class="seg" id="seg-layer"></div>
+    <button class="btn" id="btn-reset">↻ 重置</button>
+    <span class="spacer"></span>
+    <span class="ctrl-label">状态图例</span>
+    <div id="legend">
+      <span class="lg"><i style="background:var(--c-ok)"></i>在线正常</span>
+      <span class="lg"><i style="background:var(--c-warn)"></i>待机/降级</span>
+      <span class="lg alarm"><i style="background:var(--c-crit)"></i>故障/离线</span>
+      <span class="lg line"><i style="background:rgba(47,129,247,.5)"></i>链路正常</span>
+      <span class="lg line"><i style="background:var(--c-crit)"></i>链路中断</span>
+    </div>
+  </nav>
+
+  <main id="main">
+    <section class="panel" id="m-topo">
+      <div class="panel-head">
+        <div class="panel-title">网络拓扑（核心 → 汇聚 → 接入 → 终端 · 点击节点查看详情）</div>
+        <span class="spacer"></span>
+        <span class="ctrl-label">滚轮缩放 · 拖拽平移</span>
+      </div>
+      <div class="panel-body"><div id="topo-wrap"><canvas id="topo"></canvas></div></div>
+    </section>
+
+    <div id="right-col">
+      <section class="panel" style="flex:0 0 auto">
+        <div class="panel-body"><div class="kpi-row" id="net-kpi"></div></div>
+      </section>
+
+      <section class="panel" id="detail">
+        <div class="panel-head"><div class="panel-title">节点详情</div><span class="spacer"></span>
+          <span class="ctrl-label" id="detail-hint">未选中节点</span></div>
+        <div class="panel-body"><div id="detail-body">
+          <div class="empty-hint">在左侧拓扑图中点击任一节点，查看实时链路与性能数据</div>
+        </div></div>
+      </section>
+
+      <section class="panel" id="alert-panel">
+        <div class="panel-head"><div class="panel-title">网络异常汇总</div><span class="spacer"></span>
+          <span class="ctrl-label" id="alert-count" style="color:var(--c-crit)"></span></div>
+        <div class="panel-body" style="padding:calc(8px*var(--scale))"><div id="alert-body"></div></div>
+      </section>
+    </div>
+  </main>
+</div>
+
+<div id="tip"></div><div id="toast"></div>
+
+<script>
+'use strict';
+/* ============================================================================
+ * 网络数字孪生页：核心 / 汇聚 / 接入 / 终端 四层拓扑
+ * 架构与另两页一致：MockSource → Store → View；拓扑用 Canvas 2D 自绘
+ * ========================================================================== */
+const $ = s => document.querySelector(s);
+const clamp = (v,a,b)=>Math.min(b,Math.max(a,v));
+const pad2 = n=>String(n).padStart(2,'0');
+const hhmmss = d=>`${pad2(d.getHours())}:${pad2(d.getMinutes())}:${pad2(d.getSeconds())}`;
+const hhmm = d=>`${pad2(d.getHours())}:${pad2(d.getMinutes())}`;
+function makeRng(seed){ let s=seed>>>0; return ()=>((s=(s*1664525+1013904223)>>>0)/4294967296); }
+
+/* ---------- 网络层级定义（分层清晰度靠它保证） ---------- */
+const LAYERS = [
+  { id:'core',  name:'核心层',   desc:'数据中心核心交换', y:0.10, icon:'⬢' },
+  { id:'agg',   name:'汇聚层',   desc:'车间汇聚交换',   y:0.34, icon:'◆' },
+  { id:'acc',   name:'接入层',   desc:'产线接入交换',   y:0.62, icon:'▣' },
+  { id:'term',  name:'终端层',   desc:'设备/终端',     y:0.88, icon:'●' },
+];
+const LI = { core:0, agg:1, acc:2, term:3 };
+
+/** 各层节点数量与命名规则（真实项目应从 CMDB / 资产台账同步） */
+const NODE_SPEC = {
+  core: { count:2,  prefix:'CORE',  model:'核心交换机 S12700E',  bw:100 },
+  agg:  { count:3,  prefix:'AGG',   model:'汇聚交换机 S5735',    bw:40 },
+  acc:  { count:4,  prefix:'ACC',   model:'接入交换机 S1730',    bw:10 },
+  term: { count:8,  prefix:'TERM',  model:'工业终端/PLC 网关',   bw:1 },
+};
+
+/* ---------- MockSource ---------- */
+const MockSource = {
+  _rng:null, _seed:90210, nodes:[], links:[],
+
+  reset(seed){
+    this._seed = seed ?? this._seed;
+    this._rng = makeRng(this._seed);
+    this.nodes = []; this.links = [];
+
+    // 建节点
+    LAYERS.forEach(L => {
+      const spec = NODE_SPEC[L.id];
+      for (let i=0;i<spec.count;i++){
+        const name = `${spec.prefix}-${String(i+1).padStart(2,'0')}`;
+        this.nodes.push({
+          id:`ND-${name}`, name, layer:L.id, layerName:L.name,
+          model: spec.model, bw: spec.bw,
+          ip: `10.${LI[L.id]+20}.${i+1}.${10+i}`,
+          status:'ok', mac:'', since: Date.now(),
+          metrics:{},   // cpu/mem/带宽/时延/丢包/终端数
+        });
+      }
+    });
+
+    // 建链路：核心→汇聚全互联，汇聚→接入、接入→终端按索引挂接
+    const by = id => this.nodes.filter(n=>n.layer===id);
+    by('core').forEach(c => by('agg').forEach(a => this._link(c,a,'40G')));
+    by('agg').forEach((a,ai) => by('acc').forEach((s,si) => { if (si % by('agg').length === ai % by('agg').length) this._link(a,s,'10G'); }));
+    by('acc').forEach((s,si) => by('term').forEach((t,ti) => { if (ti % by('acc').length === si % by('acc').length) this._link(s,t,'1G'); }));
+
+    this.tick();
+  },
+
+  _link(a,b,speed){
+    this.links.push({ id:`LK-${a.name}-${b.name}`, from:a.id, to:b.id, speed,
+      status:'ok', since: Date.now() });
+  },
+
+  _find(id){ return this.nodes.find(n=>n.id===id); },
+
+  tick(){
+    const rng = this._rng, now = Date.now();
+
+    // 节点状态：核心层最稳定，终端层最易波动（贴近真实）
+    this.nodes.forEach(n => {
+      const critP = n.layer==='core' ? 0.02 : n.layer==='agg' ? 0.04 : n.layer==='acc' ? 0.06 : 0.08;
+      const warnP = n.layer==='core' ? 0.06 : n.layer==='agg' ? 0.10 : n.layer==='acc' ? 0.14 : 0.18;
+      const r = rng();
+      let st = r > 1-critP ? 'crit' : r > 1-warnP ? 'warn' : 'ok';
+      if (n.status==='crit' && rng()>0.3) st='crit';   // 故障粘性
+      n.status = st;
+      n.since = now;
+
+      const baseCpu = { core:32, agg:38, acc:44, term:52 }[n.layer];
+      const baseBw = { core:62, agg:55, acc:48, term:36 }[n.layer];
+      let cpu = clamp(baseCpu * (1+(rng()-0.5)*0.35), 3, 99);
+      let bw  = clamp(baseBw * (1+(rng()-0.5)*0.5), 2, 100);
+      let lat = clamp({core:3,agg:6,acc:11,term:18}[n.layer] * (1+(rng()-0.5)*0.7), 0.4, 200);
+      let loss= clamp({core:0.01,agg:0.03,acc:0.06,term:0.12}[n.layer] * (1+(rng()-0.5)*1.2), 0, 20);
+      // 故障 → 性能指标全面劣化
+      if (st==='crit'){ cpu=clamp(cpu*1.5,0,100); bw=clamp(bw*1.3,0,100); lat=clamp(lat*3.5,0,200); loss=clamp(loss*4,0,20); }
+      if (st==='warn'){ bw=clamp(bw*1.12,0,100); lat=clamp(lat*1.7,0,200); }
+      n.metrics = { cpu, mem: clamp(cpu*0.85+rng()*10,5,98), bw, lat, loss,
+        sessions: Math.round(clamp(n.bw*1.6*(0.5+rng()), 0, 20000)) };
+      n.faultMsg = st==='crit'
+        ? ['上行链路中断','CPU 过载 92%','端口错包率超标','光模块告警','堆叠链路断开','温度告警'][Math.floor(rng()*6)]
+        : '';
+      n.idleReason = st==='warn' ? ['备用链路承载','流量均衡中','低负载待机','割接切换中'][Math.floor(rng()*4)] : '';
+    });
+
+    // 链路状态：任一端点故障 → 链路不可用（真实网络语义）
+    this.links.forEach(l => {
+      const a = this._find(l.from), b = this._find(l.to);
+      const bad = (a && a.status==='crit') || (b && b.status==='crit');
+      const soft = (a && a.status==='warn') || (b && b.status==='warn');
+      const st = bad ? 'crit' : soft ? 'warn' : 'ok';
+      if (st !== l.status) l.since = now;
+      l.status = st;
+    });
+
+    // MAC 补齐（一次即可）
+    this.nodes.forEach((n,i) => {
+      if (!n.mac) n.mac = `A4:5E:60:${(0x20+i).toString(16).toUpperCase().padStart(2,'0')}:${(0xA0+i).toString(16).toUpperCase().padStart(2,'0')}:${(0x10+i).toString(16).toUpperCase().padStart(2,'0')}`;
+    });
+
+    return this.snapshot();
+  },
+
+  snapshot(){
+    const c = this.nodes.filter(n=>n.status==='crit').length;
+    const w = this.nodes.filter(n=>n.status==='warn').length;
+    const o = this.nodes.length-c-w;
+    const linkDown = this.links.filter(l=>l.status==='crit').length;
+    // 全网平均时延 / 丢包（只统计在线节点）
+    const live = this.nodes.filter(n=>n.status!=='crit');
+    const avgLat = live.length ? live.reduce((a,n)=>a+n.metrics.lat,0)/live.length : 0;
+    const avgLoss= live.length ? live.reduce((a,n)=>a+n.metrics.loss,0)/live.length : 0;
+    const avgBw  = live.length ? live.reduce((a,n)=>a+n.metrics.bw,0)/live.length : 0;
+
+    const alerts = this.nodes.filter(n=>n.status!=='ok').map(n=>({
+      nodeId:n.id, nodeName:n.name, layerName:n.layerName, ip:n.ip,
+      level: n.status==='crit'?'crit':'warn',
+      type: n.status==='crit' ? '节点故障' : '链路降级',
+      msg: n.status==='crit' ? n.faultMsg : n.idleReason,
+      time: n.since,
+    })).sort((a,b)=> a.level===b.level ? b.time-a.time : a.level==='crit'?-1:1);
+
+    return { t:Date.now(), nodes:this.nodes, links:this.links, alerts,
+      total:this.nodes.length, ok:o, warn:w, crit:c,
+      linkTotal:this.links.length, linkDown, avgLat, avgLoss, avgBw };
+  },
+};
+
+/* ---------- Store ---------- */
+const Store = {
+  state:{ snap:null, layer:'ALL', selected:null, lastUpdate:null, tickCount:0 },
+  _subs:[],
+  subscribe(fn){ this._subs.push(fn); return ()=>{ this._subs=this._subs.filter(f=>f!==fn); }; },
+  get(){ return this.state; },
+  dispatch(a){
+    const s=this.state;
+    switch(a.type){
+      case 'TICK': s.snap=a.snap; s.lastUpdate=new Date(); s.tickCount++; break;
+      case 'LAYER': s.layer=a.layer; break;
+      case 'SELECT': s.selected=a.id; break;
+    }
+    this._subs.forEach(f=>f(s,a));
+  },
+};
+
+/* ---------- 拓扑绘制：分层 + 链路 ---------- */
+const Topo = {
+  cv:null, ctx:null, w:0, h:0, zoom:1, panX:0, panY:0,
+  hit:[], linkHit:[], dragging:false, lastX:0, lastY:0, moved:false,
+
+  init(sel){ this.cv=$(sel); this.ctx=this.cv.getContext('2d'); this._bind(); },
+
+  _bind(){
+    const cv=this.cv;
+    cv.addEventListener('mousedown', e=>{ this.dragging=true; this.moved=false; this.lastX=e.clientX; this.lastY=e.clientY; });
+    window.addEventListener('mouseup', ()=>{ this.dragging=false; });
+    cv.addEventListener('mousemove', e=>{
+      if (this.dragging){
+        const dx=e.clientX-this.lastX, dy=e.clientY-this.lastY;
+        if (Math.abs(dx)+Math.abs(dy)>3) this.moved=true;
+        this.panX+=dx; this.panY+=dy; this.lastX=e.clientX; this.lastY=e.clientY;
+        View.render();
+      }
+      this._tip(e);
+    });
+    cv.addEventListener('click', e=>{
+      if (this.moved) return;
+      const n = this._pick(e);
+      Store.dispatch({type:'SELECT', id: n ? n.id : null});
+    });
+    cv.addEventListener('wheel', e=>{ e.preventDefault();
+      this.zoom = clamp(this.zoom*(e.deltaY<0?1.1:0.9), 0.5, 2.5); View.render();
+    },{passive:false});
+  },
+
+  _tip(e){
+    const n=this._pick(e), tip=$('#tip');
+    if (!n){ tip.style.opacity=0; return; }
+    const st = n.status==='crit'?'故障/离线':n.status==='warn'?'降级/待机':'在线正常';
+    const col = n.status==='crit'?'var(--c-crit)':n.status==='warn'?'var(--c-warn)':'var(--c-ok)';
+    tip.innerHTML = `<div class="t" style="color:${col}">${n.name} · ${n.layerName}</div>
+      <div class="l">${n.ip}　${n.model}</div>
+      <div class="l">状态：<b style="color:${col}">${st}</b>${n.faultMsg?' · '+n.faultMsg:n.idleReason?' · '+n.idleReason:''}</div>
+      <div class="l">CPU ${n.metrics.cpu.toFixed(0)}% · 带宽 ${n.metrics.bw.toFixed(0)}% · 时延 ${n.metrics.lat.toFixed(1)}ms</div>`;
+    tip.style.opacity=1; tip.style.left=(e.clientX+14)+'px'; tip.style.top=(e.clientY+14)+'px';
+  },
+
+  _pick(e){
+    const r=this.cv.getBoundingClientRect();
+    const x=e.clientX-r.left, y=e.clientY-r.top;
+    for (let i=this.hit.length-1;i>=0;i--){
+      const h=this.hit[i];
+      if (x>=h.x&&x<=h.x+h.w&&y>=h.y&&y<=h.y+h.h) return h.node;
+    }
+    return null;
+  },
+
+  color(st){ return st==='crit'?'#f4544c':st==='warn'?'#f5a524':'#2ecc8f'; },
+
+  /** 计算某层某节点的目标位置（未做等距变换，纯 2D 分层） */
+  layout(nodes, layerFilter){
+    const pos = {};
+    // 左侧留出固定栏宽给层名标签，避免标签被节点压住
+    const LEFT = 84;
+    LAYERS.forEach(L => {
+      const list = nodes.filter(n => n.layer===L.id);
+      if (!list.length) return;
+      const n = list.length;
+      list.forEach((nd, i) => {
+        const t = (i + 1) / (n + 1);
+        pos[nd.id] = {
+          x: LEFT + t * (this.w - LEFT - 20),
+          y: this.h * L.y,
+          r: (nd.layer==='core'?17:nd.layer==='agg'?14:nd.layer==='acc'?12:9) * clamp(this.zoom,0.7,1.4),
+        };
+      });
+    });
+    return pos;
+  },
+
+  draw(nodes, links, layerFilter){
+    const cv=this.cv; if(!cv) return;
+    const r=cv.getBoundingClientRect();
+    const dpr=window.devicePixelRatio||1;
+    this.w=r.width; this.h=r.height;
+    cv.width=this.w*dpr; cv.height=this.h*dpr;
+    const ctx=this.ctx; ctx.setTransform(dpr,0,0,dpr,0,0);
+    ctx.clearRect(0,0,this.w,this.h);
+    this.hit=[];
+
+    const pos = this.layout(nodes, layerFilter);
+    const T = (p) => ({ x: p.x + this.panX, y: p.y + this.panY });
+
+    // —— ① 层带背景 + 层名 ——
+    LAYERS.forEach(L => {
+      const y = this.h * L.y + this.panY;
+      const dim = layerFilter!=='ALL' && layerFilter!==L.id;
+      ctx.fillStyle = dim ? 'rgba(20,40,68,.10)' : 'rgba(20,40,68,.22)';
+      ctx.fillRect(0, y - this.h*0.085, this.w, this.h*0.17);
+      ctx.strokeStyle = dim ? 'rgba(80,140,210,.08)' : 'rgba(80,140,210,.20)';
+      ctx.lineWidth=1;
+      ctx.setLineDash([5,5]);
+      ctx.beginPath(); ctx.moveTo(0, y-this.h*0.085); ctx.lineTo(this.w, y-this.h*0.085); ctx.stroke();
+      ctx.setLineDash([]);
+      // 层名（⚠ Canvas 的 fillStyle 不认 CSS 变量，必须写字面色值）
+      ctx.fillStyle = dim ? '#3d4f6b' : '#9fb3d1';
+      ctx.font='bold 12px sans-serif'; ctx.textAlign='left'; ctx.textBaseline='middle';
+      ctx.fillText(`${L.icon} ${L.name}`, 10, y - this.h*0.085 + 12);
+      ctx.font='10px sans-serif'; ctx.fillStyle = dim ? '#33445c' : '#64789a';
+      ctx.fillText(L.desc, 10, y - this.h*0.085 + 26);
+    });
+
+    // —— ② 链路（先画，压在节点下）——
+    links.forEach(l => {
+      const a = pos[l.from], b = pos[l.to];
+      if (!a || !b) return;
+      const A = T(a), B = T(b);
+      const down = pos[l.to].y >= pos[l.from].y;   // 是否下行
+      // 贝塞尔：下行走平滑曲线，上行走底部绕线
+      const mx = (A.x+B.x)/2;
+      const my = down ? A.y + Math.abs(B.y-A.y)*0.55 : A.y - Math.abs(B.y-A.y)*0.45;
+      ctx.beginPath(); ctx.moveTo(A.x,A.y);
+      ctx.quadraticCurveTo(mx, my, B.x, B.y);
+      const col = l.status==='crit' ? 'rgba(244,84,76,.85)' : l.status==='warn' ? 'rgba(245,165,36,.7)' : 'rgba(47,129,247,.42)';
+      ctx.strokeStyle = col;
+      ctx.lineWidth = l.status==='crit' ? 2.2 : 1.2;
+      if (l.status==='crit') ctx.setLineDash([6,4]); else ctx.setLineDash([]);
+      ctx.stroke();
+      ctx.setLineDash([]);
+
+      // 中断链路：中间画断口标记
+      if (l.status==='crit'){
+        const mx2 = (A.x+B.x)/2, my2 = (A.y+my+B.y)/2;
+        ctx.strokeStyle='#f4544c'; ctx.lineWidth=2.4;
+        ctx.beginPath();
+        ctx.moveTo(mx2-5,my2-5); ctx.lineTo(mx2+5,my2+5);
+        ctx.moveTo(mx2+5,my2-5); ctx.lineTo(mx2-5,my2+5);
+        ctx.stroke();
+      }
+    });
+
+    // —— ③ 节点 ——
+    LAYERS.forEach(L => {
+      nodes.filter(n=>n.layer===L.id).forEach(n => {
+        const p = pos[n.id]; if (!p) return;
+        const P = T(p);
+        const c = this.color(n.status);
+        const sel = Store.get().selected === n.id;
+        const dim = layerFilter!=='ALL' && layerFilter!==L.id;
+
+        // 选中光晕
+        if (sel){
+          ctx.beginPath(); ctx.arc(P.x,P.y,p.r+9,0,Math.PI*2);
+          ctx.fillStyle='rgba(53,198,212,.16)'; ctx.fill();
+        }
+        // 故障脉冲圈
+        if (n.status==='crit' && !dim){
+          const t=(Date.now()/520)%1;
+          ctx.beginPath(); ctx.arc(P.x,P.y,p.r+4+t*13,0,Math.PI*2);
+          ctx.strokeStyle=`rgba(244,84,76,${(1-t)*0.6})`; ctx.lineWidth=2; ctx.stroke();
+        }
+        // 主体
+        ctx.beginPath(); ctx.arc(P.x,P.y,p.r,0,Math.PI*2);
+        ctx.fillStyle = dim ? c+'33' : c+'dd';
+        ctx.fill();
+        ctx.strokeStyle = sel ? '#fff' : c; ctx.lineWidth = sel?2.6:1.6; ctx.stroke();
+        // 中心层图标点
+        ctx.beginPath(); ctx.arc(P.x,P.y,Math.max(2,p.r*0.28),0,Math.PI*2);
+        ctx.fillStyle='rgba(6,18,30,.85)'; ctx.fill();
+
+        // 名称
+        ctx.fillStyle = dim?'#3d4f6b':(sel?'#fff':'#cfe0f5');
+        ctx.font=(sel?'bold ':'')+'11px sans-serif';
+        ctx.textAlign='center'; ctx.textBaseline='top';
+        ctx.fillText(n.name, P.x, P.y+p.r+4);
+        // 核心/汇聚层补 IP
+        if ((n.layer==='core'||n.layer==='agg') && !dim){
+          ctx.font='9px sans-serif'; ctx.fillStyle='#4a5d78';
+          ctx.fillText(n.ip, P.x, P.y+p.r+17);
+        }
+
+        this.hit.push({ x:P.x-p.r-4, y:P.y-p.r-4, w:p.r*2+8, h:p.r*2+26, node:n });
+      });
+    });
+  },
+};
+
+/* ---------- View ---------- */
+const View = {
+  init(){
+    MockSource.reset();
+    Topo.init('#topo');
+    this.buildSegs(); this.bind();
+    Store.dispatch({type:'TICK', snap:MockSource.tick()});
+    Store.dispatch({type:'SELECT', id: MockSource.nodes[0]?.id ?? null});
+    this.startTimer(); this.startClock(); this.fit();
+  },
+
+  buildSegs(){
+    $('#seg-layer').innerHTML = `<button data-layer="ALL" class="active">全部层级</button>` +
+      LAYERS.map(l=>`<button data-layer="${l.id}">${l.icon} ${l.name}</button>`).join('');
+    $('#seg-layer').onclick = e=>{ const b=e.target.closest('button'); if(!b) return; Store.dispatch({type:'LAYER',layer:b.dataset.layer}); };
+    $('#btn-reset').onclick = ()=>{ MockSource.reset(Date.now()%100000); Store.dispatch({type:'TICK',snap:MockSource.tick()}); this.toast('拓扑数据已重置'); };
+  },
+
+  bind(){ Store.subscribe((s,a)=>this.render(s,a)); window.addEventListener('resize',()=>this.fit()); },
+
+  fit(){
+    const scale=Math.min(window.innerWidth/1920, window.innerHeight/1080);
+    document.documentElement.style.setProperty('--scale',scale);
+    const vp=$('#viewport');
+    vp.style.transform=`scale(${scale})`;
+    vp.style.left=`${(window.innerWidth-1920*scale)/2}px`;
+    vp.style.top=`${(window.innerHeight-1080*scale)/2}px`;
+  },
+
+  startTimer(){ if(this._t) clearInterval(this._t);
+    this._t=setInterval(()=>Store.dispatch({type:'TICK',snap:MockSource.tick()}),3000); },
+  startClock(){ setInterval(()=>{ $('#clock').textContent=hhmmss(new Date()); },1000);
+    $('#clock').textContent=hhmmss(new Date()); },
+  toast(m){ const t=$('#toast'); t.textContent=m; t.classList.add('show'); clearTimeout(this._tt); this._tt=setTimeout(()=>t.classList.remove('show'),1800); },
+
+  render(s){
+    if (!s.snap) return;
+    const snap=s.snap;
+    const dim = L => s.layer==='ALL' || s.layer===L;
+    const nodes = snap.nodes.filter(n=>dim(n.layer));
+
+    // KPI
+    const live = snap.nodes.filter(n=>n.status!=='crit');
+    const kpis=[
+      {n:'网络节点',v:snap.total,u:'个',c:'#2f81f7'},
+      {n:'在线正常',v:snap.ok,u:'个',c:'#2ecc8f'},
+      {n:'降级/待机',v:snap.warn,u:'个',c:'#f5a524',crit:snap.warn>0},
+      {n:'故障/离线',v:snap.crit,u:'个',c:'#f4544c',crit:snap.crit>0},
+      {n:'平均时延',v:snap.avgLat.toFixed(1),u:'ms',c:'#35c6d4',crit:snap.avgLat>40},
+      {n:'链路中断',v:snap.linkDown,u:'条',c:'#f4544c',crit:snap.linkDown>0},
+    ];
+    $('#net-kpi').innerHTML = kpis.map(k=>
+      `<div class="kpi ${k.crit?'crit':''}" style="--kc:${k.c}">
+        <div class="kpi-name">${k.n}</div>
+        <div class="kpi-val" style="color:${k.c}">${k.v}<span class="unit">${k.u}</span></div>
+      </div>`).join('');
+
+    // 拓扑
+    Topo.draw(snap.nodes, snap.links, s.layer);
+
+    this.renderDetail(s);
+    this.renderAlerts(snap);
+
+    document.querySelectorAll('#seg-layer button').forEach(b=>b.classList.toggle('active', b.dataset.layer===s.layer));
+    $('#update-info').innerHTML = `<span class="live-dot"></span>数据更新：${hhmmss(s.lastUpdate)}　·　第 ${s.tickCount} 次刷新`;
+  },
+
+  renderDetail(s){
+    const box=$('#detail-body'), hint=$('#detail-hint');
+    const n = s.snap.nodes.find(x=>x.id===s.selected);
+    if (!n){ hint.textContent='未选中节点';
+      box.innerHTML='<div class="empty-hint">在左侧拓扑图中点击任一节点，查看实时链路与性能数据</div>'; return; }
+    const stTxt = n.status==='crit'?'故障/离线':n.status==='warn'?'降级/待机':'在线正常';
+    hint.innerHTML = `<span class="badge ${n.status}">${stTxt}</span>`;
+
+    // 关联链路
+    const links = s.snap.links.filter(l=>l.from===n.id||l.to===n.id);
+    const downCnt = links.filter(l=>l.status==='crit').length;
+    const m = n.metrics;
+    const bar = (v,color) => `<div class="bar"><i style="width:${clamp(v,0,100)}%;background:${color}"></i></div>`;
+    const col = v => v>90?'var(--c-crit)':v>70?'var(--c-warn)':'var(--c-ok)';
+
+    box.innerHTML = `<div class="d-title">${n.name}</div>
+      <div class="d-sub">${n.layerName} · ${n.model}</div>
+      <dl class="kv">
+        <dt>节点名称</dt><dd>${n.name}</dd>
+        <dt>所属层级</dt><dd>${n.layerName}</dd>
+        <dt>设备型号</dt><dd>${n.model}</dd>
+        <dt>管理地址</dt><dd>${n.ip}</dd>
+        <dt>MAC 地址</dt><dd>${n.mac}</dd>
+        <dt>上行带宽</dt><dd>${n.bw} Gbps</dd>
+        <dt>当前状态</dt><dd><span class="badge ${n.status}">${stTxt}</span></dd>
+        ${n.faultMsg?`<dt>故障信息</dt><dd style="color:var(--c-crit)">${n.faultMsg}</dd>`:''}
+        ${n.idleReason?`<dt>降级原因</dt><dd style="color:var(--c-warn)">${n.idleReason}</dd>`:''}
+        <dt>状态持续</dt><dd>${Math.max(0,Math.round((Date.now()-n.since)/60000))} 分钟</dd>
+      </dl>
+      <div class="sub-title">实时性能</div>
+      <table class="param-tbl">
+        <thead><tr><th>指标</th><th style="text-align:right">实时值</th><th style="text-align:right">阈值</th></tr></thead><tbody>
+        <tr class="${m.cpu>90?'bad':''}"><td>CPU 使用率</td><td class="v">${m.cpu.toFixed(1)} %</td>
+          <td style="text-align:right">${bar(m.cpu,col(m.cpu))}</td></tr>
+        <tr class="${m.mem>90?'bad':''}"><td>内存使用率</td><td class="v">${m.mem.toFixed(1)} %</td>
+          <td style="text-align:right">${bar(m.mem,col(m.mem))}</td></tr>
+        <tr class="${m.bw>85?'bad':''}"><td>带宽占用</td><td class="v">${m.bw.toFixed(1)} %</td>
+          <td style="text-align:right">${bar(m.bw,col(m.bw))}</td></tr>
+        <tr class="${m.lat>60?'bad':''}"><td>平均时延</td><td class="v">${m.lat.toFixed(1)} ms</td>
+          <td style="text-align:right;color:var(--t-dim)">≤60</td></tr>
+        <tr class="${m.loss>1.5?'bad':''}"><td>丢包率</td><td class="v">${m.loss.toFixed(2)} %</td>
+          <td style="text-align:right;color:var(--t-dim)">≤1.5</td></tr>
+        <tr><td>并发会话</td><td class="v">${m.sessions}</td>
+          <td style="text-align:right;color:var(--t-dim)">—</td></tr>
+        </tbody></table>
+      <div class="sub-title">关联链路（${links.length} 条${downCnt?` · <span style="color:var(--c-crit)">${downCnt} 条中断</span>`:''}）</div>
+      <table class="param-tbl">
+        <thead><tr><th>对端节点</th><th>速率</th><th style="text-align:right">状态</th></tr></thead><tbody>
+        ${links.map(l=>{
+          const other = l.from===n.id ? l.to : l.from;
+          const on = MockSource._find(other);
+          return `<tr><td>${on?on.name:other}</td><td>${l.speed}</td>
+            <td class="v" style="color:${this.lkColor(l.status)}">${l.status==='crit'?'中断':l.status==='warn'?'降级':'正常'}</td></tr>`;
+        }).join('')}
+        </tbody></table>`;
+  },
+
+  lkColor(st){ return st==='crit'?'var(--c-crit)':st==='warn'?'var(--c-warn)':'var(--c-ok)'; },
+
+  renderAlerts(snap){
+    const box=$('#alert-body');
+    $('#alert-count').textContent = snap.alerts.length ? `${snap.alerts.length} 条` : '';
+    if (!snap.alerts.length){ box.innerHTML='<div class="empty-hint">当前无网络异常</div>'; return; }
+    box.innerHTML = snap.alerts.map(a=>`
+      <div class="a-row ${a.level}" data-node="${a.nodeId}">
+        <span class="lv">${a.level==='crit'?'故障':'降级'}</span>
+        <span class="msg"><b>${a.nodeName}</b> ${a.msg} · ${a.layerName} · ${a.ip}</span>
+        <span class="time">${hhmm(new Date(a.time))}</span>
+      </div>`).join('');
+    box.querySelectorAll('.a-row').forEach(el=>{
+      el.onclick=()=>{ Store.dispatch({type:'SELECT',id:el.dataset.node}); this.toast('已定位节点：'+el.dataset.node); };
+    });
+  },
+};
+
+document.addEventListener('DOMContentLoaded',()=>View.init());
+</script>
+</body>
+</html>
