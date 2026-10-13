@@ -405,6 +405,9 @@ public partial class MainForm : Form
     // ---- 供应链碳管理（阶段四）----
     private DataGridView _gridSupplierCarbon = null!;
     private DataGridView _gridSupplierCompare = null!;
+    // ---- 碳资产管理（阶段六）----
+    private DataGridView _gridAllowance = null!;
+    private DataGridView _gridCcer = null!;
     private readonly ToolTip _btnScrapToolTip = new();
     private readonly ToolTip _btnReinspectToolTip = new();
     // ---- 首件检验页（顶层第 18 个页签） ----
@@ -601,6 +604,7 @@ public partial class MainForm : Form
         RegisterPage(NavEnergy, BuildMaterialCarbonTab());        // 物料碳强度：原材料环节的基础数据
         RegisterPage(NavEnergy, BuildCarbonAuditTab());            // 碳核查支撑：台账存档 + 报告/清单导出
         RegisterPage(NavEnergy, BuildSupplyChainTab());              // 供应链碳管理：供应商碳数据 + 同物料对比
+        RegisterPage(NavEnergy, BuildCarbonAssetTab());             // 碳资产管理：配额/CCER 台账 + 履约测算
         RegisterPage(NavQuality, BuildRootCauseTab());        // ② 质量根因交叉（工序×设备×批次）
         RegisterPage(NavQuality, BuildSpcTuningTab());        // ③ SPC 调机建议（复用 Cpk）
         RegisterPage(NavQuality, BuildDuplicateFaiTab());     // ⑤ 首检重复送检提醒
@@ -925,7 +929,8 @@ public partial class MainForm : Form
         MesDatabase.EnsureEnergySeed();  // 能源管理
         MesDatabase.EnsureCarbonSeed();   // 碳排放因子（模拟园区口径，版本化）
         MesDatabase.EnsureMaterialCarbonSeed();  // 物料碳强度（模拟值，足迹原材料环节用）
-        MesDatabase.EnsureSupplierCarbonSeed();  // 供应商碳数据（演示用，阶段四）：每次启动按当前日期补生成最近 6 个月（幂等 upsert）
+        MesDatabase.EnsureSupplierCarbonSeed();  // 供应商碳数据（演示用，阶段四）
+        MesDatabase.EnsureCarbonAssetSeed();     // 碳资产台账（演示用，阶段六）：每次启动按当前日期补生成最近 6 个月（幂等 upsert）
         LoadAnalytics();               // 六项分析：数据量小，纯计算，启动时直接算出来
     }
 

@@ -37,19 +37,25 @@ public static partial class MesDatabase
     public static string ToPeriod(DateTime d) => $"{d.Year:0000}-{d.Month:00}";
 
     // ========================================================================
-    // 种子数据：每次启动补生成最近 6 个月（幂等 upsert）
+    // 种子数据：每次启动补生成最近 N 个月（默认 36，幂等 upsert）
     // ========================================================================
 
     /// <summary>
-    /// 确保计量点已建，并按当前日期补生成最近 6 个月读数。
+    /// 确保计量点已建，并按当前日期补生成最近 <paramref name="months"/> 个月读数。
     /// **幂等**：计量点只建一次；读数按 (MeterId, Period) upsert，已存在的账期跳过。
     /// </summary>
-    public static void EnsureEnergySeed(DateTime? now = null)
+    /// <param name="now">基准日期（默认今天）。</param>
+    /// <param name="months">
+    /// 回溯月数。默认 36（三年）——碳资产「碳资产管理」页要按**年度**测算履约，
+    /// 若读数只有最近 6 个月，2024/2025 等年度会算出 0 排放并误判为「履约达标」。
+    /// </param>
+    public static void EnsureEnergySeed(DateTime? now = null, int months = 36)
     {
         var at = now ?? DateTime.Now;
         EnsureEnergyMeters();
 
-        const int months = 6;
+        if (months < 1) months = 1;
+        if (months > 120) months = 120;
         var periods = new List<string>();
         for (var i = months - 1; i >= 0; i--)
             periods.Add(ToPeriod(new DateTime(at.Year, at.Month, 1).AddMonths(-i)));
@@ -146,8 +152,10 @@ public static partial class MesDatabase
             var qty = ErpWorkReports
                 .Where(r => r.ReportTime >= from && r.ReportTime < to)
                 .Sum(r => r.GoodQty);
-            // 无实绩的账期：给一个与月份相关的稳定基准（不做随机，保证同一天重复打开结果一致）
-            result[p] = qty > 0 ? (int)qty : 4000 + (m * 137) % 900;
+            // 无实绩的账期：给一个与「年+月」相关的稳定基准
+            //（**必须带年份**，否则同月不同年会算出同一个值，多年度台账看起来是复制粘贴的；
+            //  且不做随机，保证同一天重复打开结果一致）
+            result[p] = qty > 0 ? (int)qty : 4000 + (m * 137) % 900 + (y % 5) * 110;
         }
         return result;
     }
@@ -185,11 +193,24 @@ public static partial class MesDatabase
         };
         if (m.TypeId is "WATER" or "GAS") season = 1.0 + (mo % 3) * 0.02;   // 水气季节性弱
 
-        // ④ 稳定扰动：按计量点哈希 + 月份，保证可复现且不平滑
-        var noise = 0.92 + (Math.Abs((m.MeterId.GetHashCode() + mo * 31) % 17) / 100.0);
+        // ④ 稳定扰动：按计量点 + 年 + 月，保证可复现且不平滑
+        //⚠ 不能用 string.GetHashCode()：.NET 每次进程启动都会随机化字符串哈希种子，
+        //    会导致"同一天重复打开软件读数却变了"，与确定性算法的承诺相悖。
+        var noise = 0.92 + (Math.Abs(StableHash(m.MeterId) + y * 131 + mo * 31) % 17) / 100.0;
 
         var v = qty * perUnit * scopeFactor * season * noise;
         return m.TypeId == "ELEC" && m.Scope == EnergyScopes.Plant ? v * 1.04 : v;   // 厂级含辅助用电
+    }
+
+    /// <summary>跨进程稳定的字符串哈希（FNV-1a），替代会被随机化的 GetHashCode。</summary>
+    private static int StableHash(string s)
+    {
+        unchecked
+        {
+            var h = 2166136261;
+            foreach (var ch in s ?? "") { h ^= ch; h *= 16777619; }
+            return (int)(h & 0x7FFFFFFF);
+        }
     }
 
     // ========================================================================
@@ -229,8 +250,8 @@ public static partial class MesDatabase
         var l = (line ?? "").Trim();
         var e = (equipmentCode ?? "").Trim();
         var sc = (scope ?? "").Trim();
-        var from = (periodFrom ?? "").Trim();
-        var to = (periodTo ?? "").Trim();
+        var from = ToPeriodKey(periodFrom);
+        var to = ToPeriodKey(periodTo);
 
         return EnergyReadings.Where(r =>
                 (t.Length == 0 || string.Equals(r.TypeId, t, StringComparison.OrdinalIgnoreCase))
@@ -244,6 +265,19 @@ public static partial class MesDatabase
             .OrderByDescending(r => r.Period)
             .ThenBy(r => r.MeterId)
             .ToList();
+    }
+
+    /// <summary>
+    /// 把传入的账期条件归一成 "yyyy-MM" 再比较。
+    /// ⚠ 读数的 Period 恒为 7 位（"2026-05"），若直接拿它和界面上传的 10 位
+    /// "2026-01-01" 做字符串比较，**年初那一月会被当成"小于起点"而整月漏掉**
+    /// （"2026-01" &lt; "2026-01-01"）。这里统一截到年月，避免静默丢数据。
+    /// </summary>
+    private static string ToPeriodKey(string? period)
+    {
+        var s = (period ?? "").Trim();
+        if (s.Length == 0) return "";
+        return s.Length >= 7 ? s[..7] : s;
     }
 
     /// <summary>把计量点信息冗余到读数行（展示用，避免界面反复 join）</summary>
