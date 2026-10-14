@@ -618,30 +618,36 @@ const Twin = {
     ctx.clearRect(0,0,this.w,this.h);
     this.hit=[];
 
-    // —— ① 厂房地板（等距棋盘格）——
+    // —— ① 厂房地板（与产线同一屏幕空间伪等距：水平铺展 + 深度向上，不再倾斜）——
     const { x0:X0, y0:Y0, gap:GAP, n:N } = PLANT.floor;
-    for (let i=0;i<N;i++) for (let j=0;j<N;j++){
-      const a=this.project(X0+i*GAP, Y0+j*GAP, 0);
-      const b=this.project(X0+(i+1)*GAP, Y0+j*GAP, 0);
-      const c=this.project(X0+(i+1)*GAP, Y0+(j+1)*GAP, 0);
-      const d=this.project(X0+i*GAP, Y0+(j+1)*GAP, 0);
-      ctx.beginPath();
-      ctx.moveTo(a.x,a.y); ctx.lineTo(b.x,b.y); ctx.lineTo(c.x,c.y); ctx.lineTo(d.x,d.y);
-      ctx.closePath();
-      ctx.fillStyle = ((i+j)%2===0) ? 'rgba(20,40,68,.32)' : 'rgba(13,26,46,.32)';
-      ctx.fill();
-      ctx.strokeStyle='rgba(70,130,200,.10)'; ctx.lineWidth=1; ctx.stroke();
-    }
     const S = Math.min(this.w, this.h*1.6) * 0.82 * this.zoom;
-
-    // 厂房外墙 + 后墙立柱
-    const c00=this.project(X0,Y0,0), c10=this.project(X0+N*GAP,Y0,0);
-    const c11=this.project(X0+N*GAP,Y0+N*GAP,0), c01=this.project(X0,Y0+N*GAP,0);
+    // 楼板范围按产线实际水平绘制范围 + 外扩边距，确保水平楼板完整托住所有产线
+    const _ordAll = LINES.map(l=>({b:lineBox(l.id)}));
+    let fX0=Infinity, fY0=Infinity, fX1=-Infinity, fY1=-Infinity;
+    const _bw=PLANT.lineLen*S, _bh=PLANT.lineWid*S*0.5, _th=PLANT.lineHgt*S*0.42;
+    _ordAll.forEach(({b})=>{
+      const p=this.project(b.x,b.y,0);
+      fX0=Math.min(fX0,p.x); fX1=Math.max(fX1,p.x+_bw);
+      fY0=Math.min(fY0,p.y-_bh-_th); fY1=Math.max(fY1,p.y);
+    });
+    const _M=0.5*GAP*S; fX0-=_M; fX1+=_M; fY0-=_M; fY1+=_M;
+    const fw=fX1-fX0, fh=fY1-fY0;
+    ctx.beginPath(); ctx.rect(fX0,fY0,fw,fh);
+    ctx.fillStyle='rgba(13,26,46,.55)'; ctx.fill();
+    for (let i=0;i<N;i++) for (let j=0;j<N;j++){
+      ctx.beginPath(); ctx.rect(fX0+i*(fw/N), fY0+j*(fh/N), fw/N, fh/N);
+      ctx.fillStyle = ((i+j)%2===0) ? 'rgba(20,40,68,.30)' : 'rgba(16,32,56,.30)';
+      ctx.fill();
+    }
+    ctx.strokeStyle='rgba(70,130,200,.10)'; ctx.lineWidth=1;
+    for (let i=0;i<=N;i++){ const gx=fX0+i*(fw/N); ctx.beginPath(); ctx.moveTo(gx,fY0); ctx.lineTo(gx,fY1); ctx.stroke(); }
+    for (let j=0;j<=N;j++){ const gy=fY0+j*(fh/N); ctx.beginPath(); ctx.moveTo(fX0,gy); ctx.lineTo(fX1,gy); ctx.stroke(); }
+    // 厂房外墙（贴合楼板四边）+ 后墙立柱
     ctx.strokeStyle='rgba(47,129,247,.45)'; ctx.lineWidth=1.6;
-    ctx.beginPath(); ctx.moveTo(c00.x,c00.y); ctx.lineTo(c10.x,c10.y); ctx.lineTo(c11.x,c11.y); ctx.lineTo(c01.x,c01.y); ctx.closePath(); ctx.stroke();
+    ctx.beginPath(); ctx.rect(fX0,fY0,fw,fh); ctx.stroke();
     const colH = 0.10 * S * 0.42;
-    [c10, c11].forEach(base => {
-      ctx.beginPath(); ctx.moveTo(base.x, base.y); ctx.lineTo(base.x, base.y-colH);
+    [[fX0,fY0],[fX1,fY0]].forEach(([px,py]) => {
+      ctx.beginPath(); ctx.moveTo(px, py); ctx.lineTo(px, py-colH);
       ctx.strokeStyle='rgba(47,129,247,.30)'; ctx.lineWidth=1.2; ctx.stroke();
     });
 
@@ -691,12 +697,16 @@ const Twin = {
     });
 
     // —— ③ 设备点位（状态色 + 编号 + 当班产量徽标）——
+    //    构图修复：设备与线体用同一屏幕坐标系——x 沿线体水平方向、
+    //    深度在线体顶面居中（原实现走 project(ux,uy) 旋转轴，设备斜悬于线体外）
     const dsz = PLANT.devSize*S, dth = PLANT.devHgt*S*0.42;
     const rangeMult = RANGE_MULT[Store.get().range] || 1;
-    ordered.forEach(({l}) => {
+    ordered.forEach(({l, b}) => {
+      const p0 = this.project(b.x, b.y, 0);
+      const bh = PLANT.lineWid*S*0.5, lth = PLANT.lineHgt*S*0.42, dh = bh*0.72;
       devices.filter(d=>d.lineId===l.id).forEach(d => {
-        const base = this.project(d.ux, d.uy, 0);
-        const w = dsz, h = PLANT.lineWid*S*0.28, th = dth;
+        const base = { x: p0.x + (d.ux-b.x)*S, y: p0.y - lth - (bh-dh)/2 };
+        const w = dsz, h = dh, th = dth;
         const c = this.color(d.status);
         const sel = Store.get().selected === d.id;
         const hover = View.hoverId === d.id;

@@ -1,0 +1,1093 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>碳排放孪生 · 泰州超级电容智能工厂</title>
+<style>
+  /* ================================================================
+     主题令牌 —— 与运营大屏 / 生产孪生 / 设备孪生 / 网络孪生 保持一致
+     ================================================================ */
+  :root {
+    --bg-0:#050b16; --bg-1:#0a1424; --bg-2:#0f1d31; --bg-3:#16273f;
+    --c-primary:#2f81f7; --c-primary-glow:rgba(47,129,247,.35);
+    --c-ok:#2ecc8f; --c-warn:#f5a524; --c-crit:#f4544c; --c-info:#35c6d4;
+    --c-idle:#6b7a96;
+    --t-hi:#eaf2ff; --t-mid:#9fb3d1; --t-lo:#64789a; --t-dim:#3d4f6b;
+    --line:rgba(80,140,210,.16); --line-soft:rgba(80,140,210,.09);
+    --r-sm:4px; --r-md:8px; --r-lg:12px;
+    --shadow:0 4px 20px rgba(0,0,0,.45);
+    --scale:1;
+    --font:"HarmonyOS Sans SC","Microsoft YaHei",-apple-system,sans-serif;
+  }
+  *{margin:0;padding:0;box-sizing:border-box}
+  html,body{width:100%;height:100%;background:var(--bg-0);color:var(--t-hi);
+    font-family:var(--font);overflow:hidden;font-variant-numeric:tabular-nums}
+  #bg-deco{position:fixed;inset:0;z-index:0;pointer-events:none;
+    background:radial-gradient(ellipse 60% 45% at 50% -10%,rgba(46,204,143,.16),transparent 70%),
+               radial-gradient(ellipse 45% 40% at 90% 100%,rgba(53,198,212,.08),transparent 70%)}
+  #bg-grid{position:fixed;inset:0;z-index:0;pointer-events:none;opacity:.5;
+    background-image:linear-gradient(rgba(70,130,200,.055) 1px,transparent 1px),
+                     linear-gradient(90deg,rgba(70,130,200,.055) 1px,transparent 1px);
+    background-size:48px 48px}
+
+  #viewport{position:fixed;width:1920px;height:1080px;transform-origin:top left;
+    display:flex;flex-direction:column;z-index:1;
+    padding:calc(14px*var(--scale)) calc(18px*var(--scale));gap:calc(12px*var(--scale))}
+
+  .panel{position:relative;background:linear-gradient(160deg,var(--bg-1) 0%,rgba(10,20,36,.72) 100%);
+    border:1px solid var(--line);border-radius:var(--r-lg);box-shadow:var(--shadow);
+    display:flex;flex-direction:column;min-height:0;overflow:hidden}
+  .panel::before,.panel::after{content:'';position:absolute;width:14px;height:14px;border-color:var(--c-ok);opacity:.8}
+  .panel::before{top:-1px;left:-1px;border-top:2px solid;border-left:2px solid;border-top-left-radius:var(--r-lg)}
+  .panel::after{bottom:-1px;right:-1px;border-bottom:2px solid;border-right:2px solid;border-bottom-right-radius:var(--r-lg)}
+  .panel-head{flex:0 0 auto;display:flex;align-items:center;gap:calc(8px*var(--scale));
+    padding:calc(8px*var(--scale)) calc(12px*var(--scale));border-bottom:1px solid var(--line-soft);
+    background:linear-gradient(90deg,rgba(46,204,143,.10),transparent 60%)}
+  .panel-title{font-size:calc(15px*var(--scale));font-weight:600;letter-spacing:1px;
+    display:flex;align-items:center;gap:calc(7px*var(--scale))}
+  .panel-title::before{content:'';width:3px;height:calc(14px*var(--scale));
+    background:var(--c-ok);border-radius:2px;box-shadow:0 0 calc(8px*var(--scale)) rgba(46,204,143,.4)}
+  .panel-body{flex:1 1 auto;min-height:0;padding:calc(10px*var(--scale));overflow:hidden}
+  .spacer{flex:1 1 auto}
+
+  /* ---------- 顶栏 ---------- */
+  #topbar{flex:0 0 auto;display:flex;align-items:center;justify-content:space-between;gap:calc(12px*var(--scale))}
+  .brand{display:flex;align-items:center;gap:calc(12px*var(--scale))}
+  .brand-logo{width:calc(38px*var(--scale));height:calc(38px*var(--scale));border-radius:50%;
+    display:grid;place-items:center;font-size:calc(18px*var(--scale));
+    background:radial-gradient(circle at 35% 30%,var(--c-ok),#0d5c3f);
+    border:1px solid rgba(46,204,143,.6);box-shadow:0 0 calc(18px*var(--scale)) rgba(46,204,143,.35)}
+  .brand-text h1{font-size:calc(21px*var(--scale));font-weight:700;letter-spacing:2px;
+    background:linear-gradient(90deg,#fff,var(--c-ok));-webkit-background-clip:text;
+    background-clip:text;-webkit-text-fill-color:transparent}
+  .brand-text p{font-size:calc(11px*var(--scale));color:var(--t-lo);letter-spacing:3px;margin-top:2px}
+  .back-btn{display:inline-flex;align-items:center;gap:6px;font-family:var(--font);
+    font-size:calc(12px*var(--scale));padding:calc(6px*var(--scale)) calc(14px*var(--scale));
+    background:var(--bg-2);color:var(--t-mid);border:1px solid var(--line);
+    border-radius:var(--r-sm);cursor:pointer;transition:all .16s;text-decoration:none}
+  .back-btn:hover{background:var(--bg-3);color:var(--t-hi);border-color:var(--c-ok)}
+  #clock-box{text-align:right}
+  #clock{font-size:calc(26px*var(--scale));font-weight:700;letter-spacing:2px;color:#fff}
+  #update-info{font-size:calc(11px*var(--scale));color:var(--t-lo);margin-top:2px}
+  .live-dot{display:inline-block;width:calc(7px*var(--scale));height:calc(7px*var(--scale));
+    border-radius:50%;background:var(--c-ok);margin-right:calc(5px*var(--scale));animation:pulse 1.6s infinite}
+  @keyframes pulse{0%,100%{opacity:1;box-shadow:0 0 0 0 rgba(46,204,143,.6)}
+    50%{opacity:.55;box-shadow:0 0 calc(6px*var(--scale)) rgba(46,204,143,0)}}
+
+  /* ---------- 控制条 ---------- */
+  #controlbar{flex:0 0 auto;display:flex;align-items:center;gap:calc(8px*var(--scale));
+    padding:calc(6px*var(--scale)) calc(12px*var(--scale));background:rgba(10,20,36,.72);
+    border:1px solid var(--line);border-radius:var(--r-md);flex-wrap:wrap}
+  .ctrl-label{font-size:calc(12px*var(--scale));color:var(--t-lo);letter-spacing:1px}
+  .seg{display:flex;gap:2px;background:var(--bg-2);border-radius:var(--r-sm);padding:2px;border:1px solid var(--line-soft)}
+  .seg button{font-family:var(--font);font-size:calc(12px*var(--scale));
+    padding:calc(4px*var(--scale)) calc(11px*var(--scale));background:transparent;color:var(--t-mid);
+    border:0;border-radius:var(--r-sm);cursor:pointer;transition:all .16s}
+  .seg button:hover{color:var(--t-hi);background:var(--bg-3)}
+  .seg button.active{background:var(--c-primary);color:#fff;box-shadow:0 0 calc(10px*var(--scale)) var(--c-primary-glow)}
+  .btn{font-family:var(--font);font-size:calc(12px*var(--scale));
+    padding:calc(5px*var(--scale)) calc(12px*var(--scale));background:var(--bg-2);color:var(--t-mid);
+    border:1px solid var(--line);border-radius:var(--r-sm);cursor:pointer;transition:all .16s}
+  .btn:hover{background:var(--bg-3);color:var(--t-hi);border-color:var(--c-ok)}
+  .thr-wrap{display:flex;align-items:center;gap:calc(8px*var(--scale));
+    background:var(--bg-2);border:1px solid var(--line-soft);border-radius:var(--r-sm);
+    padding:calc(3px*var(--scale)) calc(10px*var(--scale))}
+  .thr-wrap .v{color:var(--c-crit);font-weight:700;font-size:calc(13px*var(--scale));min-width:calc(64px*var(--scale))}
+  input[type=range]{-webkit-appearance:none;appearance:none;width:calc(150px*var(--scale));height:calc(4px*var(--scale));
+    background:linear-gradient(90deg,var(--c-ok),var(--c-warn),var(--c-crit));border-radius:2px;outline:none;cursor:pointer}
+  input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:calc(14px*var(--scale));height:calc(14px*var(--scale));
+    border-radius:50%;background:#fff;border:2px solid var(--c-crit);box-shadow:0 0 calc(8px*var(--scale)) rgba(244,84,76,.6)}
+
+  /* ---------- 图例 ---------- */
+  #legend{display:flex;align-items:center;gap:calc(14px*var(--scale));font-size:calc(12px*var(--scale))}
+  .lg{display:inline-flex;align-items:center;gap:calc(5px*var(--scale));color:var(--t-mid)}
+  .lg i{width:calc(10px*var(--scale));height:calc(10px*var(--scale));border-radius:2px;display:inline-block}
+  .lg.alarm i{animation:blink 1.2s infinite}
+  @keyframes blink{0%,100%{opacity:1}50%{opacity:.25}}
+
+  /* ---------- 主体 ---------- */
+  #main{flex:1 1 auto;min-height:0;display:grid;grid-template-columns:1fr 452px;gap:calc(12px*var(--scale))}
+  #twin-wrap{position:relative;width:100%;height:100%}
+  #twin-wrap canvas{position:absolute;inset:0;width:100%;height:100%;cursor:pointer}
+
+  #right-col{display:flex;flex-direction:column;gap:calc(10px*var(--scale));min-height:0}
+  .kpi-row{display:grid;grid-template-columns:repeat(2,1fr);gap:calc(8px*var(--scale))}
+  .kpi{background:var(--bg-2);border:1px solid var(--line-soft);border-radius:var(--r-sm);
+    padding:calc(7px*var(--scale)) calc(10px*var(--scale));position:relative;overflow:hidden}
+  .kpi::before{content:'';position:absolute;left:0;top:0;bottom:0;width:3px;background:var(--kc,var(--c-ok))}
+  .kpi-name{font-size:calc(11px*var(--scale));color:var(--t-lo)}
+  .kpi-val{font-size:calc(21px*var(--scale));font-weight:700;line-height:1.2}
+  .kpi-val .unit{font-size:calc(11px*var(--scale));font-weight:400;color:var(--t-mid);margin-left:3px}
+  .kpi-sub{font-size:calc(10.5px*var(--scale));color:var(--t-dim)}
+  .kpi.crit{border-color:var(--c-crit)}
+  .kpi.crit::before{background:var(--c-crit)}
+
+  /* 今日趋势 */
+  #trend-panel{flex:0 0 auto}
+  .chart-title{font-size:calc(11px*var(--scale));color:var(--t-lo);
+    display:flex;align-items:center;justify-content:space-between;margin-bottom:calc(4px*var(--scale))}
+  .chart-box{position:relative;width:100%;height:calc(150px*var(--scale))}
+  .chart-box canvas{position:absolute;inset:0;width:100%;height:100%}
+  .scope-row{display:flex;gap:calc(10px*var(--scale));margin-top:calc(6px*var(--scale));font-size:calc(11px*var(--scale))}
+  .scope-row .s{flex:1 1 auto;background:var(--bg-2);border:1px solid var(--line-soft);border-radius:var(--r-sm);
+    padding:calc(4px*var(--scale)) calc(8px*var(--scale));display:flex;justify-content:space-between}
+  .scope-row .s b{color:var(--t-hi)}
+
+  /* 设备排放表 */
+  #dev-panel{flex:1 1 36%;min-height:0;display:flex;flex-direction:column}
+  #dev-body{flex:1 1 auto;min-height:0;overflow-y:auto}
+  .dev-tbl{width:100%;border-collapse:collapse;font-size:calc(11.5px*var(--scale))}
+  .dev-tbl th{background:var(--bg-3);color:var(--t-mid);font-weight:500;
+    padding:calc(4px*var(--scale)) calc(7px*var(--scale));text-align:left;position:sticky;top:0;z-index:1}
+  .dev-tbl td{padding:calc(3.5px*var(--scale)) calc(7px*var(--scale));border-bottom:1px solid var(--line-soft);
+    color:var(--t-hi);white-space:nowrap}
+  .dev-tbl td.v{text-align:right;font-weight:600}
+  .dev-tbl tr{cursor:pointer;transition:background .14s}
+  .dev-tbl tr:hover td{background:var(--bg-3)}
+  .dev-tbl tr.active td{background:rgba(46,204,143,.16)}
+  .dev-tbl tr.over td{color:#ffb4b0}
+  .st-dot{display:inline-block;width:calc(8px*var(--scale));height:calc(8px*var(--scale));
+    border-radius:50%;margin-right:calc(5px*var(--scale));vertical-align:middle}
+
+  /* 预警列表 */
+  #alert-panel{flex:1 1 24%;min-height:0;display:flex;flex-direction:column}
+  #alert-body{flex:1 1 auto;min-height:0;overflow-y:auto}
+  .a-row{display:grid;grid-template-columns:auto 1fr auto;gap:calc(8px*var(--scale));
+    align-items:center;padding:calc(5px*var(--scale)) calc(8px*var(--scale));
+    background:var(--bg-2);border:1px solid var(--line-soft);border-left:3px solid var(--c-idle);
+    border-radius:var(--r-sm);font-size:calc(11.5px*var(--scale));margin-bottom:calc(4px*var(--scale));cursor:pointer}
+  .a-row:hover{background:var(--bg-3)}
+  .a-row.over{border-left-color:var(--c-crit)}
+  .a-row .lv{font-size:calc(10px*var(--scale));padding:1px calc(5px*var(--scale));border-radius:3px;
+    background:rgba(107,122,150,.18);color:var(--c-idle)}
+  .a-row.over .lv{background:rgba(244,84,76,.15);color:var(--c-crit)}
+  .a-row .pos{color:var(--t-hi);font-weight:600}
+  .a-row .msg{color:var(--t-mid);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .a-row .time{color:var(--t-dim);font-size:calc(10.5px*var(--scale))}
+  .empty-hint{color:var(--t-dim);font-size:calc(12px*var(--scale));text-align:center;padding:calc(16px*var(--scale))}
+
+  /* ---------- 悬停面板：设备排放 + 最近一小时曲线 ---------- */
+  #carbon-tip{position:fixed;z-index:60;pointer-events:none;opacity:0;transition:opacity .12s;
+    width:calc(330px*var(--scale));
+    background:rgba(6,14,26,.97);border:1px solid var(--c-ok);border-radius:var(--r-md);
+    box-shadow:0 8px 28px rgba(0,0,0,.65);font-size:calc(12px*var(--scale));overflow:hidden}
+  #carbon-tip.over{border-color:var(--c-crit)}
+  #carbon-tip .ct-head{padding:calc(8px*var(--scale)) calc(11px*var(--scale));
+    background:linear-gradient(90deg,rgba(46,204,143,.16),transparent 70%);
+    border-bottom:1px solid var(--line-soft);display:flex;align-items:center;gap:calc(7px*var(--scale))}
+  #carbon-tip.over .ct-head{background:linear-gradient(90deg,rgba(244,84,76,.20),transparent 70%)}
+  #carbon-tip .ct-name{font-weight:700;font-size:calc(13px*var(--scale))}
+  #carbon-tip .ct-sub{color:var(--t-lo);font-size:calc(10.5px*var(--scale));margin-top:1px}
+  #carbon-tip .ct-body{padding:calc(8px*var(--scale)) calc(11px*var(--scale))}
+  #carbon-tip .ct-sec{font-size:calc(10.5px*var(--scale));color:var(--t-lo);letter-spacing:2px;
+    margin:calc(6px*var(--scale)) 0 calc(4px*var(--scale));display:flex;align-items:center;gap:6px}
+  #carbon-tip .ct-sec::after{content:'';flex:1 1 auto;height:1px;background:var(--line-soft)}
+  #carbon-tip .ct-kv{display:grid;grid-template-columns:auto 1fr;gap:calc(3px*var(--scale)) calc(10px*var(--scale));
+    font-size:calc(11.5px*var(--scale))}
+  #carbon-tip .ct-kv dt{color:var(--t-lo);white-space:nowrap}
+  #carbon-tip .ct-kv dd{color:var(--t-hi);text-align:right}
+  #carbon-tip .ct-metrics{display:grid;grid-template-columns:repeat(3,1fr);gap:calc(6px*var(--scale));margin-top:2px}
+  #carbon-tip .cm{background:var(--bg-2);border:1px solid var(--line-soft);border-radius:var(--r-sm);
+    padding:calc(4px*var(--scale)) calc(6px*var(--scale));text-align:center}
+  #carbon-tip .cm .n{font-size:calc(9.5px*var(--scale));color:var(--t-lo)}
+  #carbon-tip .cm .v{font-size:calc(14px*var(--scale));font-weight:700}
+  #trend-mini-wrap{position:relative;width:100%;height:calc(80px*var(--scale));margin-top:2px}
+  #trend-mini-wrap canvas{position:absolute;inset:0;width:100%;height:100%}
+  .badge{display:inline-block;padding:1px calc(8px*var(--scale));border-radius:3px;
+    font-size:calc(11px*var(--scale));font-weight:600}
+  .badge.ok{background:rgba(46,204,143,.15);color:var(--c-ok)}
+  .badge.idle{background:rgba(107,122,150,.18);color:#a8b6cc}
+  .badge.crit{background:rgba(244,84,76,.15);color:var(--c-crit)}
+
+  #toast{position:fixed;left:50%;bottom:8%;transform:translateX(-50%) translateY(20px);
+    background:rgba(46,204,143,.94);color:#fff;padding:calc(8px*var(--scale)) calc(18px*var(--scale));
+    border-radius:var(--r-sm);font-size:calc(13px*var(--scale));opacity:0;pointer-events:none;
+    transition:all .28s;z-index:99;box-shadow:0 6px 24px rgba(0,0,0,.5)}
+  #toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
+</style>
+</head>
+<body>
+<div id="bg-deco"></div><div id="bg-grid"></div>
+
+<div id="viewport">
+  <header id="topbar">
+    <div class="brand">
+      <a class="back-btn" href="digital-twin-dashboard.html">← 返回运营大屏</a>
+      <div class="brand-logo">🌱</div>
+      <div class="brand-text">
+        <h1>碳排放孪生 · 产线碳排与实时预警</h1>
+        <p>CARBON EMISSION TWIN · LIVE MONITORING &amp; THRESHOLD ALERT</p>
+      </div>
+    </div>
+    <div id="clock-box">
+      <div id="clock">--:--:--</div>
+      <div id="update-info"><span class="live-dot"></span>数据更新：等待中</div>
+    </div>
+  </header>
+
+  <nav id="controlbar">
+    <span class="ctrl-label">产线筛选</span>
+    <div class="seg" id="seg-line"></div>
+    <span class="ctrl-label" style="margin-left:6px">排放预警阈值</span>
+    <div class="thr-wrap">
+      <input type="range" id="thr-range" min="20" max="160" step="5" value="50">
+      <span class="v" id="thr-val">50 kg/h</span>
+    </div>
+    <button class="btn" id="btn-reset">↻ 重置</button>
+    <span class="spacer"></span>
+    <span class="ctrl-label">设备状态图例</span>
+    <div id="legend">
+      <span class="lg"><i style="background:var(--c-ok)"></i>正常（未超阈）</span>
+      <span class="lg"><i style="background:var(--c-idle)"></i>未运行</span>
+      <span class="lg alarm"><i style="background:var(--c-crit)"></i>超阈值预警</span>
+    </div>
+  </nav>
+
+  <main id="main">
+    <!-- 左：产线碳排孪生视图 -->
+    <section class="panel" id="m-twin">
+      <div class="panel-head">
+        <div class="panel-title">产线碳排视图（等距投影 · 悬停设备查看近一小时排放曲线）</div>
+        <span class="spacer"></span>
+        <span class="ctrl-label" id="twin-hint">拖拽可平移视角 · 滚轮缩放</span>
+      </div>
+      <div class="panel-body">
+        <div id="twin-wrap"><canvas id="twin"></canvas></div>
+      </div>
+    </section>
+
+    <!-- 右：KPI + 今日趋势 + 设备排放表 + 预警 -->
+    <div id="right-col">
+      <section class="panel" style="flex:0 0 auto">
+        <div class="panel-body">
+          <div class="kpi-row" id="dev-kpi"></div>
+        </div>
+      </section>
+
+      <section class="panel" id="trend-panel">
+        <div class="panel-head"><div class="panel-title">今日碳排放趋势</div><span class="spacer"></span>
+          <span class="ctrl-label">排放速率 tCO₂e/h · 00:00 至今</span></div>
+        <div class="panel-body" style="padding:calc(8px*var(--scale)) calc(10px*var(--scale))">
+          <div class="chart-box"><canvas id="c-day-trend"></canvas></div>
+          <div class="scope-row" id="scope-row"></div>
+        </div>
+      </section>
+
+      <section class="panel" id="dev-panel">
+        <div class="panel-head"><div class="panel-title">设备实时排放</div><span class="spacer"></span>
+          <span class="ctrl-label" id="dev-count"></span></div>
+        <div class="panel-body" style="padding:0"><div id="dev-body">
+          <table class="dev-tbl">
+            <thead><tr><th>设备</th><th>状态</th><th style="text-align:right">当前速率</th>
+              <th style="text-align:right">今日排放</th></tr></thead>
+            <tbody id="dev-tbody"></tbody>
+          </table>
+        </div></div>
+      </section>
+
+      <section class="panel" id="alert-panel">
+        <div class="panel-head"><div class="panel-title">排放预警与异常</div><span class="spacer"></span>
+          <span class="ctrl-label" id="alert-count"></span></div>
+        <div class="panel-body" style="padding:calc(8px*var(--scale))">
+          <div id="alert-body"></div>
+        </div>
+      </section>
+    </div>
+  </main>
+</div>
+
+<div id="carbon-tip"></div>
+<div id="toast"></div>
+
+<script>
+'use strict';
+/* ============================================================================
+ * 碳排放孪生页
+ * 架构与其余四页孪生一致：MockSource(数据) → Store(单一数据源) → View(只读渲染)
+ * 构图与生产孪生页同基准：同一 PLANT 坐标系 / 同一 24 台设备排布
+ *
+ * 本页核心口径：
+ *   · 设备状态三色：绿=正常（未超阈）/ 灰=未运行 / 红=超阈值预警（高亮+闪烁）
+ *   · 排放模型：速率 = 功率 × 负荷 × 电网因子(0.5568 kgCO₂e/kWh，2026 口径，
+ *     与 MES3 能源碳模块一致)；未运行/故障设备仅计待机功耗
+ *   · 悬停设备 → 弹出「最近一小时排放变化曲线」（分钟粒度 60 点 + 阈值虚线）
+ *   · 阈值可由控制条滑块实时调整（20~160 kg/h），超阈设备即时变红
+ *   · 全厂指标：当前排放速率 / 今日累计 / 碳配额使用率 / 超阈设备数，3s 刷新
+ * ========================================================================== */
+
+/* ---------- 工具 ---------- */
+const $ = s => document.querySelector(s);
+const clamp = (v,a,b) => Math.min(b, Math.max(a,v));
+const pad2 = n => String(n).padStart(2,'0');
+const hhmmss = d => `${pad2(d.getHours())}:${pad2(d.getMinutes())}:${pad2(d.getSeconds())}`;
+const hhmm = d => `${pad2(d.getHours())}:${pad2(d.getMinutes())}`;
+const fmt = n => Math.round(n).toLocaleString('en-US');
+function makeRng(seed){ let s=seed>>>0; return ()=>((s=(s*1664525+1013904223)>>>0)/4294967296); }
+
+/* ---------- 工厂台账（与生产孪生页同一设定） ---------- */
+const LINES = [
+  { id:'L1', name:'L1 卷绕线', type:'卷绕' },
+  { id:'L2', name:'L2 涂布线', type:'涂布' },
+  { id:'L3', name:'L3 装配线', type:'装配' },
+  { id:'L4', name:'L4 化成线', type:'化成' },
+];
+const ZONES = ['A区 原料预处理','B区 电极制造','C区 电芯装配','D区 后处理化成'];
+const LI_INDEX_ZONE = { L1:0, L2:1, L3:2, L4:3 };
+
+/** 产线布局唯一真相源（与生产孪生页同一坐标系，保证构图一致） */
+const PLANT = {
+  floor: { x0:0.06, y0:0.10, gap:0.088, n:9 },
+  lines: [
+    { x:0.10, y:0.20 },
+    { x:0.13, y:0.40 },
+    { x:0.10, y:0.60 },
+    { x:0.13, y:0.80 },
+  ],
+  lineLen: 0.70, lineWid: 0.075, lineHgt: 0.022,
+  devInset: 0.055, devSize: 0.032, devHgt: 0.042,
+};
+function lineBox(lineId){
+  const i = LI_INDEX_ZONE[lineId];
+  return { x: PLANT.lines[i].x, y: PLANT.lines[i].y, len: PLANT.lineLen, wid: PLANT.lineWid, hgt: PLANT.lineHgt };
+}
+const LINE_BOX = (() => {
+  const b = lineBox('L1');
+  const step = (b.len - PLANT.devInset*2 - PLANT.devSize) / 5;
+  return { x: b.x, y: b.y, wid: b.wid, len: b.len, step, devInset: PLANT.devInset, devSize: PLANT.devSize };
+})();
+
+/** 设备类型 → 额定功率 / 待机功率（kW）· 图标 */
+const DEV_TYPES = {
+  '卷绕机':{ icon:'🔄', power:42,  standby:4.0 },
+  '涂布机':{ icon:'🎨', power:118, standby:9.0 },
+  '装配机':{ icon:'🔧', power:63,  standby:5.0 },
+  '化成柜':{ icon:'🔋', power:175, standby:12.0 },
+  '注液机':{ icon:'💧', power:38,  standby:3.5 },
+  '检测仪':{ icon:'🔍', power:14,  standby:1.8 },
+};
+
+/** 电网排放因子 kgCO₂e/kWh（2026 年全国电网平均，与 MES3 能源碳模块模拟因子一致） */
+const CARBON_FACTOR = 0.5568;
+/** 日碳配额（演示口径）tCO₂e */
+const DAILY_QUOTA = 11.0;
+const SHIFT_HOURS = 8;
+const HISTORY_MINUTES = 60;                 // 悬停曲线：最近 60 分钟
+
+/* ---------- MockSource：设备碳排放 ---------- */
+const MockSource = {
+  _rng:null, _seed:77012345, devices:[], _alerts:[],
+  _lastMinKey:-1, _lastTickAt:0, _curHourAcc:0,      // 当前小时累积(kg)
+  scope1:0, scope2:0,
+
+  reset(seed){
+    this._seed = seed ?? this._seed;
+    this._rng = makeRng(this._seed);
+    this._rngGas = makeRng(this._seed + 991);
+    this.devices = [];
+    this._alerts = [];
+    this._lastMinKey = -1;
+    this._curHourAcc = 0;
+    this._lastTickAt = Date.now();
+    LINES.forEach((line) => {
+      const types = this._typesFor(line.type);
+      for (let i=0;i<6;i++){
+        const t = types[i % types.length];
+        this.devices.push(this._mkDevice(t, line, i));
+      }
+    });
+    this._initTodaySeries();
+    this.tick();
+  },
+
+  _typesFor(lineType){
+    return ({ '卷绕':['卷绕机','注液机','检测仪'],
+              '涂布':['涂布机','检测仪'],
+              '装配':['装配机','注液机'],
+              '化成':['化成柜','检测仪'] })[lineType] || ['检测仪'];
+  },
+
+  _mkDevice(t, line, i){
+    const rng = this._rng;
+    const no = `${line.id}-${String(i+1).padStart(2,'0')}`;
+    const tpl = DEV_TYPES[t];
+    const r = rng();
+    const status = r > 0.94 ? 'fault' : r > 0.80 ? 'idle' : 'run';
+    const d = {
+      id:`EQ-${no}`, no, name:`${no} ${t}`, type:t, icon:tpl.icon,
+      lineId:line.id, lineName:line.name, zone: ZONES[LI_INDEX_ZONE[line.id]],
+      ux: lineBox(line.id).x + LINE_BOX.devInset + i * LINE_BOX.step,
+      uy: lineBox(line.id).y + PLANT.lineWid * 0.5,
+      status,
+      power: tpl.power, standby: tpl.standby,
+      load: 0.72 + rng()*0.20,                 // 负荷率 0.72~0.92
+      runHours: 3.8 + rng()*3.6,               // 今日运行小时（与生产孪生同口径）
+      rate: 0,                                  // 当前排放速率 kgCO₂e/h
+      history: [],                              // 最近 60 分钟（分钟粒度）
+      since: Date.now(),
+      faultMsg:'',
+    };
+    d.rate = this._calcRate(d);
+    // 初始化 60 分钟历史（围绕当前速率回溯，含缓慢漂移，看起来像连续生产过程）
+    const now = Date.now();
+    for (let m=HISTORY_MINUTES-1;m>=0;m--){
+      const drift = 1 + Math.sin(m/9)*0.05 + (rng()-0.5)*0.06;
+      d.history.push({ t: now - m*60000, v: d.rate * drift });
+    }
+    if (status === 'fault'){
+      d.faultMsg = ['主轴温度超限报警','通讯中断重连','驱动过载保护','传感器数据跳变'][Math.floor(rng()*4)];
+    }
+    return d;
+  },
+
+  _calcRate(d){
+    const kw = d.status === 'run' ? d.power * d.load : d.standby;
+    return kw * CARBON_FACTOR;
+  },
+
+  /** 今日小时速率基线（t/h）：夜间低白天高 + 确定性噪声 */
+  _hourlyBase(h){
+    const dayCurve = 0.34 + 0.58 * Math.max(0, Math.sin((h-5.5)/24*Math.PI*2)) ** 1.2;
+    const noise = ((this._seed % 61) / 61 - 0.5) * 0.06;
+    return dayCurve + noise + (h % 3 === 0 ? 0.03 : 0);
+  },
+
+  _initTodaySeries(){
+    const now = new Date();
+    const h = now.getHours();
+    this.todaySeries = [];
+    for (let i=0;i<=h;i++) this.todaySeries.push(this._hourlyBase(i));
+  },
+
+  /** 刷新一次：速率演进 + 分钟粒度历史 + 当日累计 */
+  tick(){
+    const rng = this._rng;
+    const now = Date.now();
+    const dtH = Math.max(0, (now - this._lastTickAt)/3600000);
+    this._lastTickAt = now;
+
+    this.devices.forEach(d => {
+      // 状态迁移（与生产孪生同分布，故障有粘性）
+      const r = rng();
+      let st = r > 0.94 ? 'fault' : r > 0.80 ? 'idle' : 'run';
+      if (d.status === 'fault' && rng() > 0.35) st = 'fault';
+      if (st !== d.status){
+        d.status = st; d.since = now;
+        d.faultMsg = st === 'fault'
+          ? ['主轴温度超限报警','通讯中断重连','驱动过载保护','传感器数据跳变'][Math.floor(rng()*4)] : '';
+      }
+      // 速率：运行中按负荷波动，未运行仅待机功耗
+      d.rate = this._calcRate(d) * (1 + (rng()-0.5)*0.07);
+      // 分钟粒度历史：跨分钟压新点，否则刷新当前分钟点
+      const minKey = Math.floor(now/60000);
+      if (minKey > this._lastMinKey){
+        this._lastMinKey = minKey;
+        d.history.push({ t: now, v: d.rate });
+        while (d.history.length > HISTORY_MINUTES) d.history.shift();
+      } else if (d.history.length){
+        d.history[d.history.length-1].v = d.rate;
+        d.history[d.history.length-1].t = now;
+      }
+    });
+
+    // 当前小时累积（全厂速率积分）
+    const totalRate = this.devices.reduce((n,d)=>n+d.rate, 0);   // kg/h
+    this._curHourAcc += totalRate * dtH;
+    const h = new Date().getHours();
+    this.todaySeries[h] = this._curHourAcc/1000;
+
+    // 范围一（燃气锅炉）/ 范围二（电力，设备+公设）当前速率
+    const gasRate = 0.09 + this._rngGas()*0.05;                    // t/h
+    const publicRate = totalRate/1000 * 0.08;                      // 公设=设备电力 8%
+    this.scope1 = gasRate;
+    this.scope2 = totalRate/1000 + publicRate;
+
+    // 预警汇总：超阈（阈值由 Store 提供，snapshot 时计算）
+    this._alerts = this.devices
+      .filter(d => d.status !== 'run')
+      .map(d => ({
+        devId:d.id, devNo:d.no, lineName:d.lineName,
+        level: d.status === 'fault' ? 'fault' : 'idle',
+        msg: d.status === 'fault' ? d.faultMsg : '待机功耗 ' + (d.standby*CARBON_FACTOR).toFixed(1) + ' kg/h',
+        time: d.since,
+      }));
+    return this.snapshot();
+  },
+
+  snapshot(threshold){
+    const thr = threshold ?? 50;
+    const over = this.devices.filter(d => d.status==='run' && d.rate > thr);
+    const todayTotal = this.todaySeries.reduce((n,v)=>n+v, 0);
+    return {
+      t: Date.now(), devices: this.devices,
+      overIds: over.map(d=>d.id), overCount: over.length,
+      totalRate: this.devices.reduce((n,d)=>n+d.rate, 0),       // kg/h
+      todayTotal,                                                // tCO₂e
+      quotaUsed: todayTotal/DAILY_QUOTA*100,
+      scope1: this.scope1, scope2: this.scope2,
+      alerts: this._alerts, threshold: thr,
+    };
+  },
+};
+
+/* ---------- Store ---------- */
+const Store = {
+  state: { snap:null, line:'ALL', threshold:50, selected:null, lastUpdate:null, tickCount:0 },
+  _subs:[],
+  subscribe(fn){ this._subs.push(fn); return ()=>{ this._subs=this._subs.filter(f=>f!==fn); }; },
+  get(){ return this.state; },
+  dispatch(a){
+    const s = this.state;
+    switch(a.type){
+      case 'TICK': s.snap=a.snap; s.lastUpdate=new Date(); s.tickCount++; break;
+      case 'LINE': s.line=a.line; break;
+      case 'THRESHOLD': s.threshold=a.value; if (s.snap) s.snap = MockSource.snapshot(a.value); break;
+      case 'SELECT': s.selected=a.id; break;
+    }
+    this._subs.forEach(f=>f(s,a));
+  },
+};
+
+/* ---------- 孪生视图：2.5D 等距投影（构图与生产孪生页一致） ---------- */
+const Twin = {
+  cv:null, ctx:null, w:0, h:0, dpr:1,
+  rot: -0.42, zoom: 1, panX:0, panY:0,
+  hit:[], dragging:false, lastX:0, lastY:0, moved:false,
+  // 状态色（Canvas 内必须写字面值）
+  C_RUN:'#2ecc8f', C_IDLE:'#6b7a96', C_OVER:'#f4544c',
+
+  init(sel){ this.cv=$(sel); this.ctx=this.cv.getContext('2d'); this._bind(); },
+
+  /** 设备碳排状态：run 且超阈 → over；run → run；否则 idle（含故障） */
+  cstatus(d){
+    if (d.status !== 'run') return 'idle';
+    return d.rate > Store.get().threshold ? 'over' : 'run';
+  },
+  color(st){ return st==='over' ? this.C_OVER : st==='idle' ? this.C_IDLE : this.C_RUN; },
+
+  _bind(){
+    const cv=this.cv;
+    cv.addEventListener('mousedown', e=>{ this.dragging=true; this.moved=false; this.lastX=e.clientX; this.lastY=e.clientY; });
+    window.addEventListener('mouseup', ()=>{ this.dragging=false; });
+    cv.addEventListener('mousemove', e=>{
+      if (this.dragging){
+        const dx=e.clientX-this.lastX, dy=e.clientY-this.lastY;
+        if (Math.abs(dx)+Math.abs(dy)>3) this.moved=true;
+        this.panX+=dx; this.panY+=dy;
+        this.lastX=e.clientX; this.lastY=e.clientY;
+        View.render();
+      }
+      View.showCarbonTip(e);
+    });
+    cv.addEventListener('mouseleave', ()=>View.hideCarbonTip());
+    cv.addEventListener('click', e=>{
+      if (this.moved) return;
+      const d=this._pick(e);
+      Store.dispatch({type:'SELECT', id: d ? d.id : null});
+    });
+    cv.addEventListener('wheel', e=>{
+      e.preventDefault();
+      this.zoom = clamp(this.zoom*(e.deltaY<0?1.1:0.9), 0.55, 2.4);
+      View.render();
+    }, {passive:false});
+  },
+
+  project(ux, uy, height){
+    const cx=0.5, cy=0.5;
+    const X=(ux-cx), Y=(uy-cy);
+    const a=this.rot;
+    const rx = X*Math.cos(a) - Y*Math.sin(a);
+    const ry = X*Math.sin(a) + Y*Math.cos(a);
+    const S = Math.min(this.w, this.h*1.6) * 0.82 * this.zoom;
+    return { x:this.w/2 + rx*S, y:this.h/2 + (ry*S*0.5) - (height||0)*S*0.42 + this.panY, S };
+  },
+
+  _pick(e){
+    const r=this.cv.getBoundingClientRect();
+    const x=e.clientX-r.left, y=e.clientY-r.top;
+    for (let i=this.hit.length-1;i>=0;i--){
+      const h=this.hit[i];
+      if (x>=h.x && x<=h.x+h.w && y>=h.y && y<=h.y+h.h) return h.dev;
+    }
+    return null;
+  },
+
+  draw(devices){
+    const cv=this.cv; if(!cv) return;
+    const r=cv.getBoundingClientRect();
+    this.dpr = window.devicePixelRatio||1;
+    this.w=r.width; this.h=r.height;
+    cv.width=this.w*this.dpr; cv.height=this.h*this.dpr;
+    const ctx=this.ctx;
+    ctx.setTransform(this.dpr,0,0,this.dpr,0,0);
+    ctx.clearRect(0,0,this.w,this.h);
+    this.hit=[];
+
+    // ① 厂房地板（与产线同一屏幕空间伪等距：水平铺展 + 深度向上，不再倾斜）
+    const { x0:X0, y0:Y0, gap:GAP, n:N } = PLANT.floor;
+    const S = Math.min(this.w, this.h*1.6) * 0.82 * this.zoom;
+    // 楼板范围按产线实际水平绘制范围 + 外扩边距，确保水平楼板完整托住所有产线
+    const _ordAll = LINES.map(l=>({b:lineBox(l.id)}));
+    let fX0=Infinity, fY0=Infinity, fX1=-Infinity, fY1=-Infinity;
+    const _bw=PLANT.lineLen*S, _bh=PLANT.lineWid*S*0.5, _th=PLANT.lineHgt*S*0.42;
+    _ordAll.forEach(({b})=>{
+      const p=this.project(b.x,b.y,0);
+      fX0=Math.min(fX0,p.x); fX1=Math.max(fX1,p.x+_bw);
+      fY0=Math.min(fY0,p.y-_bh-_th); fY1=Math.max(fY1,p.y);
+    });
+    const _M=0.5*GAP*S; fX0-=_M; fX1+=_M; fY0-=_M; fY1+=_M;
+    const fw=fX1-fX0, fh=fY1-fY0;
+    ctx.beginPath(); ctx.rect(fX0,fY0,fw,fh);
+    ctx.fillStyle='rgba(13,26,46,.55)'; ctx.fill();
+    for (let i=0;i<N;i++) for (let j=0;j<N;j++){
+      ctx.beginPath(); ctx.rect(fX0+i*(fw/N), fY0+j*(fh/N), fw/N, fh/N);
+      ctx.fillStyle = ((i+j)%2===0) ? 'rgba(20,40,68,.30)' : 'rgba(16,32,56,.30)';
+      ctx.fill();
+    }
+    ctx.strokeStyle='rgba(70,130,200,.10)'; ctx.lineWidth=1;
+    for (let i=0;i<=N;i++){ const gx=fX0+i*(fw/N); ctx.beginPath(); ctx.moveTo(gx,fY0); ctx.lineTo(gx,fY1); ctx.stroke(); }
+    for (let j=0;j<=N;j++){ const gy=fY0+j*(fh/N); ctx.beginPath(); ctx.moveTo(fX0,gy); ctx.lineTo(fX1,gy); ctx.stroke(); }
+    // 厂房外墙（贴合楼板四边）+ 后墙立柱
+    ctx.strokeStyle='rgba(47,129,247,.45)'; ctx.lineWidth=1.6;
+    ctx.beginPath(); ctx.rect(fX0,fY0,fw,fh); ctx.stroke();
+    const colH = 0.10*S*0.42;
+    [[fX0,fY0],[fX1,fY0]].forEach(([px,py])=>{
+      ctx.beginPath(); ctx.moveTo(px,py); ctx.lineTo(px,py-colH);
+      ctx.strokeStyle='rgba(47,129,247,.30)'; ctx.lineWidth=1.2; ctx.stroke();
+    });
+
+    // ② 产线（立体块 + 上/下料口 + 流向箭头）
+    const ordered = LINES.map(l=>({l, b:lineBox(l.id)})).sort((p,q)=>p.b.y-q.b.y);
+    ordered.forEach(({l, b})=>{
+      const p=this.project(b.x, b.y, 0);
+      const bw=PLANT.lineLen*S, bh=PLANT.lineWid*S*0.5, th=PLANT.lineHgt*S*0.42;
+      ctx.beginPath();
+      ctx.moveTo(p.x,p.y); ctx.lineTo(p.x+bw,p.y);
+      ctx.lineTo(p.x+bw,p.y-th); ctx.lineTo(p.x,p.y-th);
+      ctx.closePath();
+      ctx.fillStyle='rgba(47,129,247,.20)'; ctx.fill();
+      ctx.beginPath();
+      ctx.moveTo(p.x,p.y-bh); ctx.lineTo(p.x+bw,p.y-bh);
+      ctx.lineTo(p.x+bw,p.y-bh-th); ctx.lineTo(p.x,p.y-bh-th);
+      ctx.closePath();
+      ctx.fillStyle='rgba(47,129,247,.30)'; ctx.fill();
+      ctx.strokeStyle='rgba(120,180,255,.75)'; ctx.lineWidth=1.2; ctx.stroke();
+      const inW = PLANT.devInset*S*0.62;
+      [[p.x],[p.x+bw-inW]].forEach(([px])=>{
+        ctx.beginPath();
+        ctx.moveTo(px,p.y-bh); ctx.lineTo(px+inW,p.y-bh);
+        ctx.lineTo(px+inW,p.y-bh-th); ctx.lineTo(px,p.y-bh-th);
+        ctx.closePath();
+        ctx.fillStyle='rgba(53,198,212,.28)'; ctx.fill();
+        ctx.strokeStyle='rgba(53,198,212,.75)'; ctx.lineWidth=1; ctx.stroke();
+      });
+      const ay=p.y-bh-th/2;
+      for (let k=0;k<3;k++){
+        const ax=p.x+bw*(0.36+k*0.14);
+        ctx.beginPath();
+        ctx.moveTo(ax,ay-3.5); ctx.lineTo(ax+6,ay); ctx.lineTo(ax,ay+3.5);
+        ctx.closePath();
+        ctx.fillStyle='rgba(120,180,255,.55)'; ctx.fill();
+      }
+      ctx.fillStyle='#9fb3d1'; ctx.font='11px sans-serif'; ctx.textAlign='left'; ctx.textBaseline='bottom';
+      ctx.fillText(l.name, p.x, p.y-bh-th-6);
+      ctx.fillStyle='rgba(100,120,154,.85)'; ctx.font='9.5px sans-serif';
+      ctx.fillText(ZONES[LI_INDEX_ZONE[l.id]], p.x, p.y-bh-th-18);
+    });
+
+    // ③ 设备点位（碳排状态色 + 编号 + 当前速率）
+    //    构图修复：设备与线体用同一屏幕坐标系——x 沿线体水平方向、
+    //    深度在线体顶面居中（原实现走 project(ux,uy) 旋转轴，设备斜悬于线体外）
+    const dsz=PLANT.devSize*S, dth=PLANT.devHgt*S*0.42;
+    ordered.forEach(({l, b})=>{
+      const p0=this.project(b.x, b.y, 0);
+      const bh=PLANT.lineWid*S*0.5, lth=PLANT.lineHgt*S*0.42, dh=bh*0.72;
+      devices.filter(d=>d.lineId===l.id).forEach(d=>{
+        const base={ x: p0.x+(d.ux-b.x)*S, y: p0.y-lth-(bh-dh)/2 };
+        const w=dsz, h=dh, th=dth;
+        const cs=this.cstatus(d);
+        const c=this.color(cs);
+        const sel=Store.get().selected===d.id;
+        const hover=View.hoverId===d.id;
+
+        ctx.beginPath();
+        ctx.moveTo(base.x,base.y-h); ctx.lineTo(base.x+w,base.y-h);
+        ctx.lineTo(base.x+w,base.y); ctx.lineTo(base.x,base.y);
+        ctx.closePath();
+        ctx.fillStyle=c+'33'; ctx.fill();
+        ctx.beginPath();
+        ctx.moveTo(base.x,base.y-h-th); ctx.lineTo(base.x+w,base.y-h-th);
+        ctx.lineTo(base.x+w,base.y-th); ctx.lineTo(base.x,base.y-th);
+        ctx.closePath();
+        ctx.fillStyle=c; ctx.fill();
+        ctx.strokeStyle=c; ctx.lineWidth=(sel||hover)?2.2:1.2; ctx.stroke();
+
+        // 超阈值预警：红色闪烁光环 + 顶部警示标
+        if (cs==='over'){
+          const t=(Date.now()/450)%1;
+          ctx.beginPath();
+          ctx.arc(base.x+w/2, base.y-h-th/2, w*0.95+t*w*1.0, 0, Math.PI*2);
+          ctx.strokeStyle=`rgba(244,84,76,${(1-t)*0.65})`;
+          ctx.lineWidth=2; ctx.stroke();
+          ctx.fillStyle='#fff';
+          ctx.font='bold 9px sans-serif'; ctx.textAlign='center'; ctx.textBaseline='bottom';
+          ctx.fillText('⚠', base.x+w/2, base.y-h-th-5);
+        }
+        if (sel){
+          ctx.beginPath();
+          ctx.moveTo(base.x+w/2, base.y-h-th-8); ctx.lineTo(base.x+w/2-5, base.y-h-th-16);
+          ctx.lineTo(base.x+w/2+5, base.y-h-th-16); ctx.closePath();
+          ctx.fillStyle='#fff'; ctx.fill();
+        }
+        // 编号 + 当前速率
+        ctx.textAlign='center'; ctx.textBaseline='top';
+        ctx.font=(sel?'bold ':'')+'10px sans-serif';
+        ctx.fillStyle='#ffffff';
+        ctx.fillText(d.no, base.x+w/2, base.y-h-th+3);
+        ctx.font='9px sans-serif';
+        if (cs==='over'){ ctx.fillStyle='#ffe2df'; ctx.fillText(d.rate.toFixed(0)+' kg/h', base.x+w/2, base.y-h-th+14); }
+        else if (cs==='idle'){ ctx.fillStyle='rgba(230,238,250,.75)'; ctx.fillText('待机', base.x+w/2, base.y-h-th+14); }
+        else { ctx.fillStyle='rgba(255,255,255,.92)'; ctx.fillText(d.rate.toFixed(0)+' kg/h', base.x+w/2, base.y-h-th+14); }
+
+        this.hit.push({ x:base.x-2, y:base.y-h-th-8, w:w+4, h:h+th+34, dev:d });
+      });
+    });
+  },
+};
+
+/* ---------- 今日趋势图（全厂排放速率，t/h） ---------- */
+const DayTrend = {
+  draw(snap){
+    const cv=$('#c-day-trend'); if(!cv) return;
+    const r=cv.getBoundingClientRect();
+    const dpr=window.devicePixelRatio||1;
+    cv.width=r.width*dpr; cv.height=r.height*dpr;
+    const ctx=cv.getContext('2d');
+    ctx.setTransform(dpr,0,0,dpr,0,0);
+    ctx.clearRect(0,0,r.width,r.height);
+    const W=r.width, H=r.height;
+    const padL=34, padR=8, padT=10, padB=16;
+    const series=MockSource.todaySeries;
+    const nowH=new Date().getHours() + new Date().getMinutes()/60;
+    const maxV=Math.max(...series)*1.25 || 1;
+    const xw=W-padL-padR, yh=H-padT-padB;
+    const X=h=>padL + (h/23)*xw;
+    const Y=v=>padT + yh - (v/maxV)*yh;
+
+    // 网格 + 轴
+    ctx.strokeStyle='rgba(80,140,210,.12)'; ctx.lineWidth=1;
+    ctx.fillStyle='#64789a'; ctx.font='9px sans-serif'; ctx.textAlign='right'; ctx.textBaseline='middle';
+    for (let g=0; g<=4; g++){
+      const v=maxV*g/4, y=Y(v);
+      ctx.beginPath(); ctx.moveTo(padL,y); ctx.lineTo(W-padR,y); ctx.stroke();
+      ctx.fillText(v.toFixed(2), padL-4, y);
+    }
+    ctx.textAlign='center'; ctx.textBaseline='top';
+    for (let h=0; h<=23; h+=4) ctx.fillText(pad2(h)+':00', X(h), H-padB+3);
+
+    // 面积 + 线
+    const pts=series.map((v,i)=>({x:X(i), y:Y(v)}));
+    if (pts.length>1){
+      const grad=ctx.createLinearGradient(0,padT,0,H-padB);
+      grad.addColorStop(0,'rgba(46,204,143,.42)');
+      grad.addColorStop(1,'rgba(46,204,143,.02)');
+      ctx.beginPath();
+      ctx.moveTo(pts[0].x, Y(0));
+      pts.forEach(p=>ctx.lineTo(p.x,p.y));
+      ctx.lineTo(pts[pts.length-1].x, Y(0));
+      ctx.closePath();
+      ctx.fillStyle=grad; ctx.fill();
+      ctx.beginPath();
+      pts.forEach((p,i)=> i?ctx.lineTo(p.x,p.y):ctx.moveTo(p.x,p.y));
+      ctx.strokeStyle='#2ecc8f'; ctx.lineWidth=1.8; ctx.stroke();
+    }
+    // 当前时刻竖线 + 当前点
+    const cx=X(nowH), cy=Y(series[series.length-1]);
+    ctx.strokeStyle='rgba(245,165,36,.7)'; ctx.lineWidth=1; ctx.setLineDash([3,3]);
+    ctx.beginPath(); ctx.moveTo(cx,padT); ctx.lineTo(cx,H-padB); ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.beginPath(); ctx.arc(cx,cy,3.4,0,Math.PI*2);
+    ctx.fillStyle='#f5a524'; ctx.fill();
+    ctx.strokeStyle='#fff'; ctx.lineWidth=1.2; ctx.stroke();
+    ctx.fillStyle='#f5a524'; ctx.font='bold 9.5px sans-serif'; ctx.textAlign='right'; ctx.textBaseline='bottom';
+    ctx.fillText('当前 '+series[series.length-1].toFixed(2)+' t/h', W-padR-2, cy-5);
+  },
+};
+
+/* ---------- View ---------- */
+const View = {
+  hoverId:null, _lastHover:null,
+
+  init(){
+    MockSource.reset();
+    Twin.init('#twin');
+    this.buildSegs();
+    this.bind();
+    Store.dispatch({type:'TICK', snap:MockSource.snapshot(Store.get().threshold)});
+    Store.dispatch({type:'SELECT', id: MockSource.devices[0]?.id ?? null});
+    this.startTimer(); this.startClock(); this.fit();
+  },
+
+  buildSegs(){
+    $('#seg-line').innerHTML = `<button data-line="ALL" class="active">全部产线</button>` +
+      LINES.map(l=>`<button data-line="${l.id}">${l.name}</button>`).join('');
+    $('#seg-line').onclick=e=>{ const b=e.target.closest('button'); if(!b) return;
+      Store.dispatch({type:'LINE', line:b.dataset.line}); };
+
+    const thr=$('#thr-range');
+    thr.addEventListener('input', ()=>{
+      $('#thr-val').textContent = thr.value+' kg/h';
+      Store.dispatch({type:'THRESHOLD', value: parseInt(thr.value,10)});
+    });
+
+    $('#btn-reset').onclick=()=>{
+      MockSource.reset(Date.now()%100000);
+      Store.dispatch({type:'TICK', snap:MockSource.snapshot(Store.get().threshold)});
+      this.toast('碳排孪生数据已重置');
+    };
+  },
+
+  bind(){
+    Store.subscribe(()=>this.render());
+    window.addEventListener('resize',()=>this.fit());
+  },
+
+  fit(){
+    const scale=Math.min(window.innerWidth/1920, window.innerHeight/1080);
+    document.documentElement.style.setProperty('--scale', scale);
+    const vp=$('#viewport');
+    vp.style.transform=`scale(${scale})`;
+    vp.style.left=`${(window.innerWidth-1920*scale)/2}px`;
+    vp.style.top=`${(window.innerHeight-1080*scale)/2}px`;
+  },
+
+  startTimer(){
+    if (this._t) clearInterval(this._t);
+    this._t=setInterval(()=>Store.dispatch({type:'TICK', snap:MockSource.snapshot(Store.get().threshold)}), 3000);
+  },
+
+  startClock(){
+    setInterval(()=>{ $('#clock').textContent=hhmmss(new Date()); },1000);
+    $('#clock').textContent=hhmmss(new Date());
+  },
+
+  toast(m){ const t=$('#toast'); t.textContent=m; t.classList.add('show');
+    clearTimeout(this._tt); this._tt=setTimeout(()=>t.classList.remove('show'),1800); },
+
+  filtered(){
+    const s=Store.get();
+    return s.snap.devices.filter(d=> s.line==='ALL' || d.lineId===s.line);
+  },
+
+  render(){
+    const s=Store.get();
+    if (!s.snap) return;
+    const snap=s.snap;
+    const list=this.filtered();
+
+    this.renderKPIs(s, list);
+    Twin.draw(list);
+    DayTrend.draw(snap);
+    this.renderScope(snap);
+    this.renderDevTable(s, list);
+    this.renderAlerts(snap);
+
+    document.querySelectorAll('#seg-line button').forEach(b=>b.classList.toggle('active', b.dataset.line===s.line));
+    $('#update-info').innerHTML=`<span class="live-dot"></span>数据更新：${hhmmss(s.lastUpdate)}　·　第 ${s.tickCount} 次刷新`;
+
+    // 悬停面板开着 → 曲线随刷新实时更新
+    if (this.hoverId){
+      const dev=snap.devices.find(d=>d.id===this.hoverId);
+      if (dev) this.drawTrendMini(dev);
+    }
+  },
+
+  renderKPIs(s, list){
+    const overList=list.filter(d=>Twin.cstatus(d)==='over').length;
+    const quota=snapQuota(s.snap);
+    const kpis=[
+      {n:'当前排放速率', v:(s.snap.totalRate/1000).toFixed(2), u:'tCO₂e/h', sub:`全厂 ${list.length} 台设备合计`, c:'#2ecc8f'},
+      {n:'今日累计排放', v:s.snap.todayTotal.toFixed(2), u:'tCO₂e', sub:'00:00 至当前时刻', c:'#35c6d4'},
+      {n:'碳配额使用率', v:quota.toFixed(1), u:'%', sub:`日配额 ${DAILY_QUOTA} tCO₂e`, c: quota>=85?'#f4544c':'#2f81f7', crit: quota>=85},
+      {n:'超阈设备', v:`${overList}/${list.length}`, u:'台', sub:`阈值 ${s.threshold} kg/h`, c:'#f4544c', crit: overList>0},
+    ];
+    $('#dev-kpi').innerHTML=kpis.map(k=>
+      `<div class="kpi ${k.crit?'crit':''}" style="--kc:${k.c}">
+        <div class="kpi-name">${k.n}</div>
+        <div class="kpi-val" style="color:${k.c}">${k.v}<span class="unit">${k.u}</span></div>
+        <div class="kpi-sub">${k.sub}</div>
+      </div>`).join('');
+  },
+
+  renderScope(snap){
+    $('#scope-row').innerHTML=
+      `<div class="s"><span style="color:var(--t-lo)">范围一 · 燃气锅炉</span><b>${snap.scope1.toFixed(3)} t/h</b></div>
+       <div class="s"><span style="color:var(--t-lo)">范围二 · 电力（设备+公设）</span><b>${snap.scope2.toFixed(3)} t/h</b></div>`;
+  },
+
+  renderDevTable(s, list){
+    $('#dev-count').textContent=`${list.length} 台 · 点击行定位设备`;
+    $('#dev-tbody').innerHTML=list.map(d=>{
+      const cs=Twin.cstatus(d);
+      const stTxt = cs==='over' ? '<span style="color:var(--c-crit)">⚠ 超阈</span>'
+        : cs==='run' ? '<span style="color:var(--c-ok)">正常</span>'
+        : (d.status==='fault' ? '<span style="color:var(--c-warn)">故障</span>' : '<span style="color:var(--c-idle)">未运行</span>');
+      const todayKwh = d.runHours * (d.status==='run' ? d.power*d.load : d.standby);
+      return `<tr data-dev="${d.id}" class="${s.selected===d.id?'active':''} ${cs==='over'?'over':''}">
+        <td><span class="st-dot" style="background:${Twin.color(cs)}"></span>${d.no}</td>
+        <td>${stTxt}</td>
+        <td class="v">${d.rate.toFixed(1)}</td>
+        <td class="v">${(todayKwh*CARBON_FACTOR).toFixed(1)}</td>
+      </tr>`;
+    }).join('');
+    $('#dev-tbody').querySelectorAll('tr').forEach(tr=>{
+      tr.onclick=()=>{
+        Store.dispatch({type:'SELECT', id:tr.dataset.dev});
+        const dev=s.snap.devices.find(x=>x.id===tr.dataset.dev);
+        if (dev) this.toast('已定位设备：'+dev.no+'（'+dev.lineName+'）');
+      };
+    });
+  },
+
+  renderAlerts(snap){
+    const box=$('#alert-body');
+    const overDevs=snap.devices.filter(d=>Twin.cstatus(d)==='over')
+      .map(d=>({devId:d.id, devNo:d.no, lineName:d.lineName, level:'over',
+        msg:`排放 ${d.rate.toFixed(1)} kg/h 超阈值 ${snap.threshold}（+${((d.rate/snap.threshold-1)*100).toFixed(0)}%）`, time:d.since}));
+    const all=[...overDevs, ...snap.alerts].sort((a,b)=>(a.level===b.level?b.time-a.time:a.level==='over'?-1:1));
+    $('#alert-count').textContent=all.length?`${all.length} 条`:'';
+    if (!all.length){ box.innerHTML='<div class="empty-hint">无超阈设备，全厂排放正常</div>'; return; }
+    box.innerHTML=all.map(a=>`
+      <div class="a-row ${a.level}" data-dev="${a.devId}">
+        <span class="lv">${a.level==='over'?'超阈':a.level==='fault'?'故障':'未运行'}</span>
+        <span class="msg"><span class="pos">${a.devNo}</span> ${a.msg} · ${a.lineName}</span>
+        <span class="time">${hhmm(new Date(a.time))}</span>
+      </div>`).join('');
+    box.querySelectorAll('.a-row').forEach(el=>{
+      el.onclick=()=>{
+        Store.dispatch({type:'SELECT', id:el.dataset.dev});
+        this.toast('已定位设备：'+el.dataset.dev);
+      };
+    });
+  },
+
+  /* ---------- 悬停面板：设备排放 + 最近一小时曲线 ---------- */
+  showCarbonTip(e){
+    const d=Twin._pick(e);
+    if (!d){ this.hideCarbonTip(); return; }
+    this.hoverId=d.id;
+    const s=Store.get();
+    const cs=Twin.cstatus(d);
+    const stMap={ run:['ok','正常'], idle:['idle', d.status==='fault'?'故障停机':'未运行'], over:['crit','⚠ 超阈预警'] };
+    const [stCls,stTxt]=stMap[cs];
+    const todayKwh=d.runHours*(d.status==='run'?d.power*d.load:d.standby);
+    const pct=d.rate/s.threshold*100;
+    const overBy=pct-100;
+
+    $('#carbon-tip').classList.toggle('over', cs==='over');
+    $('#carbon-tip').innerHTML=`
+      <div class="ct-head">
+        <div style="flex:1 1 auto;min-width:0">
+          <div class="ct-name">${d.icon} ${d.name}</div>
+          <div class="ct-sub">${d.id} · ${d.lineName} · ${d.zone}</div>
+        </div>
+        <span class="badge ${stCls}">${stTxt}</span>
+      </div>
+      <div class="ct-body">
+        ${cs==='over' ? `<div style="color:var(--c-crit);font-size:11.5px;margin-bottom:4px">⚠ 当前速率超阈值 ${overBy.toFixed(0)}%，请关注负荷与排产</div>` : ''}
+        ${d.status==='fault' ? `<div style="color:var(--c-warn);font-size:11.5px;margin-bottom:4px">⚠ 设备故障：${d.faultMsg}（排放数据不可信）</div>` : ''}
+        <div class="ct-sec">最近一小时排放变化（kgCO₂e/h）</div>
+        <div id="trend-mini-wrap"><canvas id="trend-mini"></canvas></div>
+        <dl class="ct-kv" style="margin-top:6px">
+          <dt>额定功率</dt><dd>${d.power} kW</dd>
+          <dt>当前负荷</dt><dd>${(d.load*100).toFixed(0)}%</dd>
+          <dt>排放因子</dt><dd>${CARBON_FACTOR} kgCO₂e/kWh</dd>
+          <dt>今日排放</dt><dd>${(todayKwh*CARBON_FACTOR).toFixed(1)} kgCO₂e</dd>
+        </dl>
+        <div class="ct-metrics">
+          <div class="cm"><div class="n">当前速率</div><div class="v" style="color:${cs==='over'?'var(--c-crit)':'var(--c-ok)'}">${d.rate.toFixed(1)}</div></div>
+          <div class="cm"><div class="n">阈值</div><div class="v" style="color:var(--c-warn)">${s.threshold}</div></div>
+          <div class="cm"><div class="n">占阈值</div><div class="v" style="color:${pct>100?'var(--c-crit)':'var(--t-hi)'}">${pct.toFixed(0)}%</div></div>
+        </div>
+      </div>`;
+
+    const tip=$('#carbon-tip');
+    tip.style.opacity=1;
+    const tw=tip.offsetWidth, th=tip.offsetHeight;
+    let x=e.clientX+16, y=e.clientY+14;
+    if (x+tw>window.innerWidth-8) x=e.clientX-tw-12;
+    if (y+th>window.innerHeight-8) y=Math.max(8, e.clientY-th-12);
+    tip.style.left=x+'px'; tip.style.top=y+'px';
+    this.drawTrendMini(d);
+    if (this._lastHover!==d.id){ this._lastHover=d.id; this.render(); }
+  },
+
+  /** 绘制最近一小时排放曲线（分钟粒度 60 点 + 阈值虚线 + 当前点） */
+  drawTrendMini(d){
+    const cv=$('#trend-mini'); if(!cv) return;
+    const wrap=cv.parentElement;
+    const r=wrap.getBoundingClientRect();
+    if (r.width<10) return;
+    const dpr=window.devicePixelRatio||1;
+    cv.width=r.width*dpr; cv.height=r.height*dpr;
+    const ctx=cv.getContext('2d');
+    ctx.setTransform(dpr,0,0,dpr,0,0);
+    ctx.clearRect(0,0,r.width,r.height);
+    const W=r.width, H=r.height;
+    const padL=6, padR=6, padT=8, padB=12;
+    const thr=Store.get().threshold;
+    const hist=d.history;
+    const maxV=Math.max(...hist.map(p=>p.v), thr)*1.18;
+    const xw=W-padL-padR, yh=H-padT-padB;
+    const X=i=>padL+(i/(HISTORY_MINUTES-1))*xw;
+    const Y=v=>padT+yh-(v/maxV)*yh;
+    const cs=Twin.cstatus(d);
+    const lineCol = cs==='over' ? '#f4544c' : '#2ecc8f';
+
+    // 阈值虚线
+    ctx.strokeStyle='rgba(245,165,36,.85)'; ctx.lineWidth=1; ctx.setLineDash([4,3]);
+    ctx.beginPath(); ctx.moveTo(padL,Y(thr)); ctx.lineTo(W-padR,Y(thr)); ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.fillStyle='#f5a524'; ctx.font='8.5px sans-serif'; ctx.textAlign='left'; ctx.textBaseline='bottom';
+    ctx.fillText('阈值 '+thr, padL+2, Y(thr)-2);
+
+    // 面积 + 折线
+    const grad=ctx.createLinearGradient(0,padT,0,H-padB);
+    grad.addColorStop(0, cs==='over' ? 'rgba(244,84,76,.35)' : 'rgba(46,204,143,.32)');
+    grad.addColorStop(1, cs==='over' ? 'rgba(244,84,76,.02)' : 'rgba(46,204,143,.02)');
+    ctx.beginPath();
+    ctx.moveTo(X(0),Y(0));
+    hist.forEach((p,i)=>ctx.lineTo(X(i),Y(p.v)));
+    ctx.lineTo(X(hist.length-1),Y(0));
+    ctx.closePath();
+    ctx.fillStyle=grad; ctx.fill();
+    ctx.beginPath();
+    hist.forEach((p,i)=> i?ctx.lineTo(X(i),Y(p.v)):ctx.moveTo(X(i),Y(p.v)));
+    ctx.strokeStyle=lineCol; ctx.lineWidth=1.6; ctx.stroke();
+
+    // 当前点
+    const lastX=X(hist.length-1), lastY=Y(hist[hist.length-1].v);
+    ctx.beginPath(); ctx.arc(lastX,lastY,3,0,Math.PI*2);
+    ctx.fillStyle=lineCol; ctx.fill();
+    ctx.strokeStyle='#fff'; ctx.lineWidth=1.2; ctx.stroke();
+
+    // 轴标注
+    ctx.fillStyle='#64789a'; ctx.font='8.5px sans-serif'; ctx.textBaseline='top';
+    ctx.textAlign='left'; ctx.fillText('-60 min', padL, H-padB+2);
+    ctx.textAlign='right'; ctx.fillText('现在', W-padR, H-padB+2);
+    ctx.textAlign='left'; ctx.fillText(maxV.toFixed(0), padL, padT-7);
+  },
+
+  hideCarbonTip(){
+    if (this.hoverId!==null){ this.hoverId=null; this.render(); }
+    $('#carbon-tip').style.opacity=0;
+  },
+};
+
+/** 配额使用率单独取（避免在 snapshot 之外重复遍历） */
+function snapQuota(snap){ return snap.todayTotal/DAILY_QUOTA*100; }
+
+document.addEventListener('DOMContentLoaded', ()=>View.init());
+</script>
+</body>
+</html>
