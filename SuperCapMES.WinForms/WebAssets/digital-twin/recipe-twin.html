@@ -1,0 +1,571 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>工艺/配方孪生 · 泰州超级电容智能工厂</title>
+<style>
+  :root {
+    --bg-0:#050b16; --bg-1:#0a1424; --bg-2:#0f1d31; --bg-3:#16273f;
+    --c-primary:#2f81f7; --c-primary-glow:rgba(47,129,247,.35);
+    --c-ok:#2ecc8f; --c-warn:#f5a524; --c-crit:#f4544c; --c-info:#35c6d4;
+    --t-hi:#eaf2ff; --t-mid:#9fb3d1; --t-lo:#64789a; --t-dim:#3d4f6b;
+    --line:rgba(80,140,210,.16); --line-soft:rgba(80,140,210,.09);
+    --r-sm:4px; --r-md:8px; --r-lg:12px;
+    --shadow:0 4px 20px rgba(0,0,0,.45);
+    --scale:1;
+    --font:"HarmonyOS Sans SC","Microsoft YaHei",-apple-system,sans-serif;
+    --c-recipe:#7f9bff;
+  }
+  *{margin:0;padding:0;box-sizing:border-box}
+  html,body{width:100%;height:100%;background:var(--bg-0);color:var(--t-hi);
+    font-family:var(--font);overflow:hidden;font-variant-numeric:tabular-nums}
+  #bg-deco{position:fixed;inset:0;z-index:0;pointer-events:none;
+    background:radial-gradient(ellipse 60% 45% at 50% -10%,rgba(127,155,255,.14),transparent 70%),
+               radial-gradient(ellipse 45% 40% at 90% 100%,rgba(53,198,212,.08),transparent 70%)}
+  #bg-grid{position:fixed;inset:0;z-index:0;pointer-events:none;opacity:.5;
+    background-image:linear-gradient(rgba(70,130,200,.055) 1px,transparent 1px),
+                     linear-gradient(90deg,rgba(70,130,200,.055) 1px,transparent 1px);
+    background-size:48px 48px}
+  #viewport{position:fixed;width:1920px;height:1080px;left:0;top:0;transform-origin:top left;z-index:1;
+    display:flex;flex-direction:column;padding:18px 22px;gap:14px}
+
+  .topbar{flex:0 0 auto;display:flex;align-items:center;gap:14px}
+  .topbar h1{font-size:22px;font-weight:600;letter-spacing:2px;
+    background:linear-gradient(90deg,#eaf2ff,#aebfff);-webkit-background-clip:text;-webkit-text-fill-color:transparent}
+  .topbar .sub{font-size:11.5px;color:var(--t-lo);letter-spacing:1px;margin-top:3px}
+  .seg{display:flex;background:var(--bg-2);border:1px solid var(--line);border-radius:var(--r-md);overflow:hidden}
+  .seg button{border:0;background:transparent;color:var(--t-mid);font-size:12px;padding:6px 13px;cursor:pointer;font-family:var(--font)}
+  .seg button.active{background:rgba(127,155,255,.22);color:#cdd9ff}
+  .seg button:hover:not(.active){color:var(--t-hi)}
+  .clock{margin-left:auto;text-align:right}
+  .clock .t{font-size:20px;font-weight:600;letter-spacing:1px}
+  .clock .d{font-size:11px;color:var(--t-lo)}
+  .live{display:flex;align-items:center;gap:6px;font-size:11.5px;color:var(--c-ok)}
+  .live i{width:7px;height:7px;border-radius:50%;background:var(--c-ok);animation:pulse 1.6s infinite}
+  @keyframes pulse{0%,100%{opacity:1}50%{opacity:.25}}
+
+  .hero{flex:0 0 auto;display:flex;gap:14px;align-items:stretch}
+  .score-card{flex:0 0 340px;background:linear-gradient(135deg,var(--bg-2),var(--bg-3));
+    border:1px solid var(--line);border-radius:var(--r-lg);padding:16px 18px;
+    display:flex;align-items:center;gap:16px;box-shadow:var(--shadow);position:relative;overflow:hidden}
+  .score-card::before{content:'';position:absolute;left:0;top:0;bottom:0;width:3px;background:var(--c-recipe)}
+  .score-num{font-size:46px;font-weight:600;line-height:1;letter-spacing:-1px}
+  .score-num small{font-size:15px;color:var(--t-lo);font-weight:400}
+  .score-meta .lv{font-size:17px;font-weight:600;letter-spacing:2px}
+  .score-meta .ds{font-size:11.5px;color:var(--t-lo);margin-top:4px}
+  .concl{flex:1 1 auto;background:var(--bg-1);border:1px solid var(--line);border-radius:var(--r-lg);
+    padding:14px 18px;display:flex;flex-direction:column;justify-content:center;gap:8px;box-shadow:var(--shadow)}
+  .concl .row{display:flex;align-items:flex-start;gap:10px;font-size:13.5px;line-height:1.5}
+  .concl .row .dot{flex:0 0 auto;width:8px;height:8px;border-radius:50%;margin-top:6px}
+  .concl .row b{font-weight:500}
+
+  .kpis{flex:0 0 auto;display:grid;grid-template-columns:repeat(8,1fr);gap:12px}
+  .kpi{background:var(--bg-1);border:1px solid var(--line);border-radius:var(--r-md);
+    padding:11px 13px;position:relative;overflow:hidden;box-shadow:var(--shadow)}
+  .kpi::before{content:'';position:absolute;left:0;top:0;bottom:0;width:2.5px;background:var(--c-recipe)}
+  .kpi .lb{font-size:11.5px;color:var(--t-lo)}
+  .kpi .vl{font-size:24px;font-weight:600;margin-top:5px;letter-spacing:.5px}
+  .kpi .vl small{font-size:11px;color:var(--t-lo);font-weight:400;margin-left:3px}
+  .kpi .tr{font-size:10.5px;color:var(--t-lo);margin-top:4px}
+  .kpi.warn::before{background:var(--c-warn)} .kpi.crit::before{background:var(--c-crit)} .kpi.ok::before{background:var(--c-ok)}
+
+  .grid{flex:1 1 auto;min-height:0;display:grid;grid-template-columns:470px 1fr;gap:14px}
+  .panel{background:var(--bg-1);border:1px solid var(--line);border-radius:var(--r-lg);
+    box-shadow:var(--shadow);display:flex;flex-direction:column;min-height:0;overflow:hidden}
+  .panel-head{flex:0 0 auto;display:flex;align-items:center;gap:8px;padding:10px 14px;
+    border-bottom:1px solid var(--line-soft);background:linear-gradient(90deg,rgba(127,155,255,.10),transparent 60%)}
+  .panel-head .tt{font-size:14px;font-weight:500;letter-spacing:1px;display:flex;align-items:center;gap:7px}
+  .panel-head .tt::before{content:'';width:3px;height:14px;background:var(--c-recipe);border-radius:2px;
+    box-shadow:0 0 8px rgba(127,155,255,.45)}
+  .panel-head .sp{flex:1}
+  .panel-body{flex:1 1 auto;min-height:0;padding:12px 14px;overflow:hidden;display:flex;flex-direction:column;gap:10px}
+
+  /* 版本对比表 */
+  .vt-wrap{flex:1 1 auto;overflow-y:auto;min-height:0}
+  table.vt{width:100%;border-collapse:collapse;font-size:11.5px}
+  table.vt th{position:sticky;top:0;background:var(--bg-2);color:var(--t-lo);font-weight:500;
+    text-align:left;padding:7px 8px;border-bottom:1px solid var(--line)}
+  table.vt td{padding:7px 8px;border-bottom:1px solid var(--line-soft);color:var(--t-hi)}
+  table.vt td .up{color:var(--c-ok)} table.vt td .down{color:var(--c-crit)} table.vt td .flat{color:var(--t-lo)}
+  table.vt tr:hover td{background:rgba(127,155,255,.06)}
+
+  .charts{display:grid;grid-template-columns:1fr 1fr;grid-template-rows:1fr 1fr;gap:14px;min-height:0}
+  .chart-cell{background:var(--bg-1);border:1px solid var(--line);border-radius:var(--r-lg);
+    box-shadow:var(--shadow);display:flex;flex-direction:column;min-height:0;overflow:hidden}
+  .chart-box{flex:1 1 auto;min-height:0;position:relative;padding:6px 10px 10px}
+  .chart-box canvas{position:absolute;inset:0;width:100%;height:100%}
+  .legend{display:flex;gap:12px;font-size:10.5px;color:var(--t-mid)}
+  .legend i{display:inline-block;width:8px;height:8px;border-radius:2px;margin-right:4px;vertical-align:-1px}
+
+  .bottom{flex:0 0 auto;display:grid;grid-template-columns:1.6fr 1fr;gap:14px}
+  .proc-cards{display:grid;grid-template-columns:repeat(4,1fr);gap:10px}
+  .pc{background:var(--bg-1);border:1px solid var(--line);border-radius:var(--r-md);padding:9px 11px;box-shadow:var(--shadow);border-left:3px solid var(--c-ok)}
+  .pc .nm{font-size:12px;font-weight:500}
+  .pc .v{font-size:20px;font-weight:600;margin-top:4px}
+  .pc .g{font-size:10px;padding:1px 7px;border-radius:99px;display:inline-block;margin-top:3px}
+
+  .foot{flex:0 0 auto;display:flex;justify-content:space-between;font-size:10.5px;color:var(--t-dim)}
+</style>
+</head>
+<body>
+<div id="bg-deco"></div>
+<div id="bg-grid"></div>
+<div id="viewport">
+  <div class="topbar">
+    <div>
+      <h1>工艺/配方孪生</h1>
+      <div class="sub">泰州超级电容智能工厂 · 工艺参数版本管控与工序能力分析 · 数据每 3 秒自动刷新</div>
+    </div>
+    <div class="seg" id="range-seg">
+      <button data-range="1h">近1小时</button>
+      <button data-range="6h">近6小时</button>
+      <button data-range="24h" class="active">近24小时</button>
+      <button data-range="7d">近7天</button>
+    </div>
+    <div class="live"><i></i>LIVE</div>
+    <div class="clock"><div class="t" id="clock-t">--:--:--</div><div class="d" id="clock-d">----</div></div>
+  </div>
+
+  <div class="hero">
+    <div class="score-card">
+      <div class="score-num" id="score-num">--<small></small></div>
+      <div class="score-meta">
+        <div class="lv" id="score-lv">评估中</div>
+        <div class="ds" id="score-ds">平均工序能力 CPK</div>
+      </div>
+    </div>
+    <div class="concl" id="concl"></div>
+  </div>
+
+  <div class="kpis" id="kpis"></div>
+
+  <div class="grid">
+    <div class="panel">
+      <div class="panel-head"><div class="tt">工艺版本对比（v2.2 → v2.3）</div><div class="sp"></div><div class="cnt" id="ver-cnt"></div></div>
+      <div class="panel-body"><div class="vt-wrap"><table class="vt" id="vt"></table></div></div>
+    </div>
+    <div class="charts">
+      <div class="chart-cell">
+        <div class="panel-head">
+          <div class="tt">关键工序参数偏移带</div><div class="sp"></div>
+          <div class="legend"><span><i style="background:rgba(127,155,255,.4)"></i>公差带</span><span><i style="background:#7f9bff"></i>实际值</span><span><i style="background:#f5a524"></i>目标</span></div>
+        </div>
+        <div class="chart-box"><canvas id="c-band"></canvas></div>
+      </div>
+      <div class="chart-cell">
+        <div class="panel-head">
+          <div class="tt">工序能力矩阵（CPK）</div><div class="sp"></div>
+          <div class="legend"><span><i style="background:#2ecc8f"></i>≥1.67</span><span><i style="background:#7f9bff"></i>≥1.33</span><span><i style="background:#f5a524"></i>≥1.0</span><span><i style="background:#f4544c"></i>&lt;1.0</span></div>
+        </div>
+        <div class="chart-box"><canvas id="c-cap"></canvas></div>
+      </div>
+      <div class="chart-cell">
+        <div class="panel-head">
+          <div class="tt">版本切换对良率影响</div><div class="sp"></div>
+          <div class="legend"><span><i style="background:#9fb3d1"></i>v2.2</span><span><i style="background:#7f9bff"></i>v2.3</span></div>
+        </div>
+        <div class="chart-box"><canvas id="c-ver"></canvas></div>
+      </div>
+      <div class="chart-cell">
+        <div class="panel-head">
+          <div class="tt">关键参数趋势 · 涂布厚度 X-bar</div><div class="sp"></div>
+          <div class="legend"><span><i style="background:#7f9bff"></i>子组均值</span><span><i style="background:#f5a524"></i>控制限</span></div>
+        </div>
+        <div class="chart-box"><canvas id="c-trend"></canvas></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="bottom">
+    <div class="proc-cards" id="proc-cards"></div>
+    <div class="panel" style="padding:0">
+      <div class="panel-head"><div class="tt">关键说明</div></div>
+      <div class="panel-body" style="overflow-y:auto">
+        <div style="font-size:12px;line-height:1.7;color:var(--t-mid)">
+          · 工艺版本与参数偏移带、工序能力 CPK 与质量模块同源口径一致。<br/>
+          · 偏移带中灰色为公差带（LSL~USL），蓝点为当前实际值，橙线为目标值；CPK&lt;1.33 需整改。<br/>
+          · 工序能力等级：≥1.67 优 / ≥1.33 良 / ≥1.0 临界 / &lt;1.0 不足（以正式 MS 体系评定为准）。<br/>
+          · 版本切换对良率的影响取同口径对比，供工艺优化回溯。<br/>
+          · 本页为演示数据（确定性模拟），实际工艺参数以受控工艺文件为准。
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="foot">
+    <span>数据来源：MES 工艺参数版本管控 / SPC / 工序能力分析（演示数据为确定性模拟，口径与各业务模块一致）</span>
+    <span id="foot-update"></span>
+  </div>
+</div>
+
+<script>
+"use strict";
+const $ = (s) => document.querySelector(s);
+const clamp = (v, a, b) => Math.min(b, Math.max(a, v));
+const fmt = (v, d = 1) => Number(v).toLocaleString('zh-CN', { minimumFractionDigits: d, maximumFractionDigits: d });
+function makeRng(seed) { let s = seed >>> 0; return () => { s = (s * 1664525 + 1013904223) >>> 0; return s / 4294967296; }; }
+const pad2 = (n) => String(n).padStart(2, '0');
+const hhmmss = (d) => `${pad2(d.getHours())}:${pad2(d.getMinutes())}:${pad2(d.getSeconds())}`;
+const hhmm = (d) => `${pad2(d.getHours())}:${pad2(d.getMinutes())}`;
+
+const PROCESSES = ['投料', '涂布', '卷绕', '装配注液', '化成', '检测', '老化', '包装入库'];
+const SHIFTS = ['早班', '中班', '晚班', '夜班'];
+
+/* 版本对比固定数据（确定性） */
+const VERSION_COMPARE = [
+  { proc: '涂布', param: '涂布厚度', unit: 'g/m²', v1: 128.5, v2: 126.0, effect: '优化面密度均匀性，降低厚度超差' },
+  { proc: '卷绕', param: '卷绕张力', unit: 'N', v1: 12.0, v2: 11.5, effect: '减小对齐度偏差，提升卷绕良率' },
+  { proc: '装配注液', param: '注液量', unit: 'g', v1: 8.0, v2: 8.2, effect: '提升浸润一致性，降低内阻' },
+  { proc: '化成', param: '化成电压', unit: 'V', v1: 3.0, v2: 2.7, effect: '降低漏电流，改善自放电' },
+  { proc: '检测', param: '容量', unit: 'F', v1: 2850, v2: 2900, effect: '上探容量上限，提升能量密度' },
+  { proc: '老化', param: '老化温度', unit: '℃', v1: 50, v2: 45, effect: '温和老化，降低外观不良' },
+];
+
+/* 工序能力 CPK（确定性） */
+const CPK = [1.52, 1.41, 1.68, 1.33, 1.21, 1.74, 1.60, 1.45];
+
+/* 参数偏移带（确定性：公差带 + 实际值 + 目标） */
+const SPEC_BAND = [
+  { proc: '投料', param: '批重', unit: 'g', lsl: 1990, usl: 2010, target: 2000, actual: 2001.2 },
+  { proc: '涂布', param: '厚度', unit: 'g/m²', lsl: 120, usl: 132, target: 126, actual: 126.4 },
+  { proc: '卷绕', param: '张力', unit: 'N', lsl: 10, usl: 13, target: 11.5, actual: 11.4 },
+  { proc: '装配注液', param: '注液量', unit: 'g', lsl: 7.5, usl: 8.9, target: 8.2, actual: 8.25 },
+  { proc: '化成', param: '电压', unit: 'V', lsl: 2.4, usl: 3.1, target: 2.7, actual: 2.69 },
+  { proc: '检测', param: '容量', unit: 'F', lsl: 2700, usl: 3200, target: 2900, actual: 2908 },
+  { proc: '老化', param: '温度', unit: '℃', lsl: 42, usl: 48, target: 45, actual: 45.1 },
+  { proc: '包装', param: '喷码合格率', unit: '%', lsl: 98, usl: 100, target: 99.5, actual: 99.4 },
+];
+
+const MockSource = {
+  _rng: null, _seed: 20261014, _history: [],
+
+  reset(seed) {
+    this._seed = seed ?? this._seed;
+    this._rng = makeRng(this._seed);
+    this._history = [];
+    for (let i = 24; i > 0; i--) this._history.push(this._build(new Date(Date.now() - i * 3600e3)));
+  },
+  tick() {
+    const snap = this._build(new Date());
+    this._history.push(snap);
+    if (this._history.length > 400) this._history.shift();
+    return snap;
+  },
+  series(rangeId, key) {
+    const r = { '1h': { points: 12, stepMs: 5 * 60e3 }, '6h': { points: 12, stepMs: 30 * 60e3 },
+                '24h': { points: 24, stepMs: 3600e3 }, '7d': { points: 7, stepMs: 24 * 3600e3 } }[rangeId]
+              || { points: 24, stepMs: 3600e3 };
+    const now = Date.now();
+    const out = [];
+    for (let i = r.points - 1; i >= 0; i--) {
+      const t = now - i * r.stepMs;
+      let snap = null, best = Infinity;
+      for (const h of this._history) { const d = Math.abs(h.t - t); if (d < best) { best = d; snap = h; } }
+      out.push({ t, v: snap ? snap[key] : 0,
+        label: r.stepMs >= 24 * 3600e3 ? `${new Date(t).getMonth() + 1}/${new Date(t).getDate()}` : hhmm(new Date(t)) });
+    }
+    return out;
+  },
+  _jitter(base, pct, rng) { return base * (1 + (rng() - 0.5) * 2 * pct); },
+  _gauss(rng) { let u = 0, v = 0; while (u === 0) u = rng(); while (v === 0) v = rng(); return Math.sqrt(-2 * Math.log(u)) * Math.cos(2 * Math.PI * v); },
+
+  _build(t) {
+    const rng = this._rng;
+    const currentVersion = 'v2.3';
+    const inUseVersions = 3;
+    const paramCompliance = 96.4;
+    const avgCpk = Math.round(CPK.reduce((a, b) => a + b, 0) / CPK.length * 100) / 100;
+    const capableRate = Math.round(CPK.filter((c) => c >= 1.33).length / CPK.length * 100);
+    const driftCount = 1;
+    const switchToday = 2;
+    const spcAnomaly = rng() > 0.8 ? 1 : 0;
+    const v1Yield = clamp(this._jitter(96.8, .004, rng), 95, 99);
+    const v2Yield = clamp(this._jitter(98.1, .004, rng), 96, 100);
+
+    // 涂布厚度 X-bar：CL=126, σ=1.2
+    const CL = 126, sigma = 1.2, UCL = CL + 3 * sigma, LCL = CL - 3 * sigma;
+    const trend = [];
+    for (let i = 0; i < 24; i++) {
+      let v = CL + this._gauss(rng) * sigma;
+      if (spcAnomaly && i === 19) v = CL + 3.6 * sigma;
+      trend.push(Math.round(v * 10) / 10);
+    }
+
+    return { t: t.getTime(), time: hhmmss(t), currentVersion, inUseVersions, paramCompliance,
+      avgCpk, capableRate, driftCount, switchToday, spcAnomaly, v1Yield, v2Yield,
+      trend: { CL, UCL, LCL, data: trend } };
+  },
+};
+
+function gradeOf(cpk) { return cpk >= 1.67 ? { g: 'A 优', c: '#2ecc8f' } : cpk >= 1.33 ? { g: 'B 良', c: '#7f9bff' } : cpk >= 1.0 ? { g: 'C 临界', c: '#f5a524' } : { g: 'D 不足', c: '#f4544c' }; }
+
+const Store = {
+  state: { snap: null, range: '24h', tickCount: 0, prev: null },
+  _subs: [],
+  subscribe(fn) { this._subs.push(fn); },
+  get() { return this.state; },
+  dispatch(action) {
+    const s = this.state;
+    if (action.type === 'TICK') { s.prev = s.snap; s.snap = action.snap; s.tickCount++; }
+    else if (action.type === 'RANGE') s.range = action.range;
+    this._subs.forEach((f) => f(s, action));
+  },
+};
+
+const Chart = {
+  _prep(sel) {
+    const cv = $(sel); if (!cv) return null;
+    const rect = cv.getBoundingClientRect();
+    const dpr = window.devicePixelRatio || 1;
+    const w = Math.max(rect.width, 10), h = Math.max(rect.height, 10);
+    cv.width = w * dpr; cv.height = h * dpr;
+    const ctx = cv.getContext('2d');
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx.clearRect(0, 0, w, h);
+    return { ctx, w, h };
+  },
+  dual(sel, left, right, labels) {
+    const p = this._prep(sel); if (!p) return;
+    const { ctx, w, h } = p;
+    const padL = 46, padR = 46, padT = 12, padB = 22;
+    const cw = w - padL - padR, ch = h - padT - padB;
+    if (cw <= 0 || ch <= 0) return;
+    const rangeOf = (arr) => { const vs = arr.filter((v) => isFinite(v)); let mn = Math.min(...vs), mx = Math.max(...vs);
+      if (!isFinite(mn) || !isFinite(mx)) { mn = 0; mx = 1; } if (mx === mn) { mx += 1; mn -= 1; }
+      const pd = (mx - mn) * 0.12; return [mn - pd, mx + pd]; };
+    const [lmn, lmx] = rangeOf(left.data), [rmn, rmx] = rangeOf(right.data);
+    const n = Math.max(left.data.length, right.data.length); if (!n) return;
+    const xOf = (i) => padL + cw * i / Math.max(1, n - 1);
+    ctx.font = '10px sans-serif'; ctx.textBaseline = 'middle';
+    for (let i = 0; i <= 4; i++) {
+      const y = padT + ch * i / 4;
+      ctx.strokeStyle = 'rgba(80,140,210,.10)'; ctx.beginPath(); ctx.moveTo(padL, y); ctx.lineTo(padL + cw, y); ctx.stroke();
+      ctx.fillStyle = '#64789a'; ctx.textAlign = 'right'; ctx.fillText(fmt(lmx - (lmx - lmn) * i / 4, 1), padL - 6, y);
+      ctx.textAlign = 'left'; ctx.fillText(fmt(rmx - (rmx - rmn) * i / 4, 1), padL + cw + 6, y);
+    }
+    if (labels && labels.length) { ctx.textAlign = 'center'; ctx.fillStyle = '#64789a';
+      const step = Math.max(1, Math.floor(labels.length / 6));
+      for (let i = 0; i < labels.length; i += step) ctx.fillText(labels[i], clamp(xOf(i), padL + 14, padL + cw - 14), padT + ch + 12); }
+    const draw = (s, mn, mx, color, fill) => {
+      const yOf = (v) => padT + ch - ((clamp(v, mn, mx) - mn) / Math.max(1e-9, mx - mn)) * ch;
+      if (fill) { const g = ctx.createLinearGradient(0, padT, 0, padT + ch); g.addColorStop(0, color + '4d'); g.addColorStop(1, color + '00');
+        ctx.fillStyle = g; ctx.beginPath(); ctx.moveTo(xOf(0), padT + ch); s.forEach((v, i) => ctx.lineTo(xOf(i), yOf(v))); ctx.lineTo(xOf(s.length - 1), padT + ch); ctx.closePath(); ctx.fill(); }
+      ctx.strokeStyle = color; ctx.lineWidth = 1.8; ctx.lineJoin = 'round';
+      ctx.beginPath(); s.forEach((v, i) => (i === 0 ? ctx.moveTo(xOf(i), yOf(v)) : ctx.lineTo(xOf(i), yOf(v)))); ctx.stroke();
+      ctx.fillStyle = color; ctx.beginPath(); ctx.arc(xOf(s.length - 1), yOf(s[s.length - 1]), 2.6, 0, Math.PI * 2); ctx.fill();
+    };
+    draw(left.data, lmn, lmx, left.color, true); draw(right.data, rmn, rmx, right.color, false);
+  },
+  spc(sel, data, cl, ucl, lcl, labels) {
+    const p = this._prep(sel); if (!p) return;
+    const { ctx, w, h } = p;
+    const padL = 46, padR = 14, padT = 14, padB = 22;
+    const cw = w - padL - padR, ch = h - padT - padB;
+    if (cw <= 0 || ch <= 0 || !data.length) return;
+    const mn = Math.min(lcl, ...data) - (ucl - lcl) * 0.12, mx = Math.max(ucl, ...data) + (ucl - lcl) * 0.12;
+    const n = data.length, xOf = (i) => padL + cw * i / Math.max(1, n - 1);
+    const yOf = (v) => padT + ch - ((clamp(v, mn, mx) - mn) / Math.max(1e-9, mx - mn)) * ch;
+    ctx.font = '10px sans-serif'; ctx.textBaseline = 'middle';
+    [ucl, cl, lcl].forEach((lv, k) => { const y = yOf(lv);
+      ctx.strokeStyle = k === 1 ? 'rgba(245,165,36,.85)' : 'rgba(245,165,36,.4)'; ctx.lineWidth = k === 1 ? 1.4 : 1;
+      ctx.setLineDash(k === 1 ? [] : [4, 4]); ctx.beginPath(); ctx.moveTo(padL, y); ctx.lineTo(padL + cw, y); ctx.stroke(); ctx.setLineDash([]);
+      ctx.fillStyle = '#f5a524'; ctx.textAlign = 'right'; ctx.fillText(k === 1 ? 'CL' : (k === 0 ? 'UCL' : 'LCL'), padL - 4, y); });
+    data.forEach((v, i) => { const out = v > ucl || v < lcl;
+      ctx.fillStyle = out ? '#f4544c' : '#7f9bff'; ctx.beginPath(); ctx.arc(xOf(i), yOf(v), out ? 3.4 : 2.4, 0, Math.PI * 2); ctx.fill();
+      if (i > 0) { ctx.strokeStyle = out ? '#f4544c' : 'rgba(127,155,255,.7)'; ctx.lineWidth = 1.2;
+        ctx.beginPath(); ctx.moveTo(xOf(i - 1), yOf(data[i - 1])); ctx.lineTo(xOf(i), yOf(v)); ctx.stroke(); } });
+  },
+  /** 参数偏移带：公差带 + 目标线 + 实际值点 */
+  specband(sel, items) {
+    const p = this._prep(sel); if (!p) return;
+    const { ctx, w, h } = p;
+    const padL = 96, padR = 16, padT = 10, padB = 8;
+    const cw = w - padL - padR, ch = h - padT - padB;
+    if (cw <= 0 || ch <= 0) return;
+    const all = items.flatMap((i) => [i.lsl, i.usl, i.actual, i.target]);
+    let mn = Math.min(...all), mx = Math.max(...all);
+    const pad = (mx - mn) * 0.12; mn -= pad; mx += pad;
+    const xOf = (v) => padL + cw * (clamp(v, mn, mx) - mn) / Math.max(1e-9, mx - mn);
+    const rowH = ch / items.length;
+    ctx.font = '11px sans-serif'; ctx.textBaseline = 'middle';
+    items.forEach((it, i) => {
+      const y = padT + rowH * i + rowH / 2;
+      ctx.fillStyle = '#9fb3d1'; ctx.textAlign = 'left';
+      ctx.fillText(`${it.proc}·${it.param}`, 4, y);
+      // 公差带
+      const bx = xOf(it.lsl), bw = xOf(it.usl) - bx;
+      ctx.fillStyle = 'rgba(127,155,255,.22)';
+      ctx.beginPath(); ctx.rect(bx, y - rowH * 0.26, bw, rowH * 0.52); ctx.fill();
+      ctx.strokeStyle = 'rgba(127,155,255,.5)'; ctx.lineWidth = 1; ctx.stroke();
+      // 目标线
+      const tx = xOf(it.target);
+      ctx.strokeStyle = 'rgba(245,165,36,.8)'; ctx.lineWidth = 1.4; ctx.setLineDash([3, 3]);
+      ctx.beginPath(); ctx.moveTo(tx, y - rowH * 0.32); ctx.lineTo(tx, y + rowH * 0.32); ctx.stroke(); ctx.setLineDash([]);
+      // 实际值
+      const ax = xOf(it.actual);
+      ctx.fillStyle = '#7f9bff'; ctx.beginPath(); ctx.arc(ax, y, 4, 0, Math.PI * 2); ctx.fill();
+      ctx.fillStyle = '#eaf2ff'; ctx.textAlign = 'left';
+      ctx.fillText(`${fmt(it.actual, it.unit === '%' ? 1 : 2)}${it.unit}`, Math.min(ax + 7, w - 60), y);
+    });
+  },
+  /** 工序能力矩阵：横向柱 + 等级色 + 1.33 参考线 */
+  capability(sel, items) {
+    const p = this._prep(sel); if (!p) return;
+    const { ctx, w, h } = p;
+    const padL = 84, padR = 16, padT = 10, padB = 8;
+    const cw = w - padL - padR, ch = h - padT - padB;
+    if (cw <= 0 || ch <= 0) return;
+    const mx = 2.0;
+    const rowH = ch / items.length;
+    ctx.font = '11px sans-serif'; ctx.textBaseline = 'middle';
+    items.forEach((it, i) => {
+      const y = padT + rowH * i + rowH / 2;
+      ctx.fillStyle = '#9fb3d1'; ctx.textAlign = 'left'; ctx.fillText(it.proc, 4, y);
+      ctx.fillStyle = 'rgba(80,140,210,.10)'; ctx.beginPath(); ctx.rect(padL, y - rowH * 0.26, cw, rowH * 0.52); ctx.fill();
+      const bw = cw * clamp(it.cpk / mx, 0, 1);
+      ctx.fillStyle = it.color; ctx.beginPath(); ctx.rect(padL, y - rowH * 0.26, bw, rowH * 0.52); ctx.fill();
+      const tx = padL + cw * 1.33 / mx;
+      ctx.strokeStyle = 'rgba(245,165,36,.7)'; ctx.lineWidth = 1; ctx.setLineDash([3, 3]);
+      ctx.beginPath(); ctx.moveTo(tx, y - rowH * 0.34); ctx.lineTo(tx, y + rowH * 0.34); ctx.stroke(); ctx.setLineDash([]);
+      ctx.fillStyle = '#eaf2ff'; ctx.textAlign = 'left'; ctx.fillText(fmt(it.cpk, 2), padL + bw + 6, y);
+    });
+  },
+};
+
+const KPI_DEFS = [
+  { key: 'currentVersion', label: '当前工艺版本', unit: '', get: (s) => s.currentVersion, sub: () => `主版本在产` },
+  { key: 'inUseVersions', label: '在产版本数', unit: '个', get: (s) => fmt(s.inUseVersions, 0), sub: () => `版本管控中` },
+  { key: 'paramCompliance', label: '参数合规率', unit: '%', get: (s) => fmt(s.paramCompliance, 1), sub: () => `目标 ≥95%` },
+  { key: 'avgCpk', label: '平均工序能力', unit: 'CPK', get: (s) => fmt(s.avgCpk, 2), sub: () => `全工序均值` },
+  { key: 'capableRate', label: '能力达标率', unit: '%', get: (s) => fmt(s.capableRate, 0), sub: () => `CPK≥1.33` },
+  { key: 'driftCount', label: '参数漂移', unit: '项', get: (s) => fmt(s.driftCount, 0), sub: () => `需复测` },
+  { key: 'switchToday', label: '今日版本切换', unit: '次', get: (s) => fmt(s.switchToday, 0), sub: () => `受控切换` },
+  { key: 'spcAnomaly', label: 'SPC 异常点', unit: '处', get: (s) => fmt(s.spcAnomaly, 0), sub: () => `控制图越限` },
+];
+
+const View = {
+  _timer: null,
+  init() {
+    MockSource.reset();
+    this.buildKpis();
+    this.buildRangeSegs();
+    this.bindEvents();
+    Store.dispatch({ type: 'TICK', snap: MockSource.tick() });
+    this.startTimer(); this.startClock(); this.fit();
+  },
+  buildKpis() {
+    $('#kpis').innerHTML = KPI_DEFS.map((d) => `
+      <div class="kpi ok" data-k="${d.key}">
+        <div class="lb">${d.label}</div>
+        <div class="vl"><span data-v>--</span><small>${d.unit}</small></div>
+        <div class="tr"><span data-s></span></div>
+      </div>`).join('');
+  },
+  buildRangeSegs() {
+    $('#range-seg').addEventListener('click', (e) => {
+      const b = e.target.closest('button'); if (!b) return;
+      $('#range-seg').querySelectorAll('button').forEach((x) => x.classList.toggle('active', x === b));
+      Store.dispatch({ type: 'RANGE', range: b.dataset.range });
+    });
+  },
+  bindEvents() {
+    Store.subscribe((s) => this.render(s));
+    window.addEventListener('resize', () => this.fit());
+  },
+  fit() {
+    const scale = Math.min(window.innerWidth / 1920, window.innerHeight / 1080);
+    document.documentElement.style.setProperty('--scale', scale);
+    const vp = $('#viewport');
+    vp.style.transform = `scale(${scale})`;
+    vp.style.left = `${(window.innerWidth - 1920 * scale) / 2}px`;
+    vp.style.top = `${(window.innerHeight - 1080 * scale) / 2}px`;
+  },
+  render(s) {
+    const snap = s.snap; if (!snap) return;
+    this.renderScore(snap);
+    this.renderKpis(snap);
+    this.renderVersionTable(snap);
+    this.renderCharts(s);
+    this.renderProcCards(snap);
+    $('#foot-update').textContent = `更新于 ${snap.time} · 第 ${s.tickCount} 次刷新`;
+  },
+  renderScore(snap) {
+    const lv = snap.avgCpk >= 1.5 ? { t: '工序能力良好', c: '#2ecc8f' }
+      : snap.avgCpk >= 1.33 ? { t: '基本达标', c: '#7f9bff' }
+      : { t: '需要提升', c: '#f5a524' };
+    $('#score-num').innerHTML = `${fmt(snap.avgCpk, 2)}<small> CPK</small>`;
+    $('#score-num').style.color = lv.c;
+    $('#score-lv').textContent = lv.t;
+    $('#score-lv').style.color = lv.c;
+    const concl = [];
+    concl.push(`<div class="row"><span class="dot" style="background:${lv.c}"></span>
+      <span><b>总体判断：${lv.t}</b>。平均工序能力 CPK ${fmt(snap.avgCpk, 2)}，能力达标率 ${snap.capableRate}%（CPK≥1.33），参数合规率 ${fmt(snap.paramCompliance, 1)}%。</span></div>`);
+    if (snap.driftCount > 0) concl.push(`<div class="row"><span class="dot" style="background:#f5a524"></span>
+      <span><b>${snap.driftCount} 项参数漂移</b>，已触发复测；今日受控版本切换 ${snap.switchToday} 次。</span></div>`);
+    else concl.push(`<div class="row"><span class="dot" style="background:#2ecc8f"></span><span>当前无参数漂移，工艺版本处于受控状态。</span></div>`);
+    const lowGrade = CPK.map((c, i) => ({ c, p: PROCESSES[i] })).filter((x) => x.c < 1.33).sort((a, b) => a.c - b.c);
+    if (lowGrade.length) concl.push(`<div class="row"><span class="dot" style="background:#f4544c"></span>
+      <span>工序能力待提升：${lowGrade.map((x) => `${x.p}(${fmt(x.c, 2)})`).join('、')}，建议优先整改。</span></div>`);
+    else concl.push(`<div class="row"><span class="dot" style="background:#35c6d4"></span><span>全部工序 CPK≥1.33，工艺能力满足批量稳定生产要求。</span></div>`);
+    $('#concl').innerHTML = concl.join('');
+  },
+  renderKpis(snap) {
+    KPI_DEFS.forEach((d) => {
+      const card = $(`.kpi[data-k="${d.key}"]`); if (!card) return;
+      card.querySelector('[data-v]').textContent = d.get(snap);
+      card.querySelector('[data-s]').textContent = d.sub(snap);
+      const lv = (d.key === 'paramCompliance') ? (snap.paramCompliance >= 95 ? 'ok' : 'warn')
+        : (d.key === 'avgCpk') ? (snap.avgCpk >= 1.33 ? 'ok' : 'warn')
+        : (d.key === 'driftCount' || d.key === 'spcAnomaly') ? (snap[d.key] > 0 ? 'warn' : 'ok') : 'ok';
+      card.classList.toggle('warn', lv === 'warn');
+      card.classList.toggle('crit', lv === 'crit');
+      card.classList.toggle('ok', lv === 'ok');
+    });
+  },
+  renderVersionTable(snap) {
+    $('#ver-cnt').textContent = `v2.3 在产`;
+    const rows = VERSION_COMPARE.map((r) => {
+      const delta = r.v2 - r.v1;
+      const cls = delta > 0 ? 'up' : delta < 0 ? 'down' : 'flat';
+      return `<tr><td>${r.proc}</td><td>${r.param} (${r.unit})</td><td>${fmt(r.v1, r.unit === 'F' ? 0 : 2)}</td>
+        <td>${fmt(r.v2, r.unit === 'F' ? 0 : 2)}</td><td class="${cls}">${delta > 0 ? '+' : ''}${fmt(delta, r.unit === 'F' ? 0 : 2)}</td>
+        <td style="color:var(--t-lo)">${r.effect}</td></tr>`;
+    }).join('');
+    $('#vt').innerHTML = `<thead><tr><th>工序</th><th>关键参数</th><th>v2.2</th><th>v2.3</th><th>Δ</th><th>优化说明</th></tr></thead><tbody>${rows}</tbody>`;
+  },
+  renderCharts(s) {
+    const labels = MockSource.series(s.range, 'v1Yield').map((p) => p.label);
+    Chart.specband('#c-band', SPEC_BAND);
+    const capItems = CPK.map((c, i) => { const g = gradeOf(c); return { proc: PROCESSES[i], cpk: c, color: g.c }; });
+    Chart.capability('#c-cap', capItems);
+    Chart.dual('#c-ver',
+      { data: MockSource.series(s.range, 'v1Yield').map((p) => p.v), color: '#9fb3d1' },
+      { data: MockSource.series(s.range, 'v2Yield').map((p) => p.v), color: '#7f9bff' }, labels);
+    Chart.spc('#c-trend', s.snap.trend.data, s.snap.trend.CL, s.snap.trend.UCL, s.snap.trend.LCL, labels);
+  },
+  renderProcCards(snap) {
+    $('#proc-cards').innerHTML = CPK.map((c, i) => {
+      const g = gradeOf(c);
+      return `<div class="pc" style="border-left-color:${g.c}">
+        <div class="nm">${PROCESSES[i]}</div>
+        <div class="v" style="color:${g.c}">${fmt(c, 2)}</div>
+        <div class="g" style="background:${g.c}22;color:${g.c}">${g.g}</div>
+      </div>`;
+    }).join('');
+  },
+  startTimer() {
+    if (this._timer) clearInterval(this._timer);
+    this._timer = setInterval(() => Store.dispatch({ type: 'TICK', snap: MockSource.tick() }), 3000);
+  },
+  startClock() {
+    const upd = () => { const d = new Date(); $('#clock-t').textContent = hhmmss(d);
+      $('#clock-d').textContent = `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())} 星期${'日一二三四五六'[d.getDay()]}`; };
+    upd(); setInterval(upd, 1000);
+  },
+};
+
+document.addEventListener('DOMContentLoaded', () => View.init());
+</script>
+</body>
+</html>

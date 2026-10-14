@@ -49,6 +49,10 @@ public partial class MainForm
             "核心 / 汇聚 / 接入 / 终端 四层网络拓扑，展示节点在线状态与链路连通性。", "#35c6d4", "🌐"),
         ("trace-query.html", "批次追溯查询",
             "客户审厂工具：输入批次号秒级输出正向工艺链路与检验记录，点击物料批号反查投放范围。", "#7f77dd", "🔍"),
+        ("quality-twin.html", "质量孪生",
+            "质量追溯主线分析：全厂/产线良率、SPC 控制图、缺陷帕累托、良率热力、CAPA 闭环，客户审厂与质量申报核心视图。", "#e36fa0", "🔬"),
+        ("recipe-twin.html", "工艺/配方孪生",
+            "工艺参数版本管控：版本对比、关键工序参数偏移带、工序能力 CPK 矩阵、版本切换对良率影响。", "#7f9bff", "🧪"),
     };
 
     // 打开方式
@@ -83,7 +87,7 @@ public partial class MainForm
         var bar = new FlowLayoutPanel
         {
             Dock = DockStyle.Fill, AutoSize = true, AutoSizeMode = AutoSizeMode.GrowAndShrink,
-            FlowDirection = FlowDirection.LeftToRight, WrapContents = false
+            FlowDirection = FlowDirection.LeftToRight, WrapContents = true
         };
         bar.Controls.Add(new Label { Text = "打开方式：", AutoSize = true, Margin = new Padding(2, 7, 4, 0) });
 
@@ -174,7 +178,9 @@ public partial class MainForm
         var flow = new FlowLayoutPanel
         {
             Dock = DockStyle.Fill, FlowDirection = FlowDirection.LeftToRight,
-            WrapContents = false, AutoScroll = true
+            // 容器宽度不足时自动换行到下一行；容器尺寸变化（窗体缩放/分辨率变化）时
+            // FlowLayoutPanel 自动重算换行位置与排列顺序。纵向超出时由 AutoScroll 提供滚动。
+            WrapContents = true, AutoScroll = true
         };
 
         foreach (var (file, title, desc, color, icon) in TwinPages)
