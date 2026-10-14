@@ -1,0 +1,481 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>批次追溯查询 · 泰州超级电容智能工厂</title>
+<style>
+  :root {
+    --bg-0:#050b16; --bg-1:#0a1424; --bg-2:#0f1d31; --bg-3:#16273f;
+    --c-primary:#2f81f7; --c-primary-glow:rgba(47,129,247,.35);
+    --c-ok:#2ecc8f; --c-warn:#f5a524; --c-crit:#f4544c; --c-info:#35c6d4; --c-purple:#7f77dd;
+    --t-hi:#eaf2ff; --t-mid:#9fb3d1; --t-lo:#64789a; --t-dim:#3d4f6b;
+    --line:rgba(80,140,210,.16); --line-soft:rgba(80,140,210,.09);
+    --r-sm:4px; --r-md:8px; --r-lg:12px;
+    --shadow:0 4px 20px rgba(0,0,0,.45);
+    --scale:1;
+    --font:"HarmonyOS Sans SC","Microsoft YaHei",-apple-system,sans-serif;
+  }
+  *{margin:0;padding:0;box-sizing:border-box}
+  html,body{width:100%;height:100%;background:var(--bg-0);color:var(--t-hi);
+    font-family:var(--font);overflow:hidden;font-variant-numeric:tabular-nums}
+  #bg-deco{position:fixed;inset:0;z-index:0;pointer-events:none;
+    background:radial-gradient(ellipse 55% 40% at 30% -10%,rgba(47,129,247,.14),transparent 70%),
+               radial-gradient(ellipse 45% 40% at 95% 100%,rgba(53,198,212,.07),transparent 70%)}
+  #bg-grid{position:fixed;inset:0;z-index:0;pointer-events:none;opacity:.5;
+    background-image:linear-gradient(rgba(70,130,200,.055) 1px,transparent 1px),
+                     linear-gradient(90deg,rgba(70,130,200,.055) 1px,transparent 1px);
+    background-size:48px 48px}
+  #viewport{position:fixed;width:1920px;height:1080px;transform:translate(-50%,-50%);
+    left:50%;top:50%;transform-origin:center;z-index:1;
+    display:flex;flex-direction:column;padding:16px 20px;gap:12px}
+
+  .topbar{flex:0 0 auto;display:flex;align-items:center;gap:14px}
+  .topbar h1{font-size:21px;font-weight:600;letter-spacing:2px;
+    background:linear-gradient(90deg,#eaf2ff,#7fb3f0);-webkit-background-clip:text;-webkit-text-fill-color:transparent}
+  .topbar .sub{font-size:11.5px;color:var(--t-lo);letter-spacing:1px;margin-top:3px}
+  .demo-badge{font-size:10.5px;color:#ffd98a;background:rgba(245,165,36,.12);
+    border:1px solid rgba(245,165,36,.35);border-radius:99px;padding:3px 11px;letter-spacing:1px}
+  .back-link{margin-left:auto;font-size:12px;color:var(--c-info);text-decoration:none;
+    border:1px solid rgba(53,198,212,.35);background:rgba(53,198,212,.10);border-radius:var(--r-sm);padding:5px 12px}
+  .back-link:hover{background:rgba(53,198,212,.22);color:#fff}
+
+  .layout{flex:1 1 auto;min-height:0;display:grid;grid-template-columns:360px 1fr;gap:12px}
+
+  /* ---------- 左侧查询面板 ---------- */
+  .side{background:var(--bg-1);border:1px solid var(--line);border-radius:var(--r-lg);
+    box-shadow:var(--shadow);padding:16px;display:flex;flex-direction:column;gap:14px;overflow-y:auto;min-height:0}
+  .side h3{font-size:13.5px;font-weight:500;letter-spacing:1px;color:var(--t-hi);
+    display:flex;align-items:center;gap:7px}
+  .side h3::before{content:'';width:3px;height:13px;background:var(--c-primary);border-radius:2px}
+  .qbox{display:flex;gap:8px}
+  .qbox input{flex:1 1 auto;background:var(--bg-2);border:1px solid var(--line);border-radius:var(--r-md);
+    color:var(--t-hi);font-size:13px;padding:9px 12px;font-family:var(--font);outline:none;min-width:0}
+  .qbox input:focus{border-color:rgba(47,129,247,.55)}
+  .qbox input::placeholder{color:var(--t-dim)}
+  .qbox button{flex:0 0 auto;background:var(--c-primary);border:0;color:#fff;font-size:13px;
+    border-radius:var(--r-md);padding:0 18px;cursor:pointer;font-family:var(--font)}
+  .qbox button:hover{filter:brightness(1.12)}
+  .samples{display:flex;flex-direction:column;gap:6px}
+  .samples .tip{font-size:10.5px;color:var(--t-lo)}
+  .chip{display:flex;justify-content:space-between;align-items:center;background:var(--bg-2);
+    border:1px solid var(--line-soft);border-radius:var(--r-sm);padding:7px 10px;cursor:pointer;
+    font-size:12px;color:var(--t-mid);font-family:var(--font);text-align:left;width:100%}
+  .chip:hover{border-color:rgba(47,129,247,.45);color:var(--t-hi)}
+  .chip .tg{font-size:10px;padding:1px 7px;border-radius:99px}
+  .chip .tg.ok{background:rgba(46,204,143,.14);color:#7fe3c0}
+  .chip .tg.ng{background:rgba(244,84,76,.14);color:#ff9d97}
+  .help{font-size:11px;color:var(--t-lo);line-height:1.7}
+  .help b{color:var(--t-mid);font-weight:500}
+  .legend{display:flex;flex-direction:column;gap:5px;font-size:11px;color:var(--t-lo)}
+  .legend .it{display:flex;align-items:center;gap:7px}
+  .legend .sq{width:9px;height:9px;border-radius:2px}
+
+  /* ---------- 右侧结果区 ---------- */
+  .main{min-width:0;min-height:0;display:flex;flex-direction:column;gap:12px;overflow-y:auto}
+  .empty{flex:1 1 auto;background:var(--bg-1);border:1px dashed var(--line);border-radius:var(--r-lg);
+    display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px;color:var(--t-lo);min-height:0}
+  .empty .ic{font-size:40px;opacity:.5}
+  .empty .t1{font-size:15px;color:var(--t-mid)}
+  .empty .t2{font-size:12px;line-height:1.8;text-align:center;max-width:520px}
+
+  .card{background:var(--bg-1);border:1px solid var(--line);border-radius:var(--r-lg);
+    box-shadow:var(--shadow);overflow:hidden;flex:0 0 auto}
+  .card-head{display:flex;align-items:center;gap:10px;padding:11px 16px;
+    border-bottom:1px solid var(--line-soft);background:linear-gradient(90deg,rgba(47,129,247,.10),transparent 60%)}
+  .card-head .tt{font-size:14px;font-weight:500;letter-spacing:1px;display:flex;align-items:center;gap:7px}
+  .card-head .tt::before{content:'';width:3px;height:14px;background:var(--c-primary);border-radius:2px;
+    box-shadow:0 0 8px var(--c-primary-glow)}
+  .card-head .sp{flex:1}
+  .card-body{padding:14px 16px}
+
+  /* 批次头 */
+  .b-head{display:flex;gap:18px;align-items:flex-start}
+  .b-id{font-size:21px;font-weight:600;letter-spacing:1px}
+  .b-id small{display:block;font-size:11px;color:var(--t-lo);font-weight:400;margin-top:4px;letter-spacing:0}
+  .verdict{margin-left:auto;text-align:right}
+  .verdict .vb{display:inline-flex;align-items:center;gap:6px;font-size:14px;font-weight:500;
+    padding:6px 14px;border-radius:var(--r-md)}
+  .verdict .vb.ok{background:rgba(46,204,143,.13);color:#7fe3c0;border:1px solid rgba(46,204,143,.4)}
+  .verdict .vb.ng{background:rgba(244,84,76,.13);color:#ff9d97;border:1px solid rgba(244,84,76,.45)}
+  .verdict .vt{font-size:10.5px;color:var(--t-lo);margin-top:5px}
+  .b-meta{display:grid;grid-template-columns:repeat(6,1fr);gap:10px;margin-top:14px}
+  .b-meta .m{background:var(--bg-2);border:1px solid var(--line-soft);border-radius:var(--r-sm);padding:8px 11px}
+  .b-meta .m .k{font-size:10.5px;color:var(--t-lo)}
+  .b-meta .m .v{font-size:13.5px;margin-top:3px;font-weight:500}
+
+  /* 追溯时间线 */
+  .cols{display:grid;grid-template-columns:1.5fr 1fr;gap:12px;align-items:start}
+  .timeline{position:relative;padding-left:26px}
+  .timeline::before{content:'';position:absolute;left:9px;top:8px;bottom:8px;width:2px;
+    background:linear-gradient(180deg,var(--c-primary),rgba(47,129,247,.15));border-radius:2px}
+  .st{position:relative;padding:0 0 14px 0}
+  .st:last-child{padding-bottom:0}
+  .st .dot{position:absolute;left:-23px;top:4px;width:14px;height:14px;border-radius:50%;
+    background:var(--bg-2);border:2.5px solid var(--c-primary);box-shadow:0 0 0 3px rgba(47,129,247,.12)}
+  .st.ng .dot{border-color:var(--c-crit);box-shadow:0 0 0 3px rgba(244,84,76,.14)}
+  .st .hd{display:flex;align-items:baseline;gap:9px;flex-wrap:wrap}
+  .st .nm{font-size:14px;font-weight:500}
+  .st .tm{font-size:11px;color:var(--t-lo)}
+  .st .ins{margin-left:auto;font-size:10.5px;padding:2px 9px;border-radius:99px}
+  .st .ins.ok{background:rgba(46,204,143,.13);color:#7fe3c0}
+  .st .ins.ng{background:rgba(244,84,76,.13);color:#ff9d97}
+  .st .ins.na{background:rgba(80,140,210,.10);color:var(--t-lo)}
+  .st .dt{font-size:11px;color:var(--t-mid);margin-top:4px}
+  .st .params{display:flex;flex-wrap:wrap;gap:6px;margin-top:7px}
+  .st .params span{font-size:10.5px;color:var(--t-mid);background:var(--bg-2);
+    border:1px solid var(--line-soft);border-radius:var(--r-sm);padding:3px 8px}
+
+  /* 物料批次表 */
+  .mat-table{width:100%;border-collapse:collapse;font-size:12px}
+  .mat-table th{font-size:10.5px;color:var(--t-lo);font-weight:400;text-align:left;
+    padding:7px 9px;border-bottom:1px solid var(--line-soft)}
+  .mat-table td{padding:9px;border-bottom:1px solid rgba(80,140,210,.07);color:var(--t-mid)}
+  .mat-table tr:last-child td{border-bottom:0}
+  .mat-table .lot{color:var(--c-info);cursor:pointer;font-family:var(--font-mono, monospace)}
+  .mat-table .lot:hover{text-decoration:underline}
+  .mat-note{font-size:10.5px;color:var(--t-lo);margin-top:9px;line-height:1.6}
+
+  /* 质量闭环 */
+  .loop{display:flex;flex-direction:column;gap:9px}
+  .loop .step{display:flex;gap:10px;align-items:flex-start}
+  .loop .no{flex:0 0 auto;width:20px;height:20px;border-radius:50%;font-size:11px;font-weight:600;
+    display:flex;align-items:center;justify-content:center;background:rgba(244,84,76,.16);color:#ff9d97}
+  .loop .step.done .no{background:rgba(46,204,143,.14);color:#7fe3c0}
+  .loop .tx{font-size:12px;line-height:1.6;color:var(--t-mid)}
+  .loop .tx b{color:var(--t-hi);font-weight:500}
+
+  /* 反向追溯 */
+  .rev-head{display:flex;align-items:center;gap:12px;margin-bottom:4px}
+  .rev-head .lot{font-size:17px;font-weight:600;color:var(--c-info)}
+  .rev-head button{background:var(--bg-2);border:1px solid var(--line);color:var(--t-mid);font-size:11.5px;
+    border-radius:var(--r-sm);padding:5px 11px;cursor:pointer;font-family:var(--font)}
+  .rev-head button:hover{color:var(--t-hi);border-color:rgba(47,129,247,.45)}
+  .rev-list{display:flex;flex-direction:column;gap:8px;margin-top:10px}
+  .rev-item{display:flex;align-items:center;gap:12px;background:var(--bg-2);border:1px solid var(--line-soft);
+    border-radius:var(--r-sm);padding:9px 12px;cursor:pointer}
+  .rev-item:hover{border-color:rgba(47,129,247,.45)}
+  .rev-item .lot{font-size:13px;font-weight:500}
+  .rev-item .mt{font-size:11px;color:var(--t-lo);margin-top:2px}
+  .rev-item .vb{margin-left:auto;font-size:10.5px;padding:2px 9px;border-radius:99px}
+  .rev-item .vb.ok{background:rgba(46,204,143,.13);color:#7fe3c0}
+  .rev-item .vb.ng{background:rgba(244,84,76,.13);color:#ff9d97}
+
+  .notfound{background:var(--bg-1);border:1px dashed var(--line);border-radius:var(--r-lg);
+    padding:40px;text-align:center;color:var(--t-lo);font-size:13px;line-height:1.9}
+  .notfound b{color:var(--c-warn)}
+  .query-meta{font-size:10.5px;color:var(--t-dim);text-align:right}
+</style>
+</head>
+<body>
+<div id="bg-deco"></div>
+<div id="bg-grid"></div>
+<div id="viewport">
+  <div class="topbar">
+    <div>
+      <h1>批次追溯查询</h1>
+      <div class="sub">输入批次号 / 物料批号，秒级输出正向工艺链路与反向物料溯源 · 客户审厂演示工具</div>
+    </div>
+    <span class="demo-badge">演示数据 · 确定性模拟</span>
+    <a class="back-link" href="digital-twin-dashboard.html">← 返回运营大屏</a>
+  </div>
+
+  <div class="layout">
+    <!-- 左侧查询 -->
+    <div class="side">
+      <h3>追溯查询</h3>
+      <div class="qbox">
+        <input id="q-input" type="text" placeholder="输入批次号，如 LOT-20261010-L3-017" autocomplete="off" />
+        <button id="q-btn">查询</button>
+      </div>
+      <div class="samples" id="samples"></div>
+      <h3>追溯能力说明</h3>
+      <div class="help">
+        <b>正向追溯</b>：成品批次 → 工单 → 8 道工序（设备/人员/时间/关键工艺参数）→ 检验记录 → 物料批次。<br />
+        <b>反向追溯</b>：点击物料批号 → 该批物料用到的全部成品批次，用于缺陷召回范围界定。<br />
+        <b>质量闭环</b>：不合格批次的发现 → 隔离 → 处置 → 纠正措施全记录。
+      </div>
+      <h3>图例</h3>
+      <div class="legend">
+        <div class="it"><span class="sq" style="background:#2ecc8f"></span>检验合格 / 判定合格</div>
+        <div class="it"><span class="sq" style="background:#f4544c"></span>检验不合格 / 判定不合格</div>
+        <div class="it"><span class="sq" style="background:#64789a"></span>该工序无检验项</div>
+        <div class="it"><span class="sq" style="background:#35c6d4"></span>可点击的物料批号（反查）</div>
+      </div>
+    </div>
+
+    <!-- 右侧结果 -->
+    <div class="main" id="main">
+      <div class="empty" id="empty">
+        <div class="ic">⌕</div>
+        <div class="t1">输入批次号开始追溯</div>
+        <div class="t2">支持成品批次（LOT- 开头）与物料批号（如 YP- 开头）双向查询。<br />或点击左侧样例批次快速体验；不合格样例可查看完整质量闭环记录。</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+"use strict";
+/* ================= 数据：确定性模拟批次档案 ================= */
+const $ = (s) => document.querySelector(s);
+const fmt = (v, d = 1) => Number(v).toLocaleString('zh-CN', { minimumFractionDigits: d, maximumFractionDigits: d });
+
+const MODELS = ['SC-3000F-2.7V', 'SC-1200F-3.0V', 'SC-5000F-2.5V'];
+const LINES = ['L1 卷绕线', 'L2 涂布线', 'L3 装配线', 'L4 化成线'];
+const CREWS = ['甲班', '乙班', '丙班'];
+
+const STATION_TPL = [
+  { key: 'feed',  name: '投料',      params: () => [`原料批 YP-20261010-01`, '投料双人复核'], ins: () => null },
+  { key: 'coat',  name: '涂布',      params: () => [`涂布厚度 ${(126 + r2() * 6).toFixed(1)} g/m²`, `面密度偏差 ±${(0.8 + r2() * 0.6).toFixed(1)}%`], ins: () => ({ type: '首检', result: 'ok' }) },
+  { key: 'wind',  name: '卷绕',      params: () => [`张力 ${(11.5 + r2() * 2).toFixed(1)} N`, `对齐度 ±${(0.2 + r2() * 0.2).toFixed(2)} mm`], ins: () => ({ type: '过程检', result: 'ok' }) },
+  { key: 'assy',  name: '装配注液',  params: () => [`注液量 ${(8.2 + r2() * 0.8).toFixed(1)} g`, `装配压力 ${(0.35 + r2() * 0.1).toFixed(2)} MPa`], ins: () => ({ type: '过程检', result: 'ok' }) },
+  { key: 'form',  name: '化成',      params: () => [`化成电压 ${['2.5', '2.7', '3.0'][r2() * 3 | 0]} V`, `漏电流 <${(0.3 + r2() * 0.4).toFixed(1)} mA`], ins: () => ({ type: '过程检', result: 'ok' }) },
+  { key: 'test',  name: '检测',      params: () => [`容量 ${fmt(2800 + r2() * 400, 0)} F`, `内阻 ${(0.38 + r2() * 0.12).toFixed(2)} mΩ`, `自放电 ${(3.6 + r2() * 1.2).toFixed(1)}%`], ins: () => ({ type: '终检', result: 'ok' }) },
+  { key: 'age',   name: '老化',      params: () => [`老化温度 45℃`, `时长 24 h`, `温升 ≤3℃`], ins: () => null },
+  { key: 'pack',  name: '包装入库',  params: () => [`喷码完成`, `入库位 A3-0${1 + (r2() * 8 | 0)}`], ins: () => ({ type: '出货检', result: 'ok' }) },
+];
+let _seed = 77123;
+function r2() { _seed = (_seed * 1103515245 + 12345) >>> 0; return (_seed >>> 8) / 16777216; }
+
+const MATERIALS = [
+  { name: '活性炭 YP-17F', supplier: '南平元力' },
+  { name: '电解液 TEABF4', supplier: '苏州华赢' },
+  { name: '隔膜纤维素纸', supplier: '日本高度纸' },
+  { name: '铝箔集流体', supplier: '鼎胜新材' },
+  { name: '钢壳外壳', supplier: '中铝铝业' },
+];
+
+/** 生成批次档案（确定性：同 seed 同结果） */
+function buildBatches() {
+  _seed = 77123;
+  const out = [];
+  const ngIdx = new Set([2, 5]);                       // 两个不合格样例，用于演示质量闭环
+  for (let i = 0; i < 8; i++) {
+    const day = 8 + (i % 5);
+    const line = LINES[i % 4];
+    const model = MODELS[i % 3];
+    const lot = `LOT-202610${pad2(day)}-${line.slice(0, 2)}-${pad2(i * 7 + 3)}`;
+    const wo = `MO-202610${pad2(day)}-${pad2(100 + i)}`;
+    const qty = 480 + Math.floor(r2() * 4) * 20;
+    const ng = ngIdx.has(i);
+    const baseMin = 8 * 60;    const stations = STATION_TPL.map((t, si) => {
+      const t0 = baseMin + si * 52 + Math.floor(r2() * 14);
+      const ins = t.ins();
+      const insResult = ins ? (ng && si === 5 ? 'ng' : ins.result) : null;
+      return {
+        key: t.key, name: t.name,
+        time: `${hhmm(t0)} ~ ${hhmm(t0 + 40 + Math.floor(r2() * 20))}`,
+        device: `${line.slice(0, 2)}-${t.key.toUpperCase()}-${pad2(1 + Math.floor(r2() * 8))}`,
+        crew: CREWS[Math.floor(r2() * 3)],
+        params: t.params(),
+        inspection: ins ? { type: ins.type, result: insResult, by: `IPQC-${pad2(1 + Math.floor(r2() * 4))}` } : null,
+      };
+    });
+    const materials = MATERIALS.map((m, mi) => ({
+      name: m.name, supplier: m.supplier,
+      lot: `${m.name.includes('活性炭') ? 'YP' : m.name.includes('电解液') ? 'EL' : m.name.includes('隔膜') ? 'GS' : m.name.includes('铝箔') ? 'LF' : 'WK'}-202610${pad2(6 + mi)}-0${1 + Math.floor(r2() * 3)}`,
+      usage: fmt(80 + r2() * 160, 0) + ' kg',
+    }));
+    const b = {
+      lot, wo, model, qty, line,
+      status: ng ? '已完工（不合格）' : '已完工',
+      verdict: ng ? 'ng' : 'ok',
+      finishedAt: `2026-10-${pad2(day)} ${hhmm(baseMin + 8 * 52 + 30)}`,
+      stations, materials,
+      defect: ng ? {
+        found: '终检容量测试 2 只样本低于规格下限 2700 F，判定批不合格',
+        isolated: `${qty - 20} 只全部隔离至 NCR 区（NCR-2026-0${i}）`,
+        disposed: `返工：重新老化 24 h 后复测，${qty - 26} 只复测合格放行，26 只报废`,
+        corrected: '纠正措施：化成工序充电参数由 0.5C 调整为 0.45C；班组长复核记录；连续 3 批加严抽检',
+        closed: true,
+      } : null,
+    };
+    out.push(b);
+  }
+  return out;
+}
+function pad2(n) { return String(n).padStart(2, '0'); }
+function hhmm(mins) { return `${pad2(Math.floor(mins / 60) % 24)}:${pad2(mins % 60)}`; }
+
+const BATCHES = buildBatches();
+
+/* ================= 查询与渲染 ================= */
+const Trace = {
+  mode: 'forward',   // forward | reverse
+  curLot: null,
+
+  init() {
+    this.renderSamples();
+    $('#q-btn').addEventListener('click', () => this.query($('#q-input').value.trim()));
+    $('#q-input').addEventListener('keydown', (e) => { if (e.key === 'Enter') this.query($('#q-input').value.trim()); });
+  },
+
+  renderSamples() {
+    $('#samples').innerHTML = '<div class="tip">样例批次（点击直接查询）：</div>' + BATCHES.slice(0, 6).map((b) => `
+      <button class="chip" data-lot="${b.lot}">
+        <span>${b.lot}</span>
+        <span class="tg ${b.verdict}">${b.verdict === 'ok' ? '合格' : '不合格'}</span>
+      </button>`).join('') +
+      `<button class="chip" data-lot="${BATCHES[0].materials[0].lot}">
+        <span>${BATCHES[0].materials[0].lot}（物料反查）</span>
+        <span class="tg ok">反向</span>
+      </button>`;
+    $('#samples').addEventListener('click', (e) => {
+      const c = e.target.closest('.chip'); if (!c) return;
+      $('#q-input').value = c.dataset.lot;
+      this.query(c.dataset.lot);
+    });
+  },
+
+  query(kw) {
+    if (!kw) { this.renderNotFound(''); return; }
+    const key = kw.toUpperCase();
+    // 先按成品批次查
+    const batch = BATCHES.find((b) => b.lot.toUpperCase() === key)
+      || BATCHES.find((b) => b.lot.toUpperCase().includes(key));
+    if (batch) { this.mode = 'forward'; this.curLot = batch.lot; this.renderForward(batch); return; }
+    // 再按物料批号反查
+    const matBatches = BATCHES.filter((b) => b.materials.some((m) => m.lot.toUpperCase().includes(key)));
+    if (matBatches.length) { this.mode = 'reverse'; this.renderReverse(key, matBatches); return; }
+    this.renderNotFound(kw);
+  },
+
+  renderNotFound(kw) {
+    $('#main').innerHTML = `<div class="notfound">
+      未找到与 <b>${esc(kw || '（空）')}</b> 匹配的档案。<br />
+      请确认编号格式：成品批次 LOT-YYYYMMDD-线别-序号；物料批号 YP-/EL-/GS-/LF-/WK- 开头。<br />
+      可点击左侧样例批次快速体验。</div>`;
+  },
+
+  /* ---------- 正向追溯 ---------- */
+  renderForward(b) {
+    const okCnt = b.stations.filter((s) => s.inspection && s.inspection.result === 'ok').length;
+    const ngCnt = b.stations.filter((s) => s.inspection && s.inspection.result === 'ng').length;
+    $('#main').innerHTML = `
+      <div class="card">
+        <div class="card-head"><div class="tt">批次档案 · 正向追溯</div><div class="sp"></div>
+          <span class="query-meta">查询耗时 &lt; 1s · 档案版本 v1.3</span></div>
+        <div class="card-body">
+          <div class="b-head">
+            <div class="b-id">${b.lot}<small>工单 ${b.wo} · ${b.line}</small></div>
+            <div class="verdict">
+              <span class="vb ${b.verdict}">${b.verdict === 'ok' ? '✓ 质量合格' : '✗ 质量不合格'}</span>
+              <div class="vt">判定依据：终检 + 出货检记录</div>
+            </div>
+          </div>
+          <div class="b-meta">
+            <div class="m"><div class="k">产品型号</div><div class="v">${b.model}</div></div>
+            <div class="m"><div class="k">批次数量</div><div class="v">${fmt(b.qty, 0)} 只</div></div>
+            <div class="m"><div class="k">完工时间</div><div class="v">${b.finishedAt}</div></div>
+            <div class="m"><div class="k">工序记录</div><div class="v">${b.stations.length} 道 · 全记录</div></div>
+            <div class="m"><div class="k">检验项</div><div class="v">${okCnt} 合格${ngCnt ? ` / ${ngCnt} 不合格` : ''}</div></div>
+            <div class="m"><div class="k">物料批次</div><div class="v">${b.materials.length} 项可反查</div></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="cols">
+        <div class="card">
+          <div class="card-head"><div class="tt">工艺链路（正向）</div><div class="sp"></div>
+            <span class="query-meta">设备 / 班组 / 时间 / 参数 / 检验</span></div>
+          <div class="card-body">
+            <div class="timeline">
+              ${b.stations.map((s) => `
+                <div class="st ${s.inspection && s.inspection.result === 'ng' ? 'ng' : ''}">
+                  <span class="dot"></span>
+                  <div class="hd">
+                    <span class="nm">${s.name}</span>
+                    <span class="tm">${s.time}</span>
+                    <span class="ins ${s.inspection ? (s.inspection.result === 'ok' ? 'ok' : 'ng') : 'na'}">${
+                      s.inspection ? `${s.inspection.type} · ${s.inspection.result === 'ok' ? '合格' : '不合格'}` : '无检验项'}</span>
+                  </div>
+                  <div class="dt">设备 ${s.device} · ${s.crew}${s.inspection ? ` · 检验人 ${s.inspection.by}` : ''}</div>
+                  <div class="params">${s.params.map((p) => `<span>${p}</span>`).join('')}</div>
+                </div>`).join('')}
+            </div>
+          </div>
+        </div>
+
+        <div style="display:flex;flex-direction:column;gap:12px;min-width:0">
+          <div class="card">
+            <div class="card-head"><div class="tt">物料批次（点击反查）</div></div>
+            <div class="card-body" style="padding:6px 10px">
+              <table class="mat-table">
+                <thead><tr><th>物料</th><th>批次号</th><th>供应商</th><th>用量</th></tr></thead>
+                <tbody>
+                  ${b.materials.map((m) => `
+                    <tr>
+                      <td>${m.name}</td>
+                      <td><span class="lot" data-lot="${m.lot}">${m.lot}</span></td>
+                      <td>${m.supplier}</td>
+                      <td>${m.usage}</td>
+                    </tr>`).join('')}
+                </tbody>
+              </table>
+              <div class="mat-note">点击任意物料批号，可反查该批物料用到的全部成品批次（缺陷召回范围界定）。</div>
+            </div>
+          </div>
+          ${b.defect ? `
+          <div class="card">
+            <div class="card-head"><div class="tt" style="color:#ff9d97">质量闭环记录</div><div class="sp"></div>
+              <span class="query-meta">NCR 已关闭</span></div>
+            <div class="card-body">
+              <div class="loop">
+                <div class="step done"><span class="no">1</span><span class="tx"><b>发现：</b>${b.defect.found}</span></div>
+                <div class="step done"><span class="no">2</span><span class="tx"><b>隔离：</b>${b.defect.isolated}</span></div>
+                <div class="step done"><span class="no">3</span><span class="tx"><b>处置：</b>${b.defect.disposed}</span></div>
+                <div class="step done"><span class="no">4</span><span class="tx"><b>纠正：</b>${b.defect.corrected}</span></div>
+              </div>
+            </div>
+          </div>` : ''}
+        </div>
+      </div>`;
+    // 物料批号点击 → 反向追溯
+    $('#main').querySelectorAll('.mat-table .lot').forEach((el) =>
+      el.addEventListener('click', () => this.query(el.dataset.lot)));
+  },
+
+  /* ---------- 反向追溯 ---------- */
+  renderReverse(matLot, batches) {
+    const matName = batches[0].materials.find((m) => m.lot === matLot)?.name || matLot;
+    const supplier = batches[0].materials.find((m) => m.lot === matLot)?.supplier || '';
+    $('#main').innerHTML = `
+      <div class="card">
+        <div class="card-head"><div class="tt">反向追溯 · 物料投放范围</div><div class="sp"></div>
+          <span class="query-meta">命中 ${batches.length} 个成品批次</span></div>
+        <div class="card-body">
+          <div class="rev-head">
+            <span class="lot">${matLot}</span>
+            <span style="font-size:12px;color:var(--t-mid)">${matName}${supplier ? ` · ${supplier}` : ''}</span>
+            <button id="rev-back">← 返回正向追溯</button>
+          </div>
+          <div style="font-size:11.5px;color:var(--t-lo);line-height:1.7;margin-top:6px">
+            该批物料投放于以下成品批次。若来料检验不合格，可据此界定召回范围并逐批冻结。
+          </div>
+          <div class="rev-list">
+            ${batches.map((b) => `
+              <div class="rev-item" data-lot="${b.lot}">
+                <div><div class="lot">${b.lot}</div>
+                  <div class="mt">${b.model} · ${fmt(b.qty, 0)} 只 · ${b.line} · ${b.finishedAt}</div></div>
+                <span class="vb ${b.verdict}">${b.verdict === 'ok' ? '合格' : '不合格'}</span>
+              </div>`).join('')}
+          </div>
+        </div>
+      </div>`;
+    $('#rev-back').addEventListener('click', () => {
+      const last = this.curLot && BATCHES.find((b) => b.lot === this.curLot);
+      if (last) { this.renderForward(last); $('#q-input').value = last.lot; }
+      else this.renderNotFound('');
+    });
+    $('#main').querySelectorAll('.rev-item').forEach((el) =>
+      el.addEventListener('click', () => this.query(el.dataset.lot)));
+  },
+};
+
+function esc(s) { return String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c])); }
+
+document.addEventListener('DOMContentLoaded', () => Trace.init());
+</script>
+</body>
+</html>

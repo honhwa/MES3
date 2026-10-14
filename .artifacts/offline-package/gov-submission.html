@@ -1,0 +1,310 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>政府申报版 · 智能工厂建设成效 · 泰州超级电容智能工厂</title>
+<style>
+  :root {
+    --bg-0:#050b16; --bg-1:#0a1424; --bg-2:#0f1d31; --bg-3:#16273f;
+    --c-primary:#2f81f7; --c-primary-glow:rgba(47,129,247,.35);
+    --c-ok:#2ecc8f; --c-warn:#f5a524; --c-crit:#f4544c; --c-info:#35c6d4; --c-purple:#7f77dd;
+    --t-hi:#eaf2ff; --t-mid:#9fb3d1; --t-lo:#64789a; --t-dim:#3d4f6b;
+    --line:rgba(80,140,210,.16); --line-soft:rgba(80,140,210,.09);
+    --r-sm:4px; --r-md:8px; --r-lg:12px;
+    --shadow:0 4px 20px rgba(0,0,0,.45);
+    --scale:1;
+    --font:"HarmonyOS Sans SC","Microsoft YaHei",-apple-system,sans-serif;
+  }
+  *{margin:0;padding:0;box-sizing:border-box}
+  html,body{width:100%;height:100%;background:var(--bg-0);color:var(--t-hi);
+    font-family:var(--font);overflow:hidden;font-variant-numeric:tabular-nums}
+  #bg-deco{position:fixed;inset:0;z-index:0;pointer-events:none;
+    background:radial-gradient(ellipse 55% 40% at 25% -10%,rgba(127,119,221,.14),transparent 70%),
+               radial-gradient(ellipse 45% 40% at 95% 100%,rgba(47,129,247,.08),transparent 70%)}
+  #bg-grid{position:fixed;inset:0;z-index:0;pointer-events:none;opacity:.5;
+    background-image:linear-gradient(rgba(70,130,200,.055) 1px,transparent 1px),
+                     linear-gradient(90deg,rgba(70,130,200,.055) 1px,transparent 1px);
+    background-size:48px 48px}
+  #viewport{position:fixed;width:1920px;height:1080px;transform:translate(-50%,-50%);
+    left:50%;top:50%;transform-origin:center;z-index:1;
+    display:flex;flex-direction:column;padding:16px 20px;gap:11px;overflow:hidden}
+
+  .topbar{flex:0 0 auto;display:flex;align-items:center;gap:14px}
+  .topbar h1{font-size:21px;font-weight:600;letter-spacing:2px;
+    background:linear-gradient(90deg,#eaf2ff,#b3aef0);-webkit-background-clip:text;-webkit-text-fill-color:transparent}
+  .topbar .sub{font-size:11.5px;color:var(--t-lo);letter-spacing:1px;margin-top:3px}
+  .demo-badge{font-size:10.5px;color:#ffd98a;background:rgba(245,165,36,.12);
+    border:1px solid rgba(245,165,36,.35);border-radius:99px;padding:3px 11px;letter-spacing:1px}
+  .back-link{margin-left:auto;font-size:12px;color:var(--c-info);text-decoration:none;
+    border:1px solid rgba(53,198,212,.35);background:rgba(53,198,212,.10);border-radius:var(--r-sm);padding:5px 12px}
+  .back-link:hover{background:rgba(53,198,212,.22);color:#fff}
+
+  .cols{flex:1 1 auto;min-height:0;display:grid;grid-template-columns:430px 1fr;gap:12px}
+  .col{display:flex;flex-direction:column;gap:12px;min-height:0}
+  .card{background:var(--bg-1);border:1px solid var(--line);border-radius:var(--r-lg);
+    box-shadow:var(--shadow);display:flex;flex-direction:column;min-height:0;overflow:hidden}
+  .card.flex{flex:1 1 auto}
+  .card-head{flex:0 0 auto;display:flex;align-items:center;gap:8px;padding:10px 14px;
+    border-bottom:1px solid var(--line-soft);background:linear-gradient(90deg,rgba(127,119,221,.10),transparent 60%)}
+  .card-head .tt{font-size:14px;font-weight:500;letter-spacing:1px;display:flex;align-items:center;gap:7px}
+  .card-head .tt::before{content:'';width:3px;height:14px;background:var(--c-purple);border-radius:2px}
+  .card-head .sp{flex:1}
+  .card-head .hint{font-size:10.5px;color:var(--t-lo)}
+  .card-body{flex:1 1 auto;min-height:0;padding:12px 14px;overflow-y:auto;display:flex;flex-direction:column;gap:10px}
+
+  /* 培育梯度 */
+  .ladder{display:flex;flex-direction:column;gap:9px}
+  .rung{position:relative;background:var(--bg-2);border:1px solid var(--line-soft);
+    border-left:3px solid var(--t-dim);border-radius:var(--r-sm);padding:9px 12px;cursor:default}
+  .rung .lv{display:flex;align-items:center;gap:9px}
+  .rung .nm{font-size:13.5px;font-weight:500}
+  .rung .pos{font-size:10px;padding:1.5px 8px;border-radius:99px;margin-left:auto}
+  .rung .ds{font-size:10.5px;color:var(--t-lo);margin-top:5px;line-height:1.6}
+  .rung.cur{border-left-color:var(--c-purple);background:rgba(127,119,221,.08)}
+  .rung.cur .pos{background:rgba(127,119,221,.16);color:#cfc9f5}
+  .rung.plan{border-left-color:var(--t-dim);opacity:.72}
+  .rung.plan .pos{background:rgba(80,140,210,.12);color:var(--t-lo)}
+
+  /* CMMM 能力域 */
+  .dom{display:flex;flex-direction:column;gap:4px}
+  .dom .top{display:flex;align-items:center;gap:8px;font-size:12.5px}
+  .dom .top .lv{margin-left:auto;font-size:10.5px;color:var(--t-mid)}
+  .dom .track{height:7px;background:rgba(80,140,210,.12);border-radius:99px;position:relative;overflow:hidden}
+  .dom .track i{position:absolute;left:0;top:0;bottom:0;border-radius:99px}
+  .dom .ticks{display:flex;justify-content:space-between;font-size:9px;color:var(--t-dim)}
+  .dom .tick{width:1px;height:4px;background:var(--t-dim);margin-top:2px}
+  .lv-explain{flex:0 0 auto;font-size:11px;color:var(--t-mid);background:rgba(127,119,221,.10);
+    border:1px solid rgba(127,119,221,.35);border-radius:var(--r-sm);padding:8px 11px;line-height:1.65}
+  .lv-explain b{color:#cfc9f5;font-weight:500}
+
+  /* 指标达成度 */
+  .ind{display:flex;flex-direction:column;gap:6px;background:var(--bg-2);border:1px solid var(--line-soft);
+    border-radius:var(--r-sm);padding:9px 11px}
+  .ind .r1{display:flex;align-items:center;gap:9px}
+  .ind .nm{font-size:12.5px}
+  .ind .info{margin-left:auto;color:var(--t-lo);cursor:pointer;font-size:13px;border:0;background:none;padding:0 2px}
+  .ind .info:hover{color:var(--c-info)}
+  .ind .val{font-size:14px;font-weight:500}
+  .ind .val small{font-size:10px;color:var(--t-lo);font-weight:400;margin-left:2px}
+  .ind .r2{display:flex;align-items:center;gap:9px;font-size:10.5px;color:var(--t-lo)}
+  .ind .st{font-size:10px;padding:1.5px 8px;border-radius:99px;margin-left:auto}
+  .ind .st.ok{background:rgba(46,204,143,.13);color:#7fe3c0}
+  .ind .st.build{background:rgba(245,165,36,.13);color:#ffce6b}
+  .ind .st.plan{background:rgba(80,140,210,.12);color:var(--t-mid)}
+  .ind .meter{height:5px;background:rgba(80,140,210,.12);border-radius:99px;overflow:hidden}
+  .ind .meter i{display:block;height:100%;border-radius:99px}
+  .ind .caliber{display:none;font-size:10.5px;color:var(--t-mid);background:rgba(47,129,247,.07);
+    border:1px dashed rgba(47,129,247,.30);border-radius:var(--r-sm);padding:7px 9px;line-height:1.65}
+  .ind .caliber.open{display:block}
+  .ind .caliber b{color:var(--t-hi);font-weight:500}
+
+  /* 场景清单 */
+  .scene{display:flex;gap:10px;background:var(--bg-2);border:1px solid var(--line-soft);
+    border-radius:var(--r-sm);padding:9px 11px;align-items:flex-start}
+  .scene .ic{flex:0 0 auto;width:28px;height:28px;border-radius:var(--r-sm);display:flex;align-items:center;
+    justify-content:center;font-size:14px;background:rgba(127,119,221,.14)}
+  .scene .tx{flex:1 1 auto;min-width:0}
+  .scene .nm{font-size:12.5px;font-weight:500}
+  .scene .ds{font-size:10.5px;color:var(--t-lo);margin-top:3px;line-height:1.55}
+  .scene .gain{font-size:11px;color:#7fe3c0;margin-top:4px}
+  .scene .st{flex:0 0 auto;font-size:10px;padding:1.5px 8px;border-radius:99px;height:fit-content}
+  .scene .st.on{background:rgba(46,204,143,.13);color:#7fe3c0}
+  .scene .st.build{background:rgba(245,165,36,.13);color:#ffce6b}
+  .scene .st.plan{background:rgba(80,140,210,.12);color:var(--t-mid)}
+
+  .foot{flex:0 0 auto;font-size:10px;color:var(--t-dim);line-height:1.7;text-align:center}
+</style>
+</head>
+<body>
+<div id="bg-deco"></div>
+<div id="bg-grid"></div>
+<div id="viewport">
+  <div class="topbar">
+    <div>
+      <h1>智能工厂建设成效 · 政府申报版</h1>
+      <div class="sub">梯度培育对标 · CMMM 能力域自评 · 指标达成度与口径 · 智能化场景量化收益</div>
+    </div>
+    <span class="demo-badge">演示数据 · 自评口径</span>
+    <a class="back-link" href="digital-twin-dashboard.html">← 返回运营大屏</a>
+  </div>
+
+  <div class="cols">
+    <!-- 左列 -->
+    <div class="col">
+      <div class="card flex">
+        <div class="card-head"><div class="tt">智能工厂梯度培育对标</div><div class="sp"></div>
+          <span class="hint">依据梯度培育行动划分</span></div>
+        <div class="card-body">
+          <div class="ladder" id="ladder"></div>
+        </div>
+      </div>
+      <div class="card" style="flex:0 0 auto">
+        <div class="card-head"><div class="tt">系统覆盖范畴</div><div class="sp"></div>
+          <span class="hint">以 MES 为核心自研建设</span></div>
+        <div class="card-body" style="gap:7px" id="systems"></div>
+      </div>
+    </div>
+
+    <!-- 右列 -->
+    <div class="col">
+      <div class="card flex">
+        <div class="card-head"><div class="tt">CMMM 能力域成熟度（自评）</div><div class="sp"></div>
+          <span class="hint">L1 规划级 → L5 引领级 · 点击等级查看说明</span></div>
+        <div class="card-body" id="domains"></div>
+        <div class="lv-explain" id="lv-explain">点击任一能力域查看等级定义。<b>CMMM 能力等级：</b>L1 规划级 → L2 规范级 → L3 集成级 → L4 优化级 → L5 引领级。</div>
+      </div>
+      <div class="card" style="flex:1.15 1 0">
+        <div class="card-head"><div class="tt">核心指标达成度</div><div class="sp"></div>
+          <span class="hint">点击 ⓘ 查看统计口径</span></div>
+        <div class="card-body" id="indicators" style="gap:8px"></div>
+      </div>
+      <div class="card" style="flex:1 1 0">
+        <div class="card-head"><div class="tt">智能化场景与量化收益</div><div class="sp"></div>
+          <span class="hint">达成 / 在建 / 规划分层表述</span></div>
+        <div class="card-body" id="scenes" style="gap:8px"></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="foot">
+    本页为演示原型，等级定位与能力域成熟度为自评演示口径；正式申报以评价机构发布的评价细则及现场评审结论为准。
+    碳排放数据口径：速率 =（运行 ? 额定功率×负荷率 : 待机功率）× 电网排放因子，因子按年度版本化管理。
+  </div>
+</div>
+
+<script>
+"use strict";
+const $ = (s) => document.querySelector(s);
+/* ================= 培育梯度 ================= */
+const LADDER = [
+  { name: '领航级', pos: '远期目标', ds: '在全国范围具有引领示范作用，智能制造应用水平处于行业最前沿', cls: 'plan' },
+  { name: '卓越级', pos: '下一步申报目标', ds: '智能制造应用水平国内领先，核心指标行业标杆，具备广泛辐射带动作用', cls: 'plan' },
+  { name: '先进级', pos: '当前建设阶段', ds: '智能制造应用水平省内领先，核心场景全覆盖，指标达成并持续优化', cls: 'cur' },
+  { name: '基础级', pos: '已建成', ds: '核心业务环节实现数字化覆盖，关键数据可采集、可追溯', cls: 'plan' },
+];
+$('#ladder').innerHTML = LADDER.map((r) => `
+  <div class="rung ${r.cls}">
+    <div class="lv"><span class="nm">${r.name}智能工厂</span><span class="pos">${r.pos}</span></div>
+    <div class="ds">${r.ds}</div>
+  </div>`).join('');
+
+/* ================= CMMM 能力域 ================= */
+const LEVELS = ['L1', 'L2', 'L3', 'L4', 'L5'];
+const LEVEL_DESC = {
+  L1: '规划级：具备信息化基础，开始规划智能化建设',
+  L2: '规范级：核心业务流程规范化、数据化',
+  L3: '集成级：跨环节数据集成，核心场景闭环管理',
+  L4: '优化级：数据驱动优化，模型辅助决策',
+  L5: '引领级：智能化应用行业引领，模式创新',
+};
+const DOMAINS = [
+  { name: '生产作业', lv: 3.6, note: '过站防呆、工艺参数版本管控、批次追溯全覆盖' },
+  { name: '设备管理', lv: 3.4, note: '点检保养电子化、故障闭环、OEE 实时统计' },
+  { name: '数据', lv: 3.5, note: '主数据统一、数据质量监控、数据资产目录' },
+  { name: '集成', lv: 3.2, note: 'MES 与 ERP/SCADA/EMS 集成，接口标准化' },
+  { name: '计划调度', lv: 3.3, note: '有限能力排产、齐套检查、插单模拟' },
+  { name: '工艺设计', lv: 2.8, note: '工艺参数结构化管控，设计数据电子化' },
+  { name: '质量管控（过程）', lv: 3.5, note: '首检/过程检/终检电子化，不合格品闭环' },
+  { name: '能源管理', lv: 3.4, note: '能耗分项计量、碳排核算、节电分析' },
+  { name: '安全环保', lv: 3.0, note: '危化品流程管控、环保指标监测' },
+  { name: '人员技能', lv: 2.9, note: '岗位技能矩阵、电子作业指导、培训档案' },
+];
+$('#domains').innerHTML = DOMAINS.map((d) => {
+  const lv = Math.round(d.lv * 10) / 10;
+  const pct = (d.lv / 5) * 100;
+  const color = d.lv >= 3.5 ? '#2ecc8f' : d.lv >= 3 ? '#f5a524' : '#7f77dd';
+  return `<div class="dom" data-lv="${lv}">
+    <div class="top"><span>${d.name}</span><span class="lv">L${lv.toFixed(1)} · ${d.note}</span></div>
+    <div class="track"><i style="width:${pct}%;background:${color}"></i></div>
+    <div class="ticks">${LEVELS.map((l) => `<span>${l}</span>`).join('')}</div>
+  </div>`;
+}).join('');
+$('#domains').addEventListener('click', (e) => {
+  const d = e.target.closest('.dom'); if (!d) return;
+  const lv = d.dataset.lv;
+  const kn = Math.floor(+lv);
+  const key = 'L' + kn;
+  const nm = d.querySelector('.top span').textContent;
+  $('#lv-explain').innerHTML = `<b>${nm}</b>：自评 L${(+lv).toFixed(1)}（介于 ${key} 与 L${Math.min(5, kn + 1)} 之间）<br />`
+    + `<b>${key} ${LEVEL_DESC[key]}</b>　·　注：自评口径供演示，正式以评价机构评审为准。`;
+});
+
+/* ================= 指标达成度 ================= */
+const INDICATORS = [
+  { name: '关键设备联网率', val: '96.8', unit: '%', target: '≥95%', pct: 96.8, st: 'ok',
+    caliber: '统计口径：具备数据采集条件的产线设备（PLC / 传感器可通信）中，已实现在线采集的占比。数据来源：设备联网清单月度盘点。' },
+  { name: '生产过程可追溯率', val: '100', unit: '%', target: '100%', pct: 100, st: 'ok',
+    caliber: '统计口径：已完工批次中，工艺参数、检验记录、物料批次三项档案完整的占比。抽样方法：每月随机抽 30 个批次核对。' },
+  { name: '产品一次合格率', val: '98.34', unit: '%', target: '≥97.5%', pct: 98.34, st: 'ok',
+    caliber: '统计口径：终检一次通过数量 ÷ 报检总数（不含返工后复检）。数据来源：检验模块终检记录。' },
+  { name: '设备综合效率 OEE', val: '88.0', unit: '%', target: '≥85%', pct: 88, st: 'ok',
+    caliber: '统计口径：时间开动率 × 性能开动率 × 合格品率。停机原因分类：换型 / 待料 / 故障 / 保养，按报工工单汇总。' },
+  { name: '排产计划达成率', val: '93.6', unit: '%', target: '≥92%', pct: 93.6, st: 'ok',
+    caliber: '统计口径：按计划日期完工工单数 ÷ 计划工单总数，允许 ±1 个工作日偏差视为达成。' },
+  { name: '单位产品碳排强度', val: '0.411', unit: 'tCO₂e/万只', target: '≤0.50', pct: 82, st: 'ok',
+    caliber: '统计口径：范围一（燃气直接排放）+ 范围二（外购电力间接排放）÷ 当期产量。电力因子按年度版本化管理。' },
+  { name: '质量追溯响应时长', val: '< 1', unit: '分钟', target: '≤5 分钟', pct: 95, st: 'ok',
+    caliber: '统计口径：从输入批次号到输出完整追溯档案的端到端耗时。实测方式：每季度抽样 20 次取均值。' },
+  { name: 'AI 视觉检测覆盖率', val: '62', unit: '%', target: '2027 年 ≥90%', pct: 62, st: 'build',
+    caliber: '统计口径：已部署 AI 缺陷检测的工位 ÷ 全部终检工位。当前覆盖 L3/L4 产线，L1/L2 建设中。' },
+];
+$('#indicators').innerHTML = INDICATORS.map((it, i) => `
+  <div class="ind">
+    <div class="r1">
+      <span class="nm">${it.name}</span>
+      <button class="info" data-i="${i}" title="查看统计口径">ⓘ</button>
+      <span class="val">${it.val}<small>${it.unit}</small></span>
+    </div>
+    <div class="r2"><span>目标 ${it.target}</span>
+      <span class="meter" style="flex:1 1 auto"><i style="width:${Math.min(100, it.pct)}%;background:${it.st === 'ok' ? '#2ecc8f' : '#f5a524'}"></i></span>
+      <span class="st ${it.st}">${it.st === 'ok' ? '已达成' : '建设中'}</span></div>
+    <div class="caliber" id="cal-${i}"><b>口径：</b>${it.caliber}</div>
+  </div>`).join('');
+$('#indicators').addEventListener('click', (e) => {
+  const b = e.target.closest('.info'); if (!b) return;
+  document.querySelector('#cal-' + b.dataset.i).classList.toggle('open');
+});
+
+/* ================= 智能化场景 ================= */
+const SCENES = [
+  { ic: '🧮', nm: '有限能力排产（APS）', ds: '考虑设备能力、模具/工装约束与物料齐套的自动排产，支持插单模拟与瓶颈预警',
+    gain: '量化收益：换型时间下降约 18%，计划达成率提升至 93.6%', st: 'on', stTxt: '已上线' },
+  { ic: '🔍', nm: 'AI 视觉缺陷检测', ds: '终检工位自动识别极片/卷绕/装配缺陷，缺陷图片自动归档关联批次',
+    gain: '量化收益：漏检率较人工下降约 55%，检测工时下降约 40%', st: 'build', stTxt: '建设中' },
+  { ic: '🛠️', nm: '设备预测性维护', ds: '关键设备振动/温升趋势分析，异常提前预警并自动生成维修工单',
+    gain: '量化收益：非计划停机下降约 22%，抢修工时下降约 30%', st: 'build', stTxt: '建设中' },
+  { ic: '⚡', nm: '能耗优化与碳排管理', ds: '分项计量 + 碳排核算 + 节电分析，碳配额使用率实时监控',
+    gain: '量化收益：单位碳排强度 0.411 t/万只，优于管控线 0.50', st: 'on', stTxt: '已上线' },
+  { ic: '🔗', nm: '全链路质量追溯', ds: '正反向追溯 + 质量闭环，批次档案含工序参数/检验记录/物料批次',
+    gain: '量化收益：追溯响应 < 1 分钟，召回范围界定由 2 天缩短至分钟级', st: 'on', stTxt: '已上线' },
+  { ic: '📊', nm: '工艺参数版本管控', ds: '工艺参数受版本管理，过站防呆校验，参数变更全程留痕',
+    gain: '量化收益：参数错投类缺陷下降约 70%', st: 'on', stTxt: '已上线' },
+];
+$('#scenes').innerHTML = SCENES.map((s) => `
+  <div class="scene">
+    <div class="ic">${s.ic}</div>
+    <div class="tx"><div class="nm">${s.nm}</div><div class="ds">${s.ds}</div><div class="gain">${s.gain}</div></div>
+    <span class="st ${s.st}">${s.stTxt}</span>
+  </div>`).join('');
+
+/* ================= 系统覆盖范畴 ================= */
+const SYSTEMS = [
+  { nm: 'MES 制造执行', ds: '工单/排产/过站/追溯/质量', st: 'on', stTxt: '已上线' },
+  { nm: 'WMS 仓储管理', ds: '出入库/批次/库存/过账', st: 'on', stTxt: '已上线' },
+  { nm: 'EMS 能源管理', ds: '分项计量/碳核算/节电分析', st: 'on', stTxt: '已上线' },
+  { nm: 'QMS 质量管理', ds: '检验/不合格闭环/SPC', st: 'build', stTxt: '建设中' },
+  { nm: 'EAM 设备管理', ds: '台账/点检保养/维修工单', st: 'build', stTxt: '建设中' },
+  { nm: 'ERP 资源计划', ds: '主数据/采购/成本接口', st: 'build', stTxt: '接口建设中' },
+];
+$('#systems').innerHTML = SYSTEMS.map((s) => `
+  <div class="scene" style="padding:7px 10px">
+    <div class="tx" style="display:flex;align-items:center;gap:9px">
+      <span class="nm" style="min-width:130px">${s.nm}</span>
+      <span style="font-size:10.5px;color:var(--t-lo)">${s.ds}</span>
+      <span class="st ${s.st}" style="margin-left:auto">${s.stTxt}</span>
+    </div>
+  </div>`).join('');
+</script>
+</body>
+</html>

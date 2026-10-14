@@ -1,0 +1,614 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>经营驾驶舱 · 泰州超级电容智能工厂</title>
+<style>
+  /* 主题令牌 —— 与运营大屏 / 各孪生页保持一致 */
+  :root {
+    --bg-0:#050b16; --bg-1:#0a1424; --bg-2:#0f1d31; --bg-3:#16273f;
+    --c-primary:#2f81f7; --c-primary-glow:rgba(47,129,247,.35);
+    --c-ok:#2ecc8f; --c-warn:#f5a524; --c-crit:#f4544c; --c-info:#35c6d4;
+    --t-hi:#eaf2ff; --t-mid:#9fb3d1; --t-lo:#64789a; --t-dim:#3d4f6b;
+    --line:rgba(80,140,210,.16); --line-soft:rgba(80,140,210,.09);
+    --r-sm:4px; --r-md:8px; --r-lg:12px;
+    --shadow:0 4px 20px rgba(0,0,0,.45);
+    --scale:1;
+    --font:"HarmonyOS Sans SC","Microsoft YaHei",-apple-system,sans-serif;
+  }
+  *{margin:0;padding:0;box-sizing:border-box}
+  html,body{width:100%;height:100%;background:var(--bg-0);color:var(--t-hi);
+    font-family:var(--font);overflow:hidden;font-variant-numeric:tabular-nums}
+  #bg-deco{position:fixed;inset:0;z-index:0;pointer-events:none;
+    background:radial-gradient(ellipse 60% 45% at 50% -10%,rgba(47,129,247,.16),transparent 70%),
+               radial-gradient(ellipse 45% 40% at 90% 100%,rgba(53,198,212,.08),transparent 70%)}
+  #bg-grid{position:fixed;inset:0;z-index:0;pointer-events:none;opacity:.5;
+    background-image:linear-gradient(rgba(70,130,200,.055) 1px,transparent 1px),
+                     linear-gradient(90deg,rgba(70,130,200,.055) 1px,transparent 1px);
+    background-size:48px 48px}
+  #viewport{position:fixed;width:1920px;height:1080px;transform:translate(-50%,-50%);
+    left:50%;top:50%;transform-origin:center;z-index:1;
+    display:flex;flex-direction:column;padding:18px 22px;gap:14px}
+
+  /* ---------- 顶栏 ---------- */
+  .topbar{flex:0 0 auto;display:flex;align-items:center;gap:14px}
+  .topbar h1{font-size:22px;font-weight:600;letter-spacing:2px;
+    background:linear-gradient(90deg,#eaf2ff,#7fb3f0);-webkit-background-clip:text;-webkit-text-fill-color:transparent}
+  .topbar .sub{font-size:11.5px;color:var(--t-lo);letter-spacing:1px;margin-top:3px}
+  .seg{display:flex;background:var(--bg-2);border:1px solid var(--line);border-radius:var(--r-md);overflow:hidden}
+  .seg button{border:0;background:transparent;color:var(--t-mid);font-size:12px;padding:6px 13px;cursor:pointer;font-family:var(--font)}
+  .seg button.active{background:rgba(47,129,247,.22);color:#cfe4ff}
+  .seg button:hover:not(.active){color:var(--t-hi)}
+  .clock{margin-left:auto;text-align:right}
+  .clock .t{font-size:20px;font-weight:600;letter-spacing:1px}
+  .clock .d{font-size:11px;color:var(--t-lo)}
+  .live{display:flex;align-items:center;gap:6px;font-size:11.5px;color:var(--c-ok)}
+  .live i{width:7px;height:7px;border-radius:50%;background:var(--c-ok);animation:pulse 1.6s infinite}
+  @keyframes pulse{0%,100%{opacity:1}50%{opacity:.25}}
+
+  /* ---------- 健康度总判（结论层） ---------- */
+  .hero{flex:0 0 auto;display:flex;gap:14px;align-items:stretch}
+  .score-card{flex:0 0 300px;background:linear-gradient(135deg,var(--bg-2),var(--bg-3));
+    border:1px solid var(--line);border-radius:var(--r-lg);padding:16px 18px;
+    display:flex;align-items:center;gap:16px;box-shadow:var(--shadow);position:relative;overflow:hidden}
+  .score-card::before{content:'';position:absolute;left:0;top:0;bottom:0;width:3px;background:var(--c-ok)}
+  .score-num{font-size:52px;font-weight:600;line-height:1;letter-spacing:-1px}
+  .score-num small{font-size:16px;color:var(--t-lo);font-weight:400}
+  .score-meta .lv{font-size:17px;font-weight:600;letter-spacing:2px}
+  .score-meta .ds{font-size:11.5px;color:var(--t-lo);margin-top:4px}
+  .concl{flex:1 1 auto;background:var(--bg-1);border:1px solid var(--line);border-radius:var(--r-lg);
+    padding:14px 18px;display:flex;flex-direction:column;justify-content:center;gap:8px;box-shadow:var(--shadow)}
+  .concl .row{display:flex;align-items:flex-start;gap:10px;font-size:13.5px;line-height:1.5}
+  .concl .row .dot{flex:0 0 auto;width:8px;height:8px;border-radius:50%;margin-top:6px}
+  .concl .row b{font-weight:500}
+
+  /* ---------- KPI 带 ---------- */
+  .kpis{flex:0 0 auto;display:grid;grid-template-columns:repeat(8,1fr);gap:12px}
+  .kpi{background:var(--bg-1);border:1px solid var(--line);border-radius:var(--r-md);
+    padding:11px 13px;position:relative;overflow:hidden;box-shadow:var(--shadow)}
+  .kpi::before{content:'';position:absolute;left:0;top:0;bottom:0;width:2.5px}
+  .kpi .lb{font-size:11.5px;color:var(--t-lo);display:flex;justify-content:space-between;align-items:center}
+  .kpi .vl{font-size:24px;font-weight:600;margin-top:5px;letter-spacing:.5px}
+  .kpi .vl small{font-size:11px;color:var(--t-lo);font-weight:400;margin-left:3px}
+  .kpi .tr{font-size:10.5px;color:var(--t-lo);margin-top:4px;display:flex;align-items:center;gap:4px}
+  .kpi .tr .up{color:var(--c-ok)} .kpi .tr .down{color:var(--c-crit)} .kpi .tr .flat{color:var(--t-lo)}
+  .kpi.warn::before{background:var(--c-warn)} .kpi.crit::before{background:var(--c-crit)} .kpi.ok::before{background:var(--c-ok)}
+
+  /* ---------- 主体网格 ---------- */
+  .grid{flex:1 1 auto;min-height:0;display:grid;grid-template-columns:400px 1fr;gap:14px}
+  .panel{background:var(--bg-1);border:1px solid var(--line);border-radius:var(--r-lg);
+    box-shadow:var(--shadow);display:flex;flex-direction:column;min-height:0;overflow:hidden}
+  .panel-head{flex:0 0 auto;display:flex;align-items:center;gap:8px;padding:10px 14px;
+    border-bottom:1px solid var(--line-soft);background:linear-gradient(90deg,rgba(47,129,247,.10),transparent 60%)}
+  .panel-head .tt{font-size:14px;font-weight:500;letter-spacing:1px;display:flex;align-items:center;gap:7px}
+  .panel-head .tt::before{content:'';width:3px;height:14px;background:var(--c-primary);border-radius:2px;
+    box-shadow:0 0 8px var(--c-primary-glow)}
+  .panel-head .sp{flex:1}
+  .panel-head .cnt{font-size:11px;color:var(--t-lo)}
+  .panel-body{flex:1 1 auto;min-height:0;padding:12px 14px;overflow:hidden;display:flex;flex-direction:column;gap:10px}
+
+  /* 告警列表 */
+  .alert-list{flex:1 1 auto;overflow-y:auto;display:flex;flex-direction:column;gap:8px;min-height:0}
+  .alert{display:flex;gap:10px;padding:9px 11px;border-radius:var(--r-md);background:var(--bg-2);
+    border:1px solid var(--line-soft);border-left:3px solid var(--t-lo)}
+  .alert.crit{border-left-color:var(--c-crit);background:rgba(244,84,76,.07)}
+  .alert.warn{border-left-color:var(--c-warn);background:rgba(245,165,36,.06)}
+  .alert .ic{flex:0 0 auto;width:26px;height:26px;border-radius:var(--r-sm);display:flex;align-items:center;
+    justify-content:center;font-size:13px;font-weight:600}
+  .alert.crit .ic{background:rgba(244,84,76,.18);color:#ffb3ae}
+  .alert.warn .ic{background:rgba(245,165,36,.16);color:#ffd98a}
+  .alert .tx{flex:1 1 auto;min-width:0}
+  .alert .tx .l1{font-size:12.5px;color:var(--t-hi);line-height:1.45}
+  .alert .tx .l2{font-size:10.5px;color:var(--t-lo);margin-top:3px}
+  .alert .lv-tag{flex:0 0 auto;font-size:10px;padding:2px 7px;border-radius:99px;height:fit-content}
+  .alert.crit .lv-tag{background:rgba(244,84,76,.16);color:#ff9d97}
+  .alert.warn .lv-tag{background:rgba(245,165,36,.14);color:#ffce6b}
+  .alert-empty{color:var(--t-lo);font-size:12.5px;text-align:center;padding:34px 0}
+
+  /* 图表区 */
+  .charts{display:grid;grid-template-columns:1.35fr 1fr;grid-template-rows:1fr 1fr;gap:14px;min-height:0}
+  .chart-cell{background:var(--bg-1);border:1px solid var(--line);border-radius:var(--r-lg);
+    box-shadow:var(--shadow);display:flex;flex-direction:column;min-height:0;overflow:hidden}
+  .chart-box{flex:1 1 auto;min-height:0;position:relative;padding:6px 10px 10px}
+  .chart-box canvas{position:absolute;inset:0;width:100%;height:100%}
+  .legend{display:flex;gap:12px;font-size:10.5px;color:var(--t-mid)}
+  .legend i{display:inline-block;width:8px;height:8px;border-radius:2px;margin-right:4px;vertical-align:-1px}
+
+  /* ---------- 产线卡片 ---------- */
+  .lines{flex:0 0 auto;display:grid;grid-template-columns:repeat(4,1fr);gap:12px}
+  .line-card{background:var(--bg-1);border:1px solid var(--line);border-radius:var(--r-md);
+    padding:10px 13px;box-shadow:var(--shadow);border-left:3px solid var(--c-ok)}
+  .line-card.warn{border-left-color:var(--c-warn)}
+  .line-card .nm{font-size:12.5px;font-weight:500;display:flex;justify-content:space-between;align-items:center}
+  .line-card .st{font-size:10px;padding:1.5px 7px;border-radius:99px}
+  .line-card .st.ok{background:rgba(46,204,143,.14);color:#7fe3c0}
+  .line-card .st.warn{background:rgba(245,165,36,.14);color:#ffce6b}
+  .line-card .metrics{display:flex;gap:14px;margin-top:8px}
+  .line-card .m .v{font-size:16px;font-weight:600}
+  .line-card .m .k{font-size:10px;color:var(--t-lo);margin-top:2px}
+  .bar{height:4px;background:rgba(80,140,210,.14);border-radius:99px;margin-top:9px;overflow:hidden}
+  .bar i{display:block;height:100%;border-radius:99px;background:var(--c-primary)}
+
+  .foot{flex:0 0 auto;display:flex;justify-content:space-between;font-size:10.5px;color:var(--t-dim)}
+</style>
+</head>
+<body>
+<div id="bg-deco"></div>
+<div id="bg-grid"></div>
+<div id="viewport">
+  <!-- 顶栏 -->
+  <div class="topbar">
+    <div>
+      <h1>经营驾驶舱</h1>
+      <div class="sub">泰州超级电容智能工厂 · 管理层决策视图 · 数据每 3 秒自动刷新</div>
+    </div>
+    <div class="seg" id="range-seg">
+      <button data-range="1h">近1小时</button>
+      <button data-range="6h">近6小时</button>
+      <button data-range="24h" class="active">近24小时</button>
+      <button data-range="7d">近7天</button>
+    </div>
+    <div class="live"><i></i>LIVE</div>
+    <div class="clock"><div class="t" id="clock-t">--:--:--</div><div class="d" id="clock-d">----</div></div>
+  </div>
+
+  <!-- 健康度总判 -->
+  <div class="hero">
+    <div class="score-card">
+      <div class="score-num" id="score-num">--<small>/100</small></div>
+      <div class="score-meta">
+        <div class="lv" id="score-lv">评估中</div>
+        <div class="ds" id="score-ds">综合生产 / 质量 / 设备 / 碳排</div>
+      </div>
+    </div>
+    <div class="concl" id="concl"></div>
+  </div>
+
+  <!-- KPI 带 -->
+  <div class="kpis" id="kpis"></div>
+
+  <!-- 主体 -->
+  <div class="grid">
+    <div class="panel">
+      <div class="panel-head"><div class="tt">告警与风险</div><div class="sp"></div><div class="cnt" id="alert-cnt"></div></div>
+      <div class="panel-body"><div class="alert-list" id="alert-list"></div></div>
+    </div>
+    <div class="charts">
+      <div class="chart-cell">
+        <div class="panel-head">
+          <div class="tt">产量与良品率趋势</div><div class="sp"></div>
+          <div class="legend"><span><i style="background:#2f81f7"></i>产量(只)</span><span><i style="background:#2ecc8f"></i>良品率(%)</span></div>
+        </div>
+        <div class="chart-box"><canvas id="c-output"></canvas></div>
+      </div>
+      <div class="chart-cell">
+        <div class="panel-head">
+          <div class="tt">碳排强度今日趋势</div><div class="sp"></div>
+          <div class="legend"><span><i style="background:#2ecc8f"></i>tCO₂e/万只</span></div>
+        </div>
+        <div class="chart-box"><canvas id="c-carbon"></canvas></div>
+      </div>
+      <div class="chart-cell">
+        <div class="panel-head">
+          <div class="tt">产线产能利用率 OEE</div><div class="sp"></div>
+          <div class="legend"><span><i style="background:#f5a524"></i>目标 85%</span></div>
+        </div>
+        <div class="chart-box"><canvas id="c-oee"></canvas></div>
+      </div>
+      <div class="chart-cell">
+        <div class="panel-head">
+          <div class="tt">今日在制与完工</div><div class="sp"></div>
+          <div class="legend"><span><i style="background:#35c6d4"></i>在制(只)</span><span><i style="background:#7f77dd"></i>完工(只)</span></div>
+        </div>
+        <div class="chart-box"><canvas id="c-wip"></canvas></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 产线卡片 -->
+  <div class="lines" id="lines"></div>
+
+  <div class="foot">
+    <span>数据来源：MES 生产 / 质量 / 设备 / 能源碳模块（演示数据为确定性模拟，口径与各业务模块一致）</span>
+    <span id="foot-update"></span>
+  </div>
+</div>
+
+<script>
+"use strict";
+/* ================= 基础工具 ================= */
+const $ = (s) => document.querySelector(s);
+const clamp = (v, a, b) => Math.min(b, Math.max(a, v));
+const fmt = (v, d = 1) => Number(v).toLocaleString('zh-CN', { minimumFractionDigits: d, maximumFractionDigits: d });
+function makeRng(seed) { let s = seed >>> 0; return () => { s = (s * 1664525 + 1013904223) >>> 0; return s / 4294967296; }; }
+const pad2 = (n) => String(n).padStart(2, '0');
+const hhmmss = (d) => `${pad2(d.getHours())}:${pad2(d.getMinutes())}:${pad2(d.getSeconds())}`;
+const hhmm = (d) => `${pad2(d.getHours())}:${pad2(d.getMinutes())}`;
+
+const LINES = [
+  { id: 'L1', name: 'L1 卷绕线', zone: 'A 区' },
+  { id: 'L2', name: 'L2 涂布线', zone: 'A 区' },
+  { id: 'L3', name: 'L3 装配线', zone: 'B 区' },
+  { id: 'L4', name: 'L4 化成线', zone: 'B 区' },
+];
+
+/* ================= MockSource ================= */
+const THRESHOLDS = {
+  yieldRate: { warn: 97.5, crit: 96.0, dir: 'below' },
+  oee: { warn: 80, crit: 72, dir: 'below' },
+  availability: { warn: 85, crit: 78, dir: 'below' },
+  carbonIntensity: { warn: 0.50, crit: 0.62, dir: 'above' },
+  onTimeDelivery: { warn: 94, crit: 90, dir: 'below' },
+  faultCount: { warn: 3, crit: 6, dir: 'above' },
+};
+
+const MockSource = {
+  _rng: null, _seed: 20261014, _history: [],
+
+  reset(seed) {
+    this._seed = seed ?? this._seed;
+    this._rng = makeRng(this._seed);
+    this._history = [];
+    for (let i = 24; i > 0; i--) this._history.push(this._build(new Date(Date.now() - i * 3600e3)));
+  },
+  tick() {
+    const snap = this._build(new Date());
+    this._history.push(snap);
+    if (this._history.length > 400) this._history.shift();
+    return snap;
+  },
+  series(rangeId, key) {
+    const r = { '1h': { points: 12, stepMs: 5 * 60e3 }, '6h': { points: 12, stepMs: 30 * 60e3 },
+                '24h': { points: 24, stepMs: 3600e3 }, '7d': { points: 7, stepMs: 24 * 3600e3 } }[rangeId]
+              || { points: 24, stepMs: 3600e3 };
+    const now = Date.now();
+    const out = [];
+    for (let i = r.points - 1; i >= 0; i--) {
+      const t = now - i * r.stepMs;
+      let snap = null, best = Infinity;
+      for (const h of this._history) { const d = Math.abs(h.t - t); if (d < best) { best = d; snap = h; } }
+      out.push({ t, v: snap ? snap[key] : 0,
+        label: r.stepMs >= 24 * 3600e3 ? `${new Date(t).getMonth() + 1}/${new Date(t).getDate()}` : hhmm(new Date(t)) });
+    }
+    return out;
+  },
+  _jitter(base, pct, rng) { return base * (1 + (rng() - 0.5) * 2 * pct); },
+
+  _build(t) {
+    const rng = this._rng;
+    const u = rng();
+    const output = this._jitter(12800, .06, rng);            // 今日累计产量(只)
+    const planOutput = 13500;
+    const oee = clamp(this._jitter(86, .05, rng), 60, 99);
+    const availability = clamp(this._jitter(92, .04, rng), 65, 99);
+    const yieldRate = clamp(this._jitter(98.4, .012, rng), 93, 100);
+    const carbonIntensity = clamp(this._jitter(0.42, .09, rng), 0.2, 0.9);   // tCO₂e/万只
+    const onTimeDelivery = clamp(this._jitter(96.5, .03, rng), 70, 100);
+    const wip = Math.round(this._jitter(856, .12, rng));                       // 在制(只)
+    const finished = Math.round(output * 0.82);
+    const faultCount = clamp(Math.round(this._jitter(2.2, .9, rng)), 0, 10);
+    const quotaUsed = clamp(62 + u * 26, 20, 96);
+    const lineData = LINES.map((l) => ({
+      id: l.id, name: l.name, zone: l.zone,
+      output: Math.round(this._jitter(output / 4, .18, rng)),
+      yieldRate: clamp(this._jitter(yieldRate, .008, rng), 92, 100),
+      oee: clamp(this._jitter(oee, .07, rng), 55, 99),
+    }));
+    return { t: t.getTime(), time: hhmmss(t), output, planOutput, oee, availability, yieldRate,
+      carbonIntensity, onTimeDelivery, wip, finished, faultCount, quotaUsed, lineData };
+  },
+};
+
+function evalThreshold(key, value) {
+  const th = THRESHOLDS[key];
+  if (!th) return 'ok';
+  const v = Number(value);
+  if (th.dir === 'below') { if (v <= th.crit) return 'crit'; if (v <= th.warn) return 'warn'; }
+  else { if (v >= th.crit) return 'crit'; if (v >= th.warn) return 'warn'; }
+  return 'ok';
+}
+
+/* 健康度评分：四维加权（生产30/质量30/设备20/碳排20） */
+function healthScore(s) {
+  const sProd = clamp((s.output / s.planOutput) * 100, 0, 120) * 0.5 + clamp(s.oee, 0, 100) * 0.5;
+  const sQual = clamp((s.yieldRate - 93) / (100 - 93) * 100, 0, 100);
+  const sEqp = clamp(100 - (s.faultCount / 8) * 100, 0, 100) * 0.6 + clamp(s.availability, 0, 100) * 0.4;
+  const sCbn = clamp(100 - (s.carbonIntensity / 0.7) * 100, 0, 100) * 0.6 + clamp(100 - Math.max(0, s.quotaUsed - 70) / 30 * 100, 0, 100) * 0.4;
+  return Math.round(sProd * 0.30 + sQual * 0.30 + sEqp * 0.20 + sCbn * 0.20);
+}
+
+/* ================= Store ================= */
+const Store = {
+  state: { snap: null, range: '24h', lastUpdate: null, tickCount: 0, prev: null },
+  _subs: [],
+  subscribe(fn) { this._subs.push(fn); return () => { this._subs = this._subs.filter((f) => f !== fn); }; },
+  get() { return this.state; },
+  dispatch(action) {
+    const s = this.state;
+    switch (action.type) {
+      case 'TICK': s.prev = s.snap; s.snap = action.snap; s.lastUpdate = new Date(); s.tickCount++; break;
+      case 'RANGE': s.range = action.range; break;
+    }
+    this._subs.forEach((f) => f(s, action));
+  },
+};
+
+/* ================= 图表（原生 Canvas，零依赖） ================= */
+const Chart = {
+  _prep(sel) {
+    const cv = $(sel); if (!cv) return null;
+    const rect = cv.getBoundingClientRect();
+    const dpr = window.devicePixelRatio || 1;
+    const w = Math.max(rect.width, 10), h = Math.max(rect.height, 10);
+    cv.width = w * dpr; cv.height = h * dpr;
+    const ctx = cv.getContext('2d');
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx.clearRect(0, 0, w, h);
+    return { ctx, w, h };
+  },
+  /** 双序列折线（左轴/右轴） */
+  dual(sel, left, right, labels) {
+    const p = this._prep(sel); if (!p) return;
+    const { ctx, w, h } = p;
+    const padL = 46, padR = 46, padT = 12, padB = 22;
+    const cw = w - padL - padR, ch = h - padT - padB;
+    if (cw <= 0 || ch <= 0) return;
+    const rangeOf = (arr) => {
+      const vs = arr.filter((v) => isFinite(v));
+      let mn = Math.min(...vs), mx = Math.max(...vs);
+      if (!isFinite(mn) || !isFinite(mx)) { mn = 0; mx = 1; }
+      if (mx === mn) { mx += 1; mn -= 1; }
+      const pad = (mx - mn) * 0.12; return [mn - pad, mx + pad];
+    };
+    const [lmn, lmx] = rangeOf(left.data);
+    const [rmn, rmx] = rangeOf(right.data);
+    const n = Math.max(left.data.length, right.data.length);
+    if (!n) return;
+    const xOf = (i) => padL + cw * i / Math.max(1, n - 1);
+
+    ctx.font = '10px sans-serif'; ctx.textBaseline = 'middle';
+    for (let i = 0; i <= 4; i++) {
+      const y = padT + ch * i / 4;
+      ctx.strokeStyle = 'rgba(80,140,210,.10)'; ctx.lineWidth = 1;
+      ctx.beginPath(); ctx.moveTo(padL, y); ctx.lineTo(padL + cw, y); ctx.stroke();
+      ctx.fillStyle = '#64789a'; ctx.textAlign = 'right';
+      ctx.fillText(fmt(lmx - (lmx - lmn) * i / 4, lmx - lmn > 500 ? 0 : 1), padL - 6, y);
+      ctx.textAlign = 'left';
+      ctx.fillText(fmt(rmx - (rmx - rmn) * i / 4, rmx - rmn > 20 ? 0 : 1), padL + cw + 6, y);
+    }
+    if (labels && labels.length) {
+      ctx.textAlign = 'center'; ctx.fillStyle = '#64789a';
+      const step = Math.max(1, Math.floor(labels.length / 6));
+      for (let i = 0; i < labels.length; i += step) ctx.fillText(labels[i], clamp(xOf(i), padL + 14, padL + cw - 14), padT + ch + 12);
+    }
+    const draw = (s, mn, mx, color, fill) => {
+      const yOf = (v) => padT + ch - ((clamp(v, mn, mx) - mn) / Math.max(1e-9, mx - mn)) * ch;
+      if (fill) {
+        const g = ctx.createLinearGradient(0, padT, 0, padT + ch);
+        g.addColorStop(0, color + '4d'); g.addColorStop(1, color + '00');
+        ctx.fillStyle = g; ctx.beginPath(); ctx.moveTo(xOf(0), padT + ch);
+        s.forEach((v, i) => ctx.lineTo(xOf(i), yOf(v)));
+        ctx.lineTo(xOf(s.length - 1), padT + ch); ctx.closePath(); ctx.fill();
+      }
+      ctx.strokeStyle = color; ctx.lineWidth = 1.8; ctx.lineJoin = 'round';
+      ctx.beginPath(); s.forEach((v, i) => (i === 0 ? ctx.moveTo(xOf(i), yOf(v)) : ctx.lineTo(xOf(i), yOf(v)))); ctx.stroke();
+      ctx.fillStyle = color;
+      ctx.beginPath(); ctx.arc(xOf(s.length - 1), yOf(s[s.length - 1]), 2.6, 0, Math.PI * 2); ctx.fill();
+    };
+    draw(left.data, lmn, lmx, left.color, true);
+    draw(right.data, rmn, rmx, right.color, false);
+  },
+  /** 单序列面积图 */
+  area(sel, s, color, labels) {
+    this.dual(sel, { data: s, color }, { data: s, color: '#00000000' }, labels);
+  },
+  /** 水平条形图 */
+  bars(sel, items, target) {
+    const p = this._prep(sel); if (!p) return;
+    const { ctx, w, h } = p;
+    const padL = 92, padR = 52, padT = 10, padB = 8;
+    const cw = w - padL - padR, ch = h - padT - padB;
+    if (cw <= 0 || ch <= 0) return;
+    const rowH = ch / items.length;
+    ctx.font = '11px sans-serif'; ctx.textBaseline = 'middle';
+    items.forEach((it, i) => {
+      const y = padT + rowH * i + rowH / 2;
+      const bw = cw * clamp(it.value / 100, 0, 1);
+      ctx.fillStyle = '#9fb3d1'; ctx.textAlign = 'left';
+      ctx.fillText(it.name, 4, y);
+      // 底槽
+      ctx.fillStyle = 'rgba(80,140,210,.10)';
+      ctx.beginPath(); ctx.rect(padL, y - rowH * 0.28, cw, rowH * 0.56); ctx.fill();
+      // 目标线
+      if (target != null) {
+        const tx = padL + cw * clamp(target / 100, 0, 1);
+        ctx.strokeStyle = 'rgba(245,165,36,.55)'; ctx.lineWidth = 1;
+        ctx.setLineDash([3, 3]);
+        ctx.beginPath(); ctx.moveTo(tx, y - rowH * 0.34); ctx.lineTo(tx, y + rowH * 0.34); ctx.stroke();
+        ctx.setLineDash([]);
+      }
+      // 数值条
+      const color = it.value >= (target ?? 85) ? '#2ecc8f' : it.value >= 72 ? '#f5a524' : '#f4544c';
+      ctx.fillStyle = color;
+      ctx.beginPath(); ctx.rect(padL, y - rowH * 0.28, bw, rowH * 0.56); ctx.fill();
+      ctx.fillStyle = '#eaf2ff'; ctx.textAlign = 'left';
+      ctx.fillText(fmt(it.value, 1) + '%', padL + bw + 6, y);
+    });
+  },
+};
+
+/* ================= View ================= */
+const KPI_DEFS = [
+  { key: 'output', label: '今日产量', unit: '只', color: '#2f81f7', get: (s) => fmt(s.output, 0), sub: (s) => `计划 ${fmt(s.planOutput, 0)} · 达成 ${fmt(s.output / s.planOutput * 100, 1)}%` },
+  { key: 'yieldRate', label: '良品率', unit: '%', color: '#2ecc8f', get: (s) => fmt(s.yieldRate, 2), sub: (s) => `目标 97.5%` },
+  { key: 'oee', label: '产能利用率 OEE', unit: '%', color: '#2f81f7', get: (s) => fmt(s.oee, 1), sub: (s) => `目标 85%` },
+  { key: 'availability', label: '设备稼动率', unit: '%', color: '#2f81f7', get: (s) => fmt(s.availability, 1), sub: () => `目标 85%` },
+  { key: 'wip', label: '车间在制', unit: '只', color: '#35c6d4', get: (s) => fmt(s.wip, 0), sub: (s) => `已完工 ${fmt(s.finished, 0)} 只` },
+  { key: 'carbonIntensity', label: '碳排强度', unit: 't/万只', color: '#2ecc8f', get: (s) => fmt(s.carbonIntensity, 3), sub: (s) => `碳配额已用 ${fmt(s.quotaUsed, 1)}%` },
+  { key: 'onTimeDelivery', label: '准时交付率', unit: '%', color: '#7f77dd', get: (s) => fmt(s.onTimeDelivery, 1), sub: () => `近30天滚动` },
+  { key: 'faultCount', label: '设备故障', unit: '台', color: '#f5a524', get: (s) => fmt(s.faultCount, 0), sub: () => `影响待评估` },
+];
+
+const View = {
+  _timer: null,
+
+  init() {
+    MockSource.reset();
+    this.buildKpis();
+    this.buildRangeSegs();
+    this.bindEvents();
+    Store.dispatch({ type: 'TICK', snap: MockSource.tick() });
+    this.startTimer();
+    this.startClock();
+  },
+
+  buildKpis() {
+    $('#kpis').innerHTML = KPI_DEFS.map((d) => `
+      <div class="kpi ok" data-k="${d.key}">
+        <div class="lb"><span>${d.label}</span></div>
+        <div class="vl"><span data-v>--</span><small>${d.unit}</small></div>
+        <div class="tr"><span data-s></span></div>
+      </div>`).join('');
+  },
+
+  buildRangeSegs() {
+    $('#range-seg').addEventListener('click', (e) => {
+      const b = e.target.closest('button'); if (!b) return;
+      $('#range-seg').querySelectorAll('button').forEach((x) => x.classList.toggle('active', x === b));
+      Store.dispatch({ type: 'RANGE', range: b.dataset.range });
+    });
+  },
+
+  bindEvents() {
+    Store.subscribe((s, a) => this.render(s, a));
+    window.addEventListener('resize', () => this.render(Store.get()));
+  },
+
+  render(s) {
+    const snap = s.snap; if (!snap) return;
+    this.renderScore(snap, s.prev);
+    this.renderKpis(snap, s.prev);
+    this.renderAlerts(snap);
+    this.renderCharts(s);
+    this.renderLines(snap);
+    $('#foot-update').textContent = `更新于 ${snap.time} · 第 ${s.tickCount} 次刷新`;
+  },
+
+  /* 结论层：健康度 + 三条自动结论 */
+  renderScore(snap, prev) {
+    const score = healthScore(snap);
+    const lv = score >= 85 ? { t: '运行健康', c: 'var(--c-ok)' }
+      : score >= 70 ? { t: '基本健康', c: 'var(--c-warn)' }
+      : { t: '需要关注', c: 'var(--c-crit)' };
+    const el = $('#score-num');
+    el.innerHTML = `${score}<small>/100</small>`;
+    el.style.color = lv.c;
+    $('#score-lv').textContent = lv.t;
+    $('#score-lv').style.color = lv.c;
+
+    const diff = prev ? score - healthScore(prev) : 0;
+    const diffTxt = diff === 0 ? '持平' : (diff > 0 ? `+${diff}` : `${diff}`);
+    const alerts = collectAlerts(snap);
+    const concl = [];
+    concl.push(`<div class="row"><span class="dot" style="background:${lv.c.replace('var(--c-ok)', '#2ecc8f').replace('var(--c-warn)', '#f5a524').replace('var(--c-crit)', '#f4544c')}"></span>
+      <span><b>总体判断：${lv.t}</b>（${score} 分，较上一拍${diffTxt}）。今日产量达成 ${fmt(snap.output / snap.planOutput * 100, 1)}%，良品率 ${fmt(snap.yieldRate, 2)}%。</span></div>`);
+    if (alerts.length === 0) {
+      concl.push(`<div class="row"><span class="dot" style="background:#2ecc8f"></span><span>全部关键指标处于目标区间，无升级事项。</span></div>`);
+    } else {
+      concl.push(`<div class="row"><span class="dot" style="background:#f5a524"></span>
+        <span><b>${alerts.length} 项需关注：</b>${alerts.map((a) => a.text).join('；')}。</span></div>`);
+    }
+    concl.push(`<div class="row"><span class="dot" style="background:#35c6d4"></span>
+      <span>碳排强度 ${fmt(snap.carbonIntensity, 3)} t/万只${snap.carbonIntensity <= 0.5 ? '，处于管控线内' : '，已超管控线，建议核查产线负荷'}；准时交付率 ${fmt(snap.onTimeDelivery, 1)}%。</span></div>`);
+    $('#concl').innerHTML = concl.join('');
+  },
+
+  renderKpis(snap, prev) {
+    KPI_DEFS.forEach((d) => {
+      const card = $(`.kpi[data-k="${d.key}"]`); if (!card) return;
+      const v = d.get(snap);
+      card.querySelector('[data-v]').textContent = v;
+      card.querySelector('[data-s]').textContent = d.sub(snap);
+      // 状态色（阈值命中才变色）
+      const lv = d.key === 'output' ? (snap.output >= snap.planOutput * 0.95 ? 'ok' : snap.output >= snap.planOutput * 0.8 ? 'warn' : 'crit')
+        : evalThreshold(d.key, snap[d.key]);
+      card.classList.toggle('warn', lv === 'warn');
+      card.classList.toggle('crit', lv === 'crit');
+      card.classList.toggle('ok', lv === 'ok');
+    });
+  },
+
+  renderAlerts(snap) {
+    const alerts = collectAlerts(snap);
+    $('#alert-cnt').textContent = `当前 ${alerts.length} 项`;
+    if (!alerts.length) { $('#alert-list').innerHTML = '<div class="alert-empty">暂无告警，全部指标处于目标区间</div>'; return; }
+    $('#alert-list').innerHTML = alerts.map((a) => `
+      <div class="alert ${a.level}">
+        <div class="ic">${a.level === 'crit' ? '!' : '⚠'}</div>
+        <div class="tx"><div class="l1">${a.text}</div><div class="l2">${a.action}</div></div>
+        <span class="lv-tag">${a.level === 'crit' ? '严重' : '预警'}</span>
+      </div>`).join('');
+  },
+
+  renderCharts(s) {
+    const range = s.range;
+    const prod = MockSource.series(range, 'output').map((p) => p.v);
+    const qual = MockSource.series(range, 'yieldRate').map((p) => p.v);
+    const labels = MockSource.series(range, 'output').map((p) => p.label);
+    Chart.dual('#c-output', { data: prod, color: '#2f81f7' }, { data: qual, color: '#2ecc8f' }, labels);
+    Chart.area('#c-carbon', MockSource.series(range, 'carbonIntensity').map((p) => p.v), '#2ecc8f', labels);
+    Chart.bars('#c-oee', s.snap.lineData.map((l) => ({ name: l.name, value: l.oee })), 85);
+    Chart.dual('#c-wip',
+      { data: MockSource.series(range, 'wip').map((p) => p.v), color: '#35c6d4' },
+      { data: MockSource.series(range, 'finished').map((p) => p.v), color: '#7f77dd' }, labels);
+  },
+
+  renderLines(snap) {
+    $('#lines').innerHTML = snap.lineData.map((l) => {
+      const lv = l.oee >= 85 ? 'ok' : l.oee >= 72 ? 'warn' : 'crit';
+      return `<div class="line-card ${lv === 'ok' ? '' : 'warn'}">
+        <div class="nm"><span>${l.name} · ${l.zone}</span><span class="st ${lv}">${lv === 'ok' ? '达标' : lv === 'warn' ? '偏低' : '异常'}</span></div>
+        <div class="metrics">
+          <div class="m"><div class="v">${fmt(l.output, 0)}</div><div class="k">今日产量(只)</div></div>
+          <div class="m"><div class="v">${fmt(l.yieldRate, 2)}%</div><div class="k">良品率</div></div>
+          <div class="m"><div class="v">${fmt(l.oee, 1)}%</div><div class="k">OEE</div></div>
+        </div>
+        <div class="bar"><i style="width:${clamp(l.oee, 0, 100)}%;background:${lv === 'ok' ? '#2ecc8f' : lv === 'warn' ? '#f5a524' : '#f4544c'}"></i></div>
+      </div>`;
+    }).join('');
+  },
+
+  startTimer() {
+    if (this._timer) clearInterval(this._timer);
+    this._timer = setInterval(() => Store.dispatch({ type: 'TICK', snap: MockSource.tick() }), 3000);
+  },
+  startClock() {
+    const upd = () => { const d = new Date(); $('#clock-t').textContent = hhmmss(d);
+      $('#clock-d').textContent = `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())} 星期${'日一二三四五六'[d.getDay()]}`; };
+    upd(); setInterval(upd, 1000);
+  },
+};
+
+/* 告警汇总：统一入口 */
+function collectAlerts(snap) {
+  const out = [];
+  const add = (key, value, text, action) => {
+    const lv = evalThreshold(key, value);
+    if (lv !== 'ok') out.push({ key, level: lv, text, action });
+  };
+  add('yieldRate', snap.yieldRate, `良品率 ${fmt(snap.yieldRate, 2)}%，低于目标 97.5%`, '建议：核查近2小时过程检验记录与缺陷帕累托');
+  add('oee', snap.oee, `产能利用率 ${fmt(snap.oee, 1)}%，低于目标 85%`, '建议：排查换型与待机损失，确认排产节拍');
+  add('availability', snap.availability, `设备稼动率 ${fmt(snap.availability, 1)}%`, '建议：核对停机原因分类，跟进维修工单');
+  add('carbonIntensity', snap.carbonIntensity, `碳排强度 ${fmt(snap.carbonIntensity, 3)} t/万只，超管控线 0.50`, '建议：核查高负荷设备运行时段与负荷率');
+  add('onTimeDelivery', snap.onTimeDelivery, `准时交付率 ${fmt(snap.onTimeDelivery, 1)}%`, '建议：识别延期订单，评估插单与加急');
+  add('faultCount', snap.faultCount, `设备故障 ${snap.faultCount} 台`, '建议：派单处理并评估对在制工单影响');
+  if (snap.quotaUsed >= 85) out.push({ key: 'quotaUsed', level: snap.quotaUsed >= 92 ? 'crit' : 'warn',
+    text: `碳配额使用率 ${fmt(snap.quotaUsed, 1)}%`, action: '建议：评估节电负荷调整与 CCER 抵消准备' });
+  return out;
+}
+
+document.addEventListener('DOMContentLoaded', () => View.init());
+</script>
+</body>
+</html>

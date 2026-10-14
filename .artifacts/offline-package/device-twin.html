@@ -1,0 +1,824 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>设备数字孪生 · 泰州超级电容智能工厂</title>
+<style>
+  /* ================================================================
+     主题令牌 —— 与主大屏保持一致（深色科技感）
+     ================================================================ */
+  :root {
+    --bg-0:#050b16; --bg-1:#0a1424; --bg-2:#0f1d31; --bg-3:#16273f;
+    --c-primary:#2f81f7; --c-primary-glow:rgba(47,129,247,.35);
+    --c-ok:#2ecc8f; --c-warn:#f5a524; --c-crit:#f4544c; --c-info:#35c6d4;
+    --t-hi:#eaf2ff; --t-mid:#9fb3d1; --t-lo:#64789a; --t-dim:#3d4f6b;
+    --line:rgba(80,140,210,.16); --line-soft:rgba(80,140,210,.09);
+    --r-sm:4px; --r-md:8px; --r-lg:12px;
+    --shadow:0 4px 20px rgba(0,0,0,.45);
+    --scale:1;
+    --font:"HarmonyOS Sans SC","Microsoft YaHei",-apple-system,sans-serif;
+  }
+  *{margin:0;padding:0;box-sizing:border-box}
+  html,body{width:100%;height:100%;background:var(--bg-0);color:var(--t-hi);
+    font-family:var(--font);overflow:hidden;font-variant-numeric:tabular-nums}
+  #bg-deco{position:fixed;inset:0;z-index:0;pointer-events:none;
+    background:radial-gradient(ellipse 60% 45% at 50% -10%,rgba(47,129,247,.20),transparent 70%),
+               radial-gradient(ellipse 45% 40% at 90% 100%,rgba(46,204,143,.08),transparent 70%)}
+  #bg-grid{position:fixed;inset:0;z-index:0;pointer-events:none;opacity:.5;
+    background-image:linear-gradient(rgba(70,130,200,.055) 1px,transparent 1px),
+                     linear-gradient(90deg,rgba(70,130,200,.055) 1px,transparent 1px);
+    background-size:48px 48px}
+
+  #viewport{position:fixed;width:1920px;height:1080px;transform-origin:top left;
+    display:flex;flex-direction:column;z-index:1;
+    padding:calc(14px*var(--scale)) calc(18px*var(--scale));gap:calc(12px*var(--scale))}
+
+  .panel{position:relative;background:linear-gradient(160deg,var(--bg-1) 0%,rgba(10,20,36,.72) 100%);
+    border:1px solid var(--line);border-radius:var(--r-lg);box-shadow:var(--shadow);
+    display:flex;flex-direction:column;min-height:0;overflow:hidden}
+  .panel::before,.panel::after{content:'';position:absolute;width:14px;height:14px;border-color:var(--c-primary);opacity:.8}
+  .panel::before{top:-1px;left:-1px;border-top:2px solid;border-left:2px solid;border-top-left-radius:var(--r-lg)}
+  .panel::after{bottom:-1px;right:-1px;border-bottom:2px solid;border-right:2px solid;border-bottom-right-radius:var(--r-lg)}
+  .panel-head{flex:0 0 auto;display:flex;align-items:center;gap:calc(8px*var(--scale));
+    padding:calc(8px*var(--scale)) calc(12px*var(--scale));border-bottom:1px solid var(--line-soft);
+    background:linear-gradient(90deg,rgba(47,129,247,.10),transparent 60%)}
+  .panel-title{font-size:calc(15px*var(--scale));font-weight:600;letter-spacing:1px;
+    display:flex;align-items:center;gap:calc(7px*var(--scale))}
+  .panel-title::before{content:'';width:3px;height:calc(14px*var(--scale));
+    background:var(--c-primary);border-radius:2px;box-shadow:0 0 calc(8px*var(--scale)) var(--c-primary-glow)}
+  .panel-body{flex:1 1 auto;min-height:0;padding:calc(10px*var(--scale));overflow:hidden}
+  .spacer{flex:1 1 auto}
+
+  /* ---------- 顶栏 ---------- */
+  #topbar{flex:0 0 auto;display:flex;align-items:center;justify-content:space-between;gap:calc(12px*var(--scale))}
+  .brand{display:flex;align-items:center;gap:calc(12px*var(--scale))}
+  .brand-logo{width:calc(38px*var(--scale));height:calc(38px*var(--scale));border-radius:50%;
+    display:grid;place-items:center;font-size:calc(18px*var(--scale));
+    background:radial-gradient(circle at 35% 30%,var(--c-primary),#14406f);
+    border:1px solid rgba(47,129,247,.6);box-shadow:0 0 calc(18px*var(--scale)) var(--c-primary-glow)}
+  .brand-text h1{font-size:calc(21px*var(--scale));font-weight:700;letter-spacing:2px;
+    background:linear-gradient(90deg,#fff,var(--c-info));-webkit-background-clip:text;
+    background-clip:text;-webkit-text-fill-color:transparent}
+  .brand-text p{font-size:calc(11px*var(--scale));color:var(--t-lo);letter-spacing:3px;margin-top:2px}
+  .back-btn{display:inline-flex;align-items:center;gap:6px;font-family:var(--font);
+    font-size:calc(12px*var(--scale));padding:calc(6px*var(--scale)) calc(14px*var(--scale));
+    background:var(--bg-2);color:var(--t-mid);border:1px solid var(--line);
+    border-radius:var(--r-sm);cursor:pointer;transition:all .16s;text-decoration:none}
+  .back-btn:hover{background:var(--bg-3);color:var(--t-hi);border-color:var(--c-primary)}
+  #clock-box{text-align:right}
+  #clock{font-size:calc(26px*var(--scale));font-weight:700;letter-spacing:2px;color:#fff}
+  #update-info{font-size:calc(11px*var(--scale));color:var(--t-lo);margin-top:2px}
+  .live-dot{display:inline-block;width:calc(7px*var(--scale));height:calc(7px*var(--scale));
+    border-radius:50%;background:var(--c-ok);margin-right:calc(5px*var(--scale));animation:pulse 1.6s infinite}
+  @keyframes pulse{0%,100%{opacity:1;box-shadow:0 0 0 0 rgba(46,204,143,.6)}
+    50%{opacity:.55;box-shadow:0 0 0 calc(6px*var(--scale)) rgba(46,204,143,0)}}
+
+  /* ---------- 控制条 ---------- */
+  #controlbar{flex:0 0 auto;display:flex;align-items:center;gap:calc(8px*var(--scale));
+    padding:calc(6px*var(--scale)) calc(12px*var(--scale));background:rgba(10,20,36,.72);
+    border:1px solid var(--line);border-radius:var(--r-md);flex-wrap:wrap}
+  .ctrl-label{font-size:calc(12px*var(--scale));color:var(--t-lo);letter-spacing:1px}
+  .seg{display:flex;gap:2px;background:var(--bg-2);border-radius:var(--r-sm);padding:2px;border:1px solid var(--line-soft)}
+  .seg button{font-family:var(--font);font-size:calc(12px*var(--scale));
+    padding:calc(4px*var(--scale)) calc(11px*var(--scale));background:transparent;color:var(--t-mid);
+    border:0;border-radius:var(--r-sm);cursor:pointer;transition:all .16s}
+  .seg button:hover{color:var(--t-hi);background:var(--bg-3)}
+  .seg button.active{background:var(--c-primary);color:#fff;box-shadow:0 0 calc(10px*var(--scale)) var(--c-primary-glow)}
+  .btn{font-family:var(--font);font-size:calc(12px*var(--scale));
+    padding:calc(5px*var(--scale)) calc(12px*var(--scale));background:var(--bg-2);color:var(--t-mid);
+    border:1px solid var(--line);border-radius:var(--r-sm);cursor:pointer;transition:all .16s}
+  .btn:hover{background:var(--bg-3);color:var(--t-hi);border-color:var(--c-primary)}
+
+  /* ---------- 状态图例 ---------- */
+  #legend{display:flex;align-items:center;gap:calc(14px*var(--scale));font-size:calc(12px*var(--scale))}
+  .lg{display:inline-flex;align-items:center;gap:calc(5px*var(--scale));color:var(--t-mid)}
+  .lg i{width:calc(10px*var(--scale));height:calc(10px*var(--scale));border-radius:2px;display:inline-block}
+  @keyframes dotPulse{0%,100%{opacity:1;box-shadow:0 0 0 0 currentColor}
+    50%{opacity:.6;box-shadow:0 0 0 calc(5px*var(--scale)) transparent}}
+  .lg.alarm i{animation:blink 1.2s infinite}
+  @keyframes blink{0%,100%{opacity:1}50%{opacity:.25}}
+
+  /* ---------- 主体：左孪生视图 + 右详情/告警 ---------- */
+  #main{flex:1 1 auto;min-height:0;display:grid;grid-template-columns:1fr 400px;gap:calc(12px*var(--scale))}
+  #twin-wrap{position:relative;width:100%;height:100%}
+  #twin-wrap canvas{position:absolute;inset:0;width:100%;height:100%;cursor:pointer}
+  .chart-title{font-size:calc(11px*var(--scale));color:var(--t-lo);
+    display:flex;align-items:center;justify-content:space-between;margin-bottom:calc(4px*var(--scale))}
+
+  /* 右侧：KPI 固定高，详情与告警按比例分配（都用 flex-basis，避免 max-height 挤压） */
+  #right-col{display:flex;flex-direction:column;gap:calc(10px*var(--scale));min-height:0}
+  .kpi-row{display:grid;grid-template-columns:repeat(2,1fr);gap:calc(8px*var(--scale))}
+  .kpi{background:var(--bg-2);border:1px solid var(--line-soft);border-radius:var(--r-sm);
+    padding:calc(7px*var(--scale)) calc(10px*var(--scale));position:relative;overflow:hidden}
+  .kpi::before{content:'';position:absolute;left:0;top:0;bottom:0;width:3px;background:var(--kc,var(--c-primary))}
+  .kpi-name{font-size:calc(11px*var(--scale));color:var(--t-lo)}
+  .kpi-val{font-size:calc(21px*var(--scale));font-weight:700;line-height:1.2}
+  .kpi-val .unit{font-size:calc(11px*var(--scale));font-weight:400;color:var(--t-mid);margin-left:3px}
+  .kpi.crit{border-color:var(--c-crit)} .kpi.crit::before{background:var(--c-crit)}
+
+  /* 设备详情 */
+  #detail{flex:1 1 58%;min-height:0}
+  #detail-body{overflow-y:auto;min-height:0;flex:1 1 auto}
+  #detail-body{overflow-y:auto;min-height:0}
+  .d-title{font-size:calc(15px*var(--scale));font-weight:700;margin-bottom:calc(4px*var(--scale))}
+  .d-sub{font-size:calc(11px*var(--scale));color:var(--t-lo);margin-bottom:calc(8px*var(--scale))}
+  .badge{display:inline-block;padding:1px calc(8px*var(--scale));border-radius:3px;
+    font-size:calc(11px*var(--scale));font-weight:600}
+  .badge.ok{background:rgba(46,204,143,.15);color:var(--c-ok)}
+  .badge.warn{background:rgba(245,165,36,.15);color:var(--c-warn)}
+  .badge.crit{background:rgba(244,84,76,.15);color:var(--c-crit)}
+  .kv{display:grid;grid-template-columns:auto 1fr;gap:calc(4px*var(--scale)) calc(10px*var(--scale));
+    font-size:calc(11.5px*var(--scale));margin-bottom:calc(8px*var(--scale))}
+  .kv dt{color:var(--t-lo);white-space:nowrap}
+  .kv dd{color:var(--t-hi)}
+  .param-tbl{width:100%;border-collapse:collapse;font-size:calc(11.5px*var(--scale))}
+  .param-tbl th{background:var(--bg-3);color:var(--t-mid);font-weight:500;padding:calc(4px*var(--scale)) calc(7px*var(--scale));text-align:left}
+  .param-tbl td{padding:calc(3px*var(--scale)) calc(7px*var(--scale));border-bottom:1px solid var(--line-soft);color:var(--t-hi)}
+  .param-tbl td.v{text-align:right;font-weight:600}
+  .param-tbl tr.bad td{color:var(--c-crit)}
+  .sub-title{font-size:calc(11px*var(--scale));color:var(--t-lo);margin:calc(8px*var(--scale)) 0 calc(4px*var(--scale))}
+
+  /* 告警列表 */
+  #alert-panel{flex:1 1 42%;min-height:0;display:flex;flex-direction:column}
+  #alert-body{flex:1 1 auto;min-height:0;overflow-y:auto}
+  .a-row{display:grid;grid-template-columns:auto 1fr auto auto;gap:calc(8px*var(--scale));
+    align-items:center;padding:calc(5px*var(--scale)) calc(8px*var(--scale));
+    background:var(--bg-2);border:1px solid var(--line-soft);border-left:3px solid var(--c-warn);
+    border-radius:var(--r-sm);font-size:calc(11.5px*var(--scale));margin-bottom:calc(4px*var(--scale));cursor:pointer}
+  .a-row.crit{border-left-color:var(--c-crit)}
+  .a-row:hover{background:var(--bg-3)}
+  .a-row .lv{font-size:calc(10px*var(--scale));padding:1px calc(5px*var(--scale));border-radius:3px;
+    background:rgba(245,165,36,.15);color:var(--c-warn)}
+  .a-row.crit .lv{background:rgba(244,84,76,.15);color:var(--c-crit)}
+  .a-row .pos{color:var(--t-hi);font-weight:600}
+  .a-row .msg{color:var(--t-mid);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .a-row .time{color:var(--t-dim);font-size:calc(10.5px*var(--scale))}
+  .empty-hint{color:var(--t-dim);font-size:calc(12px*var(--scale));text-align:center;padding:calc(16px*var(--scale))}
+
+  /* Tooltip */
+  #tip{position:fixed;z-index:50;pointer-events:none;opacity:0;transition:opacity .12s;
+    background:rgba(6,14,26,.97);border:1px solid var(--c-primary);border-radius:var(--r-sm);
+    padding:calc(6px*var(--scale)) calc(10px*var(--scale));font-size:calc(12px*var(--scale));
+    box-shadow:0 6px 20px rgba(0,0,0,.6);max-width:calc(280px*var(--scale))}
+  #tip .t{font-weight:700;margin-bottom:2px}
+  #tip .l{color:var(--t-lo);font-size:calc(11px*var(--scale))}
+  #toast{position:fixed;left:50%;bottom:8%;transform:translateX(-50%) translateY(20px);
+    background:rgba(47,129,247,.94);color:#fff;padding:calc(8px*var(--scale)) calc(18px*var(--scale));
+    border-radius:var(--r-sm);font-size:calc(13px*var(--scale));opacity:0;pointer-events:none;
+    transition:all .28s;z-index:99;box-shadow:0 6px 24px rgba(0,0,0,.5)}
+  #toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
+</style>
+</head>
+<body>
+<div id="bg-deco"></div><div id="bg-grid"></div>
+
+<div id="viewport">
+  <header id="topbar">
+    <div class="brand">
+      <a class="back-btn" href="digital-twin-dashboard.html">← 返回运营大屏</a>
+      <div class="brand-logo">⚙️</div>
+      <div class="brand-text">
+        <h1>设备数字孪生 · 厂房与产线布局</h1>
+        <p>EQUIPMENT DIGITAL TWIN · PLANT &amp; LINE LAYOUT</p>
+      </div>
+    </div>
+    <div id="clock-box">
+      <div id="clock">--:--:--</div>
+      <div id="update-info"><span class="live-dot"></span>数据更新：等待中</div>
+    </div>
+  </header>
+
+  <nav id="controlbar">
+    <span class="ctrl-label">产线筛选</span>
+    <div class="seg" id="seg-line"></div>
+    <span class="ctrl-label" style="margin-left:6px">设备类型</span>
+    <div class="seg" id="seg-type"></div>
+    <button class="btn" id="btn-reset">↻ 重置</button>
+    <span class="spacer"></span>
+    <span class="ctrl-label">状态图例</span>
+    <div id="legend">
+      <span class="lg"><i style="background:var(--c-ok)"></i>运行</span>
+      <span class="lg"><i style="background:var(--c-warn)"></i>待机</span>
+      <span class="lg alarm"><i style="background:var(--c-crit)"></i>故障/异常</span>
+    </div>
+  </nav>
+
+  <main id="main">
+    <!-- 左：孪生视图 -->
+    <section class="panel" id="m-twin">
+      <div class="panel-head">
+        <div class="panel-title">厂房孪生视图（等距投影 · 点击设备查看详情）</div>
+        <span class="spacer"></span>
+        <span class="ctrl-label" id="twin-hint">拖拽可旋转视角 · 滚轮缩放</span>
+      </div>
+      <div class="panel-body">
+        <div id="twin-wrap"><canvas id="twin"></canvas></div>
+      </div>
+    </section>
+
+    <!-- 右：统计 + 详情 + 告警 -->
+    <div id="right-col">
+      <section class="panel" style="flex:0 0 auto">
+        <div class="panel-body">
+          <div class="kpi-row" id="dev-kpi"></div>
+        </div>
+      </section>
+
+      <section class="panel" id="detail">
+        <div class="panel-head"><div class="panel-title">设备详情</div><span class="spacer"></span>
+          <span class="ctrl-label" id="detail-hint">未选中设备</span></div>
+        <div class="panel-body"><div id="detail-body">
+          <div class="empty-hint">在左侧孪生视图中点击任一设备，查看实时运行参数与告警</div>
+        </div></div>
+      </section>
+
+      <section class="panel" id="alert-panel">
+        <div class="panel-head"><div class="panel-title">异常告警汇总</div><span class="spacer"></span>
+          <span class="ctrl-label" id="alert-count" style="color:var(--c-crit)"></span></div>
+        <div class="panel-body" style="padding:calc(8px*var(--scale))">
+          <div id="alert-body"></div>
+        </div>
+      </section>
+    </div>
+  </main>
+</div>
+
+<div id="tip"></div>
+<div id="toast"></div>
+
+<script>
+'use strict';
+/* ============================================================================
+ * 设备数字孪生页
+ * 架构与主大屏一致：MockSource(数据) → Store(单一数据源) → View(只读渲染) → Chart
+ * 孪生视图用 Canvas 2.5D 等距投影自绘（不引 WebGL 库，保证离线可用）
+ * ========================================================================== */
+
+/* ---------- 工具 ---------- */
+const $ = s => document.querySelector(s);
+const clamp = (v,a,b) => Math.min(b, Math.max(a,v));
+const pad2 = n => String(n).padStart(2,'0');
+const hhmmss = d => `${pad2(d.getHours())}:${pad2(d.getMinutes())}:${pad2(d.getSeconds())}`;
+const hhmm = d => `${pad2(d.getHours())}:${pad2(d.getMinutes())}`;
+
+function makeRng(seed){ let s=seed>>>0; return ()=>((s=(s*1664525+1013904223)>>>0)/4294967296); }
+
+/* ---------- 设备台账（模拟，与主大屏同一工厂设定） ---------- */
+const LINES = [
+  { id:'L1', name:'L1 卷绕线', type:'卷绕' },
+  { id:'L2', name:'L2 涂布线', type:'涂布' },
+  { id:'L3', name:'L3 装配线', type:'装配' },
+  { id:'L4', name:'L4 化成线', type:'化成' },
+];
+const ZONES = ['A区 原料预处理','B区 电极制造','C区 电芯装配','D区 后处理化成'];
+
+/** 产线 → 区域索引（布局与台账共用，必须先于 MockSource 声明） */
+const LI_INDEX_ZONE = { L1:0, L2:1, L3:2, L4:3 };
+
+/**
+ * 厂房布局唯一真相源（世界坐标，0..1 平面）。
+ * 地板网格、产线条带、设备点位全部从这里推导 —— 三者共用一套坐标，
+ * 否则会出现"产线飘在空中 / 设备不在线上"的错位。
+ */
+const PLANT = {
+  floor: { x0:0.06, y0:0.10, gap:0.088, n:9 },      // 9×9 地板格
+  // 四条产线并排沿X方向，Z轴方向依次错开，形成错落感
+  lines: [
+    { x:0.10, y:0.20 },
+    { x:0.13, y:0.40 },
+    { x:0.10, y:0.60 },
+    { x:0.13, y:0.80 },
+  ],
+  lineLen: 0.70,      // 产线长度
+  lineWid: 0.075,     // 产线宽度
+  lineHgt: 0.022,     // 产线高度（立体块厚度）
+  // 设备在产线上的分布参数
+  // 6 台设备在产线上的落点（沿线均分，两端留白不超出产线）
+  devInset: 0.055,    // 距产线起点的留白
+  devSize:  0.032,    // 设备块长度
+  devHgt:   0.042,    // 设备高度
+};
+/** 取某产线的布局盒子 */
+function lineBox(lineId){
+  const i = LI_INDEX_ZONE[lineId];
+  return { x: PLANT.lines[i].x, y: PLANT.lines[i].y, len: PLANT.lineLen, wid: PLANT.lineWid, hgt: PLANT.lineHgt };
+}
+/** 6 台设备在产线上的落点（沿线均分，两端留白不超出产线） */
+const LINE_BOX = (() => {
+  const b = lineBox('L1');
+  const step = (b.len - PLANT.devInset*2 - PLANT.devSize) / 5;
+  return { x: b.x, y: b.y, wid: b.wid, len: b.len, step, devInset: PLANT.devInset, devSize: PLANT.devSize };
+})();
+
+/** 设备类型 → 监控参数模板（真实项目应来自设备台账/点表） */
+const DEV_TYPES = {
+  '卷绕机':{ icon:'🔄', params:[['卷绕速度','rpm',180,300,220],['张力','N',80,160,120],['芯极张力偏差','%',0,8,2.1],['主轴温度','℃',30,85,58]] },
+  '涂布机':{ icon:'🎨', params:[['涂布速度','m/min',10,60,32],['涂层厚度','μm',40,120,76],['烘箱温度','℃',80,180,135],['张力','N',50,150,95]] },
+  '装配机':{ icon:'🔧', params:[['装配节拍','s/只',4,12,7.2],['压装扭矩','N·m',20,80,48],['定位精度','mm',0.1,0.8,0.3],['上料数量','只',0,9999,1240]] },
+  '化成柜':{ icon:'🔋', params:[['化成温度','℃',30,70,52],['充电电流','A',20,200,120],['电压','V',2,5.2,4.35],['静置时长','h',4,20,12]] },
+  '注液机':{ icon:'💧', params:[['注液量','g',3,12,6.5],['真空度','kPa',-95,-60,-82],['注液节拍','s',3,15,6],['误差','%',0,5,0.8]] },
+  '检测仪':{ icon:'🔍', params:[['检测节拍','s',2,10,4],['内阻','mΩ',0.1,2,0.62],['容量偏差','%',0,8,1.6],['判定','—',0,1,0]] },
+};
+
+const DEV_NAMES = {
+  '卷绕机':'卷绕机','涂布机':'涂布机','装配机':'装配机','化成柜':'化成柜','注液机':'注液机','检测仪':'检测仪',
+};
+
+/* ---------- MockSource：设备实时状态 ---------- */
+const MockSource = {
+  _rng:null, _seed:88112345, devices:[], _alerts:[],
+
+  reset(seed){
+    this._seed = seed ?? this._seed;
+    this._rng = makeRng(this._seed);
+    this.devices = [];
+    this._alerts = [];
+    // 每条产线 6 台设备
+    LINES.forEach((line, li) => {
+      const types = this._typesFor(line.type);
+      for (let i=0;i<6;i++){
+        const t = types[i % types.length];
+        this.devices.push(this._mkDevice(t, line, i));
+      }
+    });
+    this.tick();
+  },
+
+  _typesFor(lineType){
+    return ({ '卷绕':['卷绕机','注液机','检测仪'],
+              '涂布':['涂布机','检测仪'],
+              '装配':['装配机','注液机'],
+              '化成':['化成柜','检测仪'] })[lineType] || ['检测仪'];
+  },
+
+  _mkDevice(t, line, i){
+    const no = `${line.id}-${String(i+1).padStart(2,'0')}`;
+    return {
+      id:`EQ-${no}`,
+      no,
+      name:`${no} ${DEV_NAMES[t]}`,
+      type:t,
+      lineId:line.id,
+      lineName:line.name,
+      zone: ZONES[LI_INDEX_ZONE[line.id]],
+      // 布局坐标从产线推导，保证设备一定落在所属产线上（不独立随机）
+      ux: lineBox(line.id).x + LINE_BOX.devInset + i * LINE_BOX.step,
+      uy: lineBox(line.id).y + PLANT.lineWid * 0.5,
+      status: 'ok',
+      params: {},      // 实时值
+      faultMsg: '',
+      since: Date.now(),
+    };
+  },
+
+  /** 刷新一次：重算每台设备状态与参数 */
+  tick(){
+    const rng = this._rng;
+    const now = Date.now();
+    this.devices.forEach(d => {
+      const r = rng();
+      // 状态迁移：约 72% 运行 / 20% 待机 / 8% 故障
+      let st;
+      if (r > 0.92) st = 'crit';
+      else if (r > 0.72) st = 'warn';
+      else st = 'ok';
+      // 故障有粘性：已故障的设备大概率持续故障（贴近真实）
+      if (d.status === 'crit' && rng() > 0.35) st = 'crit';
+      d.status = st;
+      if (st !== d.status) d.since = now;
+      d.statusSince = now;
+
+      const tpl = DEV_TYPES[d.type];
+      d.params = {};
+      tpl.params.forEach(([name,unit,min,max,base]) => {
+        let v = base * (1 + (rng()-0.5)*0.16);
+        v = clamp(v, min, max);
+        // 故障设备把第一个参数拉出正常区间
+        if (st === 'crit' && name === tpl.params[0][0]) v = max * (1 + 0.08);
+        d.params[name] = { value: v, unit, min, max, bad: st==='crit' && name===tpl.params[0][0] };
+      });
+
+      // 故障信息
+      if (st === 'crit'){
+        const msgs = ['主轴温度超限报警','张力波动异常','通讯中断重连','驱动过载保护','传感器数据跳变','真空度不足'];
+        d.faultMsg = msgs[Math.floor(rng()*msgs.length)];
+      } else d.faultMsg = '';
+
+      // 待机原因
+      if (st === 'warn'){
+        d.idleReason = ['等待物料','换型调整','工艺参数切换','工单间隙','计划保养'][Math.floor(rng()*5)];
+      } else d.idleReason = '';
+    });
+
+    // 汇总告警（含历史：故障/待机各一条，时间取状态持续时刻）
+    this._alerts = this.devices
+      .filter(d => d.status !== 'ok')
+      .map(d => ({
+        devId: d.id, devNo: d.no, devName: d.name, lineName: d.lineName, zone: d.zone,
+        level: d.status === 'crit' ? 'crit' : 'warn',
+        type: d.status === 'crit' ? '设备故障' : '待机',
+        msg: d.status === 'crit' ? d.faultMsg : d.idleReason,
+        time: d.since,
+      }))
+      .sort((a,b) => (a.level===b.level ? b.time-a.time : a.level==='crit'?-1:1));
+    return this.snapshot();
+  },
+
+  snapshot(){
+    const c = this.devices.reduce((n,d)=>n+(d.status==='crit'?1:0),0);
+    const w = this.devices.reduce((n,d)=>n+(d.status==='warn'?1:0),0);
+    const o = this.devices.length - c - w;
+    return {
+      t: Date.now(), devices: this.devices, alerts: this._alerts,
+      total: this.devices.length, ok:o, warn:w, crit:c,
+      online: this.devices.length,
+      mtbf: (Math.round((168 - c*6 + rng0(this._seed))*10)/10),
+      mttr: (Math.round((2.4 + c*0.7)*10)/10),
+    };
+  },
+};
+function rng0(seed){ return ((seed % 97) / 97); }
+
+/* ---------- Store ---------- */
+const Store = {
+  state: { snap:null, line:'ALL', type:'ALL', selected:null, lastUpdate:null, tickCount:0 },
+  _subs:[],
+  subscribe(fn){ this._subs.push(fn); return ()=>{ this._subs=this._subs.filter(f=>f!==fn); }; },
+  get(){ return this.state; },
+  dispatch(a){
+    const s = this.state;
+    switch(a.type){
+      case 'TICK': s.snap=a.snap; s.lastUpdate=new Date(); s.tickCount++; break;
+      case 'LINE': s.line=a.line; break;
+      case 'TYPE': s.type=a.type; break;
+      case 'SELECT': s.selected=a.id; break;
+    }
+    this._subs.forEach(f=>f(s,a));
+  },
+};
+
+/* ---------- 孪生视图：2.5D 等距投影 ---------- */
+const Twin = {
+  cv:null, ctx:null, w:0, h:0, dpr:1,
+  rot: -0.42,           // 旋转角
+  zoom: 1, panX:0, panY:0,
+  hit:[],               // 命中测试区
+  dragging:false, lastX:0, lastY:0, moved:false,
+
+  init(sel){
+    this.cv = $(sel); this.ctx = this.cv.getContext('2d');
+    this._bind();
+  },
+
+  _bind(){
+    const cv = this.cv;
+    cv.addEventListener('mousedown', e=>{ this.dragging=true; this.moved=false; this.lastX=e.clientX; this.lastY=e.clientY; });
+    window.addEventListener('mouseup', ()=>{ this.dragging=false; });
+    cv.addEventListener('mousemove', e=>{
+      if (this.dragging){
+        const dx=e.clientX-this.lastX, dy=e.clientY-this.lastY;
+        if (Math.abs(dx)+Math.abs(dy)>3) this.moved=true;
+        this.panX += dx; this.panY += dy;
+        this.lastX=e.clientX; this.lastY=e.clientY;
+        View.render();
+      }
+      this._tip(e);
+    });
+    cv.addEventListener('click', e=>{
+      if (this.moved) return;              // 拖拽结束不当作点击
+      const d = this._pick(e);
+      Store.dispatch({type:'SELECT', id: d ? d.id : null});
+    });
+    cv.addEventListener('wheel', e=>{
+      e.preventDefault();
+      this.zoom = clamp(this.zoom * (e.deltaY<0?1.1:0.9), 0.55, 2.4);
+      View.render();
+    }, {passive:false});
+  },
+
+  /** 世界坐标(0..1平面) → 屏幕等距坐标 */
+  project(ux, uy, height){
+    const cx=0.5, cy=0.5;
+    const X = (ux-cx), Y=(uy-cy);
+    // 等距：绕 Y 轴旋转后再做 2:1 斜切
+    const a = this.rot;
+    const rx = X*Math.cos(a) - Y*Math.sin(a);
+    const ry = X*Math.sin(a) + Y*Math.cos(a);
+    const S = Math.min(this.w, this.h*1.6) * 0.82 * this.zoom;
+    const px = this.w/2 + rx*S;
+    const py = this.h/2 + (ry*S*0.5) - (height||0)*S*0.42 + this.panY;
+    return { x: px, y: py, z: (height||0) };
+  },
+
+  _tip(e){
+    const d = this._pick(e);
+    const tip = $('#tip');
+    if (!d){ tip.style.opacity=0; return; }
+    const st = d.status==='crit' ? '故障' : d.status==='warn' ? '待机' : '运行';
+    const col = d.status==='crit' ? 'var(--c-crit)' : d.status==='warn' ? 'var(--c-warn)' : 'var(--c-ok)';
+    tip.innerHTML = `<div class="t" style="color:${col}">${d.name}</div>
+      <div class="l">编号 ${d.id} · ${d.type}</div>
+      <div class="l">${d.lineName} / ${d.zone}</div>
+      <div class="l">状态：<b style="color:${col}">${st}</b>${d.faultMsg? ' · '+d.faultMsg : d.idleReason? ' · '+d.idleReason : ''}</div>`;
+    tip.style.opacity=1;
+    tip.style.left = (e.clientX+14)+'px';
+    tip.style.top = (e.clientY+14)+'px';
+  },
+
+  _pick(e){
+    const r = this.cv.getBoundingClientRect();
+    const x = e.clientX - r.left, y = e.clientY - r.top;
+    // 命中区从上往下找（后画的在上）
+    for (let i=this.hit.length-1;i>=0;i--){
+      const h=this.hit[i];
+      if (x>=h.x && x<=h.x+h.w && y>=h.y && y<=h.y+h.h) return h.dev;
+    }
+    return null;
+  },
+
+  color(st){ return st==='crit' ? '#f4544c' : st==='warn' ? '#f5a524' : '#2ecc8f'; },
+
+  draw(devices){
+    const cv=this.cv; if(!cv) return;
+    const r = cv.getBoundingClientRect();
+    this.dpr = window.devicePixelRatio||1;
+    this.w = r.width; this.h = r.height;
+    cv.width = this.w*this.dpr; cv.height=this.h*this.dpr;
+    const ctx=this.ctx; ctx.setTransform(this.dpr,0,0,this.dpr,0,0);
+    ctx.clearRect(0,0,this.w,this.h);
+    this.hit=[];
+
+    // —— ① 厂房地板（与产线同一屏幕空间伪等距：水平铺展 + 深度向上，不再倾斜）——
+    const { x0:X0, y0:Y0, gap:GAP, n:N } = PLANT.floor;
+    const S = Math.min(this.w, this.h*1.6) * 0.82 * this.zoom;
+    // 楼板范围按产线实际水平绘制范围 + 外扩边距，确保水平楼板完整托住所有产线
+    const _ordAll = LINES.map(l=>({b:lineBox(l.id)}));
+    let fX0=Infinity, fY0=Infinity, fX1=-Infinity, fY1=-Infinity;
+    const _bw=PLANT.lineLen*S, _bh=PLANT.lineWid*S*0.5, _th=PLANT.lineHgt*S*0.42;
+    _ordAll.forEach(({b})=>{
+      const p=this.project(b.x,b.y,0);
+      fX0=Math.min(fX0,p.x); fX1=Math.max(fX1,p.x+_bw);
+      fY0=Math.min(fY0,p.y-_bh-_th); fY1=Math.max(fY1,p.y);
+    });
+    const _M=0.5*GAP*S; fX0-=_M; fX1+=_M; fY0-=_M; fY1+=_M;
+    const fw=fX1-fX0, fh=fY1-fY0;
+    ctx.beginPath(); ctx.rect(fX0,fY0,fw,fh);
+    ctx.fillStyle='rgba(13,26,46,.55)'; ctx.fill();
+    for (let i=0;i<N;i++) for (let j=0;j<N;j++){
+      ctx.beginPath(); ctx.rect(fX0+i*(fw/N), fY0+j*(fh/N), fw/N, fh/N);
+      ctx.fillStyle = ((i+j)%2===0) ? 'rgba(20,40,68,.30)' : 'rgba(16,32,56,.30)';
+      ctx.fill();
+    }
+    ctx.strokeStyle='rgba(70,130,200,.10)'; ctx.lineWidth=1;
+    for (let i=0;i<=N;i++){ const gx=fX0+i*(fw/N); ctx.beginPath(); ctx.moveTo(gx,fY0); ctx.lineTo(gx,fY1); ctx.stroke(); }
+    for (let j=0;j<=N;j++){ const gy=fY0+j*(fh/N); ctx.beginPath(); ctx.moveTo(fX0,gy); ctx.lineTo(fX1,gy); ctx.stroke(); }
+    // 厂房外墙（贴合楼板四边）+ 后墙立柱
+    ctx.strokeStyle='rgba(47,129,247,.45)'; ctx.lineWidth=1.6;
+    ctx.beginPath(); ctx.rect(fX0,fY0,fw,fh); ctx.stroke();
+    const colH = 0.10 * S * 0.42;
+    [[fX0,fY0],[fX1,fY0]].forEach(([px,py]) => {
+      ctx.beginPath(); ctx.moveTo(px, py); ctx.lineTo(px, py-colH);
+      ctx.strokeStyle='rgba(47,129,247,.30)'; ctx.lineWidth=1.2; ctx.stroke();
+    });
+
+    // —— ② 产线（立体块，绘制顺序按Y排序保证遮挡正确）——
+    const boxOf = id => lineBox(id);
+    const ordered = LINES.map(l=>({l, b:boxOf(l.id)})).sort((p,q)=>p.b.y-q.b.y);
+    ordered.forEach(({l, b}) => {
+      const p = this.project(b.x, b.y, 0);
+      const bw = PLANT.lineLen*S, bh = PLANT.lineWid*S*0.5, th = PLANT.lineHgt*S*0.42;
+      // 底面
+      ctx.beginPath();
+      ctx.moveTo(p.x, p.y-bh); ctx.lineTo(p.x+bw, p.y-bh);
+      ctx.lineTo(p.x+bw, p.y); ctx.lineTo(p.x, p.y);
+      ctx.closePath();
+      ctx.fillStyle='rgba(47,129,247,.14)'; ctx.fill();
+      ctx.strokeStyle='rgba(47,129,247,.55)'; ctx.lineWidth=1.4; ctx.stroke();
+      // 顶面
+      ctx.beginPath();
+      ctx.moveTo(p.x, p.y-bh-th); ctx.lineTo(p.x+bw, p.y-bh-th);
+      ctx.lineTo(p.x+bw, p.y-th); ctx.lineTo(p.x, p.y-th);
+      ctx.closePath();
+      ctx.fillStyle='rgba(47,129,247,.30)'; ctx.fill();
+      ctx.strokeStyle='rgba(120,180,255,.75)'; ctx.lineWidth=1.2; ctx.stroke();
+      // 产线名
+      ctx.fillStyle='#9fb3d1'; ctx.font='11px sans-serif'; ctx.textAlign='left'; ctx.textBaseline='bottom';
+      ctx.fillText(l.name, p.x, p.y-bh-th-4);
+    });
+
+    // —— ③ 设备点位（按产线分组、产线内按序，保证遮挡正确）——
+    //    构图修复：设备与线体用同一屏幕坐标系——x 沿线体水平方向、
+    //    深度在线体顶面居中（原实现走 project(ux,uy) 旋转轴，设备斜悬于线体外）
+    const dsz = PLANT.devSize*S, dth = PLANT.devHgt*S*0.42;
+    ordered.forEach(({l, b}) => {
+      const p0 = this.project(b.x, b.y, 0);
+      const bh = PLANT.lineWid*S*0.5, lth = PLANT.lineHgt*S*0.42, dh = bh*0.72;
+      devices.filter(d=>d.lineId===l.id).forEach(d => {
+        const base = { x: p0.x + (d.ux-b.x)*S, y: p0.y - lth - (bh-dh)/2 };
+        const w = dsz, h = dh, th = dth;
+        const c = this.color(d.status);
+        const sel = Store.get().selected === d.id;
+
+        // 底面
+        ctx.beginPath();
+        ctx.moveTo(base.x, base.y-h); ctx.lineTo(base.x+w, base.y-h);
+        ctx.lineTo(base.x+w, base.y); ctx.lineTo(base.x, base.y);
+        ctx.closePath();
+        ctx.fillStyle = c+'33'; ctx.fill();
+        // 顶面
+        ctx.beginPath();
+        ctx.moveTo(base.x, base.y-h-th); ctx.lineTo(base.x+w, base.y-h-th);
+        ctx.lineTo(base.x+w, base.y-th); ctx.lineTo(base.x, base.y-th);
+        ctx.closePath();
+        ctx.fillStyle = c+'cc'; ctx.fill();
+        ctx.strokeStyle = c; ctx.lineWidth = sel?2.2:1.2; ctx.stroke();
+
+        // 故障设备闪烁光晕
+        if (d.status==='crit'){
+          const t = (Date.now()/500)%1;
+          ctx.beginPath();
+          ctx.arc(base.x+w/2, base.y-h-th/2, w*0.9 + t*w*0.9, 0, Math.PI*2);
+          ctx.strokeStyle = `rgba(244,84,76,${(1-t)*0.55})`;
+          ctx.lineWidth=2; ctx.stroke();
+        }
+        // 选中标记
+        if (sel){
+          ctx.beginPath();
+          ctx.moveTo(base.x+w/2, base.y-h-th-8); ctx.lineTo(base.x+w/2-5, base.y-h-th-16);
+          ctx.lineTo(base.x+w/2+5, base.y-h-th-16); ctx.closePath();
+          ctx.fillStyle='#fff'; ctx.fill();
+        }
+        // 编号标签
+        ctx.fillStyle = sel? '#fff' : 'rgba(180,205,235,.9)';
+        ctx.font = (sel?'bold ':'')+'10px sans-serif'; ctx.textAlign='center'; ctx.textBaseline='top';
+        ctx.fillText(d.no, base.x+w/2, base.y-h-th+3);
+
+        // 命中区（含标签）
+        this.hit.push({ x:base.x-2, y:base.y-h-th-6, w:w+4, h:h+th+16, dev:d });
+      });
+    });
+  },
+};
+
+/* ---------- View ---------- */
+const View = {
+  init(){
+    MockSource.reset();
+    Twin.init('#twin');
+    this.buildSegs();
+    this.bind();
+    Store.dispatch({type:'TICK', snap:MockSource.tick()});
+    // 默认选中第一台设备，避免右侧详情面板空着（必须放在 TICK 之后，render 才拿得到 snap）
+    Store.dispatch({type:'SELECT', id: MockSource.devices[0]?.id ?? null});
+    this.startTimer(); this.startClock(); this.fit();
+  },
+
+  buildSegs(){
+    $('#seg-line').innerHTML = `<button data-line="ALL" class="active">全部产线</button>` +
+      LINES.map(l=>`<button data-line="${l.id}">${l.name}</button>`).join('');
+    $('#seg-line').onclick = e=>{ const b=e.target.closest('button'); if(!b) return; Store.dispatch({type:'LINE',line:b.dataset.line}); };
+
+    const types=[...new Set(MockSource.devices.map(d=>d.type))];
+    $('#seg-type').innerHTML = `<button data-type="ALL" class="active">全部类型</button>` +
+      types.map(t=>`<button data-type="${t}">${t}</button>`).join('');
+    $('#seg-type').onclick = e=>{ const b=e.target.closest('button'); if(!b) return; Store.dispatch({type:'TYPE',type:b.dataset.type}); };
+
+    $('#btn-reset').onclick = ()=>{ MockSource.reset(Date.now()%100000); Store.dispatch({type:'TICK',snap:MockSource.tick()}); this.toast('孪生数据已重置'); };
+  },
+
+  bind(){
+    Store.subscribe((s,a)=>this.render(s,a));
+    window.addEventListener('resize',()=>this.fit());
+  },
+
+  fit(){
+    const scale = Math.min(window.innerWidth/1920, window.innerHeight/1080);
+    document.documentElement.style.setProperty('--scale', scale);
+    const vp=$('#viewport');
+    vp.style.transform=`scale(${scale})`;
+    vp.style.left=`${(window.innerWidth-1920*scale)/2}px`;
+    vp.style.top=`${(window.innerHeight-1080*scale)/2}px`;
+  },
+
+  startTimer(){
+    if (this._t) clearInterval(this._t);
+    this._t = setInterval(()=>Store.dispatch({type:'TICK', snap:MockSource.tick()}), 3000);
+  },
+
+  startClock(){
+    setInterval(()=>{ $('#clock').textContent = hhmmss(new Date()); }, 1000);
+    $('#clock').textContent = hhmmss(new Date());
+  },
+
+  toast(m){ const t=$('#toast'); t.textContent=m; t.classList.add('show'); clearTimeout(this._tt); this._tt=setTimeout(()=>t.classList.remove('show'),1800); },
+
+  /** 按筛选条件过滤 */
+  filtered(){
+    const s = Store.get();
+    return s.snap.devices.filter(d =>
+      (s.line==='ALL' || d.lineId===s.line) &&
+      (s.type ==='ALL' || d.type ===s.type));
+  },
+
+  render(s, a){
+    if (!s.snap) return;
+    const snap = s.snap;
+
+    // KPI（按筛选后的集合统计，保证"筛了就变"）
+    const list = this.filtered();
+    const c = list.filter(d=>d.status==='crit').length;
+    const w = list.filter(d=>d.status==='warn').length;
+    const o = list.length - c - w;
+    const kpis = [
+      {n:'监控设备', v:list.length, u:'台', c:'#2f81f7'},
+      {n:'运行中', v:o, u:'台', c:'#2ecc8f', crit:false},
+      {n:'待机', v:w, u:'台', c:'#f5a524', crit:w>0},
+      {n:'故障', v:c, u:'台', c:'#f4544c', crit:c>0},
+    ];
+    $('#dev-kpi').innerHTML = kpis.map(k=>
+      `<div class="kpi ${k.crit?'crit':''}" style="--kc:${k.c}">
+        <div class="kpi-name">${k.n}</div>
+        <div class="kpi-val" style="color:${k.c}">${k.v}<span class="unit">${k.u}</span></div>
+      </div>`).join('');
+
+    // 孪生视图
+    Twin.draw(list);
+
+    // 详情
+    this.renderDetail(s);
+    // 告警
+    this.renderAlerts(snap);
+
+    // 交互态
+    document.querySelectorAll('#seg-line button').forEach(b=>b.classList.toggle('active', b.dataset.line===s.line));
+    document.querySelectorAll('#seg-type button').forEach(b=>b.classList.toggle('active', b.dataset.type===s.type));
+    $('#update-info').innerHTML = `<span class="live-dot"></span>数据更新：${hhmmss(s.lastUpdate)}　·　第 ${s.tickCount} 次刷新`;
+  },
+
+  renderDetail(s){
+    const box = $('#detail-body'), hint = $('#detail-hint');
+    const d = s.snap.devices.find(x=>x.id===s.selected);
+    if (!d){
+      hint.textContent='未选中设备';
+      box.innerHTML = '<div class="empty-hint">在左侧孪生视图中点击任一设备，查看实时运行参数与告警</div>';
+      return;
+    }
+    const stTxt = d.status==='crit'?'故障':d.status==='warn'?'待机':'运行';
+    const stCls = d.status;
+    hint.innerHTML = `<span class="badge ${stCls}">${stTxt}</span>`;
+
+    const tpl = DEV_TYPES[d.type];
+    let html = `<div class="d-title">${d.name}</div>
+      <div class="d-sub">${d.id} · ${d.type} · ${d.zone}</div>
+      <dl class="kv">
+        <dt>设备编号</dt><dd>${d.id}</dd>
+        <dt>设备名称</dt><dd>${d.name}</dd>
+        <dt>设备类型</dt><dd>${d.type} ${tpl.icon}</dd>
+        <dt>所属产线</dt><dd>${d.lineName}</dd>
+        <dt>所属区域</dt><dd>${d.zone}</dd>
+        <dt>当前状态</dt><dd><span class="badge ${stCls}">${stTxt}</span></dd>
+        ${d.faultMsg?`<dt>故障信息</dt><dd style="color:var(--c-crit)">${d.faultMsg}</dd>`:''}
+        ${d.idleReason?`<dt>待机原因</dt><dd style="color:var(--c-warn)">${d.idleReason}</dd>`:''}
+        <dt>状态持续</dt><dd>${Math.max(0,Math.round((Date.now()-d.since)/60000))} 分钟</dd>
+      </dl>
+      <div class="sub-title">实时运行参数</div>
+      <table class="param-tbl">
+        <thead><tr><th>参数</th><th style="text-align:right">实时值</th><th style="text-align:right">正常区间</th></tr></thead><tbody>`;
+    tpl.params.forEach(([name,unit,min,max])=>{
+      const p = d.params[name];
+      html += `<tr class="${p.bad?'bad':''}"><td>${name}</td>
+        <td class="v">${p.value.toFixed(unit==='—'?0:2)} ${unit}</td>
+        <td style="text-align:right;color:var(--t-dim)">${min}~${max}</td></tr>`;
+    });
+    html += '</tbody></table>';
+    box.innerHTML = html;
+  },
+
+  renderAlerts(snap){
+    const box = $('#alert-body');
+    $('#alert-count').textContent = snap.alerts.length ? `${snap.alerts.length} 条` : '';
+    if (!snap.alerts.length){
+      box.innerHTML = '<div class="empty-hint">当前无异常</div>';
+      return;
+    }
+    box.innerHTML = snap.alerts.map(a=>`
+      <div class="a-row ${a.level}" data-dev="${a.devId}">
+        <span class="lv">${a.level==='crit'?'故障':'待机'}</span>
+        <span class="msg"><span class="pos">${a.devNo}</span> ${a.msg} · ${a.lineName}</span>
+        <span class="time">${hhmm(new Date(a.time))}</span>
+      </div>`).join('');
+    // 点击告警 → 选中对应设备
+    box.querySelectorAll('.a-row').forEach(el=>{
+      el.onclick = ()=>{
+        Store.dispatch({type:'SELECT', id: el.dataset.dev});
+        this.toast('已定位设备：'+el.dataset.dev);
+      };
+    });
+  },
+};
+
+document.addEventListener('DOMContentLoaded', ()=>View.init());
+</script>
+</body>
+</html>

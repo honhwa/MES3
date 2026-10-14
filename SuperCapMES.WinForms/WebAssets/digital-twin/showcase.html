@@ -1,0 +1,252 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>展厅总控 · 泰州超级电容智能工厂</title>
+<style>
+  :root {
+    --bg-0:#050b16; --bg-1:#0a1424; --bg-2:#0f1d31; --bg-3:#16273f;
+    --c-primary:#2f81f7; --c-primary-glow:rgba(47,129,247,.35);
+    --c-ok:#2ecc8f; --c-warn:#f5a524; --c-crit:#f4544c; --c-info:#35c6d4; --c-purple:#7f77dd;
+    --t-hi:#eaf2ff; --t-mid:#9fb3d1; --t-lo:#64789a; --t-dim:#3d4f6b;
+    --line:rgba(80,140,210,.16); --line-soft:rgba(80,140,210,.09);
+    --r-sm:4px; --r-md:8px; --r-lg:12px;
+    --shadow:0 4px 20px rgba(0,0,0,.45);
+    --font:"HarmonyOS Sans SC","Microsoft YaHei",-apple-system,sans-serif;
+  }
+  *{margin:0;padding:0;box-sizing:border-box}
+  html,body{width:100%;height:100%;background:var(--bg-0);color:var(--t-hi);
+    font-family:var(--font);overflow:hidden;font-variant-numeric:tabular-nums}
+  #bg-deco{position:fixed;inset:0;z-index:0;pointer-events:none;
+    background:radial-gradient(ellipse 55% 40% at 20% -10%,rgba(245,165,36,.10),transparent 70%),
+               radial-gradient(ellipse 45% 40% at 95% 100%,rgba(47,129,247,.08),transparent 70%)}
+  #viewport{position:fixed;width:1920px;height:1080px;transform:translate(-50%,-50%);
+    left:50%;top:50%;transform-origin:center;z-index:1;
+    display:flex;flex-direction:column;padding:14px 18px;gap:12px}
+
+  .topbar{flex:0 0 auto;display:flex;align-items:center;gap:16px}
+  .topbar h1{font-size:24px;font-weight:600;letter-spacing:3px;
+    background:linear-gradient(90deg,#eaf2ff,#f0c169);-webkit-background-clip:text;-webkit-text-fill-color:transparent}
+  .topbar .sub{font-size:12.5px;color:var(--t-lo);letter-spacing:1px;margin-top:4px}
+  .topbar .tips{margin-left:auto;font-size:11.5px;color:var(--t-lo);text-align:right;line-height:1.7}
+  .topbar .tips b{color:var(--c-warn);font-weight:500}
+
+  .layout{flex:1 1 auto;min-height:0;display:grid;grid-template-columns:330px 1fr;gap:12px}
+
+  /* 左：场景列表 */
+  .side{background:var(--bg-1);border:1px solid var(--line);border-radius:var(--r-lg);
+    box-shadow:var(--shadow);display:flex;flex-direction:column;min-height:0;overflow:hidden}
+  .side-head{padding:12px 14px;border-bottom:1px solid var(--line-soft);
+    background:linear-gradient(90deg,rgba(245,165,36,.10),transparent 60%)}
+  .side-head .tt{font-size:15px;font-weight:500;letter-spacing:2px}
+  .side-head .ds{font-size:10.5px;color:var(--t-lo);margin-top:4px}
+  .scene-list{flex:1 1 auto;overflow-y:auto;padding:10px;display:flex;flex-direction:column;gap:7px;min-height:0}
+  .sc{display:flex;align-items:center;gap:10px;background:var(--bg-2);border:1px solid var(--line-soft);
+    border-radius:var(--r-sm);padding:9px 11px;cursor:pointer;text-align:left;font-family:var(--font)}
+  .sc:hover{border-color:rgba(245,165,36,.4)}
+  .sc.active{border-color:var(--c-warn);background:rgba(245,165,36,.10)}
+  .sc .no{flex:0 0 auto;width:22px;height:22px;border-radius:50%;font-size:11px;font-weight:600;
+    display:flex;align-items:center;justify-content:center;background:rgba(80,140,210,.16);color:var(--t-mid)}
+  .sc.active .no{background:var(--c-warn);color:#1a1206}
+  .sc .tx{flex:1 1 auto;min-width:0}
+  .sc .nm{font-size:13px;font-weight:500}
+  .sc .ds{font-size:10px;color:var(--t-lo);margin-top:2px}
+  .sc .dur{flex:0 0 auto;font-size:10.5px;color:var(--t-lo)}
+  .controls{flex:0 0 auto;padding:11px 12px;border-top:1px solid var(--line-soft);display:flex;gap:8px}
+  .controls button{flex:1 1 auto;border:1px solid var(--line);background:var(--bg-2);color:var(--t-mid);
+    font-size:12.5px;border-radius:var(--r-sm);padding:8px 0;cursor:pointer;font-family:var(--font)}
+  .controls button:hover{color:var(--t-hi);border-color:rgba(47,129,247,.45)}
+  .controls button.primary{background:var(--c-warn);border-color:var(--c-warn);color:#1a1206;font-weight:500}
+  .controls button.primary:hover{filter:brightness(1.1)}
+
+  /* 右：舞台 */
+  .stage-wrap{display:flex;flex-direction:column;gap:10px;min-height:0}
+  .stage{flex:1 1 auto;min-height:0;background:#02060d;border:1px solid var(--line);border-radius:var(--r-lg);
+    box-shadow:var(--shadow);position:relative;overflow:hidden}
+  .stage iframe{position:absolute;left:0;top:0;width:1920px;height:1080px;border:0;
+    transform-origin:top left;background:#050b16}
+  .narration{flex:0 0 auto;background:var(--bg-1);border:1px solid var(--line);border-radius:var(--r-lg);
+    box-shadow:var(--shadow);padding:12px 16px;display:flex;gap:14px;align-items:flex-start}
+  .narration .badge{flex:0 0 auto;font-size:11px;color:#1a1206;background:var(--c-warn);border-radius:var(--r-sm);
+    padding:3px 10px;font-weight:500;letter-spacing:1px;margin-top:2px}
+  .narration .tx{flex:1 1 auto;min-width:0}
+  .narration .tt{font-size:15px;font-weight:500;letter-spacing:1px}
+  .narration .talk{font-size:12.5px;color:var(--t-mid);line-height:1.75;margin-top:5px}
+  .narration .talk li{margin-left:18px}
+  .narration .prog{flex:0 0 auto;display:flex;flex-direction:column;align-items:flex-end;gap:6px}
+  .narration .dots{display:flex;gap:5px}
+  .narration .dots i{width:7px;height:7px;border-radius:50%;background:rgba(80,140,210,.25)}
+  .narration .dots i.done{background:var(--c-ok)}
+  .narration .dots i.cur{background:var(--c-warn);box-shadow:0 0 6px var(--c-warn)}
+  .narration .timer{font-size:12px;color:var(--t-lo);font-variant-numeric:tabular-nums}
+</style>
+</head>
+<body>
+<div id="bg-deco"></div>
+<div id="viewport">
+  <div class="topbar">
+    <div>
+      <h1>数字化成果展厅</h1>
+      <div class="sub">泰州超级电容智能工厂 · 展厅总控台 · 自动巡演按导演脚本逐幕播放</div>
+    </div>
+    <div class="tips">展厅大屏建议按 <b>F11</b> 全屏展示<br />数据为确定性模拟演示口径，口径说明见各页面与《导演脚本》</div>
+  </div>
+
+  <div class="layout">
+    <!-- 左：导演脚本场景列表 -->
+    <div class="side">
+      <div class="side-head">
+        <div class="tt">导演脚本 · 场景</div>
+        <div class="ds">点击场景可直接跳转；自动巡演按顺序播放</div>
+      </div>
+      <div class="scene-list" id="scene-list"></div>
+      <div class="controls">
+        <button id="btn-play" class="primary">▶ 自动巡演</button>
+        <button id="btn-prev">⬅ 上一幕</button>
+        <button id="btn-next">下一幕 ➡</button>
+      </div>
+    </div>
+
+    <!-- 右：舞台 + 旁白 -->
+    <div class="stage-wrap">
+      <div class="stage" id="stage">
+        <iframe id="frame" src="cockpit.html" title="展厅演示画面"></iframe>
+      </div>
+      <div class="narration">
+        <span class="badge" id="nar-no">第 1 幕</span>
+        <div class="tx">
+          <div class="tt" id="nar-tt">准备就绪</div>
+          <ul class="talk" id="nar-talk"></ul>
+        </div>
+        <div class="prog">
+          <div class="dots" id="nar-dots"></div>
+          <div class="timer" id="nar-timer">--</div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+"use strict";
+const $ = (s) => document.querySelector(s);
+
+/* ================= 导演脚本（展厅巡演版，与《导演脚本》文档同源） ================= */
+const SCENES = [
+  { page: 'cockpit.html', nm: '经营驾驶舱', ds: '工厂健康度总览', dur: 35,
+    talk: ['一句话结论：当前工厂运行「基本健康」（76 分），产量达成 89.7%，良品率 98.34%。',
+           '8 项核心 KPI 一屏总览，告警自动列出并附建议动作——管理层看 30 秒就知道好不好、风险在哪。'] },
+  { page: 'production-twin.html', nm: '生产孪生', ds: '产线实时运行', dur: 45,
+    talk: ['4 条产线 24 台设备实时映射：绿=运行、灰=未运行、红=故障。',
+           '悬停任意设备可看当前在制品：工单、批次、工序进度、班组——现场问题一眼定位。'] },
+  { page: 'carbon-twin.html', nm: '碳排放孪生', ds: '能耗与碳排', dur: 40,
+    talk: ['每台设备的碳排放速率实时计算（功率×负荷×电网因子），超阈值自动红色预警。',
+           '全厂今日累计、配额使用率 3 秒刷新——碳排管得住、说得清。'] },
+  { page: 'device-twin.html', nm: '设备孪生', ds: '设备状态监控', dur: 35,
+    talk: ['厂房 2.5D 布局与设备点位全映射，点击设备查看实时运行参数与告警。',
+           '点检保养电子化、故障闭环——设备管理从「坏了再修」转向「预警先行」。'] },
+  { page: 'trace-query.html', nm: '批次追溯查询', ds: '质量追溯能力（审厂重点）', dur: 55,
+    talk: ['输入批次号，1 秒内输出 8 道工序全链路：设备、班组、工艺参数、检验记录。',
+           '点击物料批号可反查投放范围；不合格样例展示完整质量闭环——追溯能力经得起现场追问。'] },
+  { page: 'gov-submission.html', nm: '政府申报版', ds: '建设成效与等级对标', dur: 55,
+    talk: ['梯度培育对标 + CMMM 十大能力域自评，每个指标可点开看统计口径。',
+           '智能化场景均附量化收益，达成/在建/规划分层表述——成效可验证、不夸大。'] },
+];
+
+const Tour = {
+  idx: 0, playing: false, timer: null, tickAt: 0,
+
+  init() {
+    this.renderList();
+    this.renderDots();
+    this.bind();
+    this.goto(0);
+    this.fit();
+    window.addEventListener('resize', () => this.fit());
+  },
+
+  renderList() {
+    $('#scene-list').innerHTML = SCENES.map((s, i) => `
+      <button class="sc" data-i="${i}">
+        <span class="no">${i + 1}</span>
+        <span class="tx"><span class="nm">${s.nm}</span><div class="ds">${s.ds}</div></span>
+        <span class="dur">${s.dur}s</span>
+      </button>`).join('');
+    $('#scene-list').addEventListener('click', (e) => {
+      const b = e.target.closest('.sc'); if (!b) return;
+      this.stop();
+      this.goto(+b.dataset.i);
+    });
+  },
+
+  renderDots() {
+    $('#nar-dots').innerHTML = SCENES.map((_, i) => `<i data-i="${i}"></i>`).join('');
+  },
+
+  bind() {
+    $('#btn-play').addEventListener('click', () => this.play());
+    $('#btn-prev').addEventListener('click', () => { this.stop(); this.goto((this.idx - 1 + SCENES.length) % SCENES.length); });
+    $('#btn-next').addEventListener('click', () => { this.stop(); this.goto((this.idx + 1) % SCENES.length); });
+  },
+
+  goto(i) {
+    this.idx = i;
+    const s = SCENES[i];
+    $('#frame').src = s.page;
+    $('#nar-no').textContent = `第 ${i + 1} 幕`;
+    $('#nar-tt').textContent = `${s.nm} · ${s.ds}`;
+    $('#nar-talk').innerHTML = s.talk.map((t) => `<li>${t}</li>`).join('');
+    document.querySelectorAll('.sc').forEach((el) => el.classList.toggle('active', +el.dataset.i === i));
+    document.querySelectorAll('#nar-dots i').forEach((el) => {
+      el.classList.toggle('cur', +el.dataset.i === i);
+      el.classList.toggle('done', +el.dataset.i < i);
+    });
+    this.tickAt = Date.now() + s.dur * 1000;
+    this.updTimer();
+  },
+
+  play() {
+    this.playing = true;
+    $('#btn-play').textContent = '⏸ 暂停巡演';
+    $('#btn-play').classList.remove('primary');
+    this.step();
+  },
+
+  stop() {
+    this.playing = false;
+    $('#btn-play').textContent = '▶ 自动巡演';
+    $('#btn-play').classList.add('primary');
+    if (this.timer) { clearTimeout(this.timer); this.timer = null; }
+    $('#nar-timer').textContent = '已暂停';
+  },
+
+  step() {
+    if (!this.playing) return;
+    const remain = this.tickAt - Date.now();
+    this.updTimer();
+    if (remain <= 0) {
+      this.goto((this.idx + 1) % SCENES.length);
+      this.timer = setTimeout(() => this.step(), 1200);   // 换幕留 1.2s 旁白阅读
+      return;
+    }
+    this.timer = setTimeout(() => this.step(), 250);
+  },
+
+  updTimer() {
+    const s = SCENES[this.idx];
+    const remain = Math.max(0, Math.round((this.tickAt - Date.now()) / 1000));
+    $('#nar-timer').textContent = this.playing ? `本幕剩余 ${remain}s / ${s.dur}s` : `本幕 ${s.dur}s`;
+  },
+
+  fit() {
+    const st = $('#stage');
+    const scale = Math.min(st.clientWidth / 1920, st.clientHeight / 1080);
+    $('#frame').style.transform = `scale(${scale})`;
+  },
+};
+
+document.addEventListener('DOMContentLoaded', () => Tour.init());
+</script>
+</body>
+</html>

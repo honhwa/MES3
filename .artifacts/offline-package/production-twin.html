@@ -1,0 +1,1024 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>生产情况孪生 · 泰州超级电容智能工厂</title>
+<style>
+  /* ================================================================
+     主题令牌 —— 与运营大屏 / 设备孪生 / 网络孪生 保持一致（深色科技感）
+     ================================================================ */
+  :root {
+    --bg-0:#050b16; --bg-1:#0a1424; --bg-2:#0f1d31; --bg-3:#16273f;
+    --c-primary:#2f81f7; --c-primary-glow:rgba(47,129,247,.35);
+    --c-ok:#2ecc8f; --c-warn:#f5a524; --c-crit:#f4544c; --c-info:#35c6d4;
+    --c-idle:#6b7a96;                     /* 未运行（灰） */
+    --t-hi:#eaf2ff; --t-mid:#9fb3d1; --t-lo:#64789a; --t-dim:#3d4f6b;
+    --line:rgba(80,140,210,.16); --line-soft:rgba(80,140,210,.09);
+    --r-sm:4px; --r-md:8px; --r-lg:12px;
+    --shadow:0 4px 20px rgba(0,0,0,.45);
+    --scale:1;
+    --font:"HarmonyOS Sans SC","Microsoft YaHei",-apple-system,sans-serif;
+  }
+  *{margin:0;padding:0;box-sizing:border-box}
+  html,body{width:100%;height:100%;background:var(--bg-0);color:var(--t-hi);
+    font-family:var(--font);overflow:hidden;font-variant-numeric:tabular-nums}
+  #bg-deco{position:fixed;inset:0;z-index:0;pointer-events:none;
+    background:radial-gradient(ellipse 60% 45% at 50% -10%,rgba(47,129,247,.20),transparent 70%),
+               radial-gradient(ellipse 45% 40% at 90% 100%,rgba(46,204,143,.08),transparent 70%)}
+  #bg-grid{position:fixed;inset:0;z-index:0;pointer-events:none;opacity:.5;
+    background-image:linear-gradient(rgba(70,130,200,.055) 1px,transparent 1px),
+                     linear-gradient(90deg,rgba(70,130,200,.055) 1px,transparent 1px);
+    background-size:48px 48px}
+
+  #viewport{position:fixed;width:1920px;height:1080px;transform-origin:top left;
+    display:flex;flex-direction:column;z-index:1;
+    padding:calc(14px*var(--scale)) calc(18px*var(--scale));gap:calc(12px*var(--scale))}
+
+  .panel{position:relative;background:linear-gradient(160deg,var(--bg-1) 0%,rgba(10,20,36,.72) 100%);
+    border:1px solid var(--line);border-radius:var(--r-lg);box-shadow:var(--shadow);
+    display:flex;flex-direction:column;min-height:0;overflow:hidden}
+  .panel::before,.panel::after{content:'';position:absolute;width:14px;height:14px;border-color:var(--c-primary);opacity:.8}
+  .panel::before{top:-1px;left:-1px;border-top:2px solid;border-left:2px solid;border-top-left-radius:var(--r-lg)}
+  .panel::after{bottom:-1px;right:-1px;border-bottom:2px solid;border-right:2px solid;border-bottom-right-radius:var(--r-lg)}
+  .panel-head{flex:0 0 auto;display:flex;align-items:center;gap:calc(8px*var(--scale));
+    padding:calc(8px*var(--scale)) calc(12px*var(--scale));border-bottom:1px solid var(--line-soft);
+    background:linear-gradient(90deg,rgba(47,129,247,.10),transparent 60%)}
+  .panel-title{font-size:calc(15px*var(--scale));font-weight:600;letter-spacing:1px;
+    display:flex;align-items:center;gap:calc(7px*var(--scale))}
+  .panel-title::before{content:'';width:3px;height:calc(14px*var(--scale));
+    background:var(--c-primary);border-radius:2px;box-shadow:0 0 calc(8px*var(--scale)) var(--c-primary-glow)}
+  .panel-body{flex:1 1 auto;min-height:0;padding:calc(10px*var(--scale));overflow:hidden}
+  .spacer{flex:1 1 auto}
+
+  /* ---------- 顶栏 ---------- */
+  #topbar{flex:0 0 auto;display:flex;align-items:center;justify-content:space-between;gap:calc(12px*var(--scale))}
+  .brand{display:flex;align-items:center;gap:calc(12px*var(--scale))}
+  .brand-logo{width:calc(38px*var(--scale));height:calc(38px*var(--scale));border-radius:50%;
+    display:grid;place-items:center;font-size:calc(18px*var(--scale));
+    background:radial-gradient(circle at 35% 30%,var(--c-ok),#0d5c3f);
+    border:1px solid rgba(46,204,143,.6);box-shadow:0 0 calc(18px*var(--scale)) rgba(46,204,143,.35)}
+  .brand-text h1{font-size:calc(21px*var(--scale));font-weight:700;letter-spacing:2px;
+    background:linear-gradient(90deg,#fff,var(--c-ok));-webkit-background-clip:text;
+    background-clip:text;-webkit-text-fill-color:transparent}
+  .brand-text p{font-size:calc(11px*var(--scale));color:var(--t-lo);letter-spacing:3px;margin-top:2px}
+  .back-btn{display:inline-flex;align-items:center;gap:6px;font-family:var(--font);
+    font-size:calc(12px*var(--scale));padding:calc(6px*var(--scale)) calc(14px*var(--scale));
+    background:var(--bg-2);color:var(--t-mid);border:1px solid var(--line);
+    border-radius:var(--r-sm);cursor:pointer;transition:all .16s;text-decoration:none}
+  .back-btn:hover{background:var(--bg-3);color:var(--t-hi);border-color:var(--c-primary)}
+  #clock-box{text-align:right}
+  #clock{font-size:calc(26px*var(--scale));font-weight:700;letter-spacing:2px;color:#fff}
+  #update-info{font-size:calc(11px*var(--scale));color:var(--t-lo);margin-top:2px}
+  .live-dot{display:inline-block;width:calc(7px*var(--scale));height:calc(7px*var(--scale));
+    border-radius:50%;background:var(--c-ok);margin-right:calc(5px*var(--scale));animation:pulse 1.6s infinite}
+  @keyframes pulse{0%,100%{opacity:1;box-shadow:0 0 0 0 rgba(46,204,143,.6)}
+    50%{opacity:.55;box-shadow:0 0 calc(6px*var(--scale)) rgba(46,204,143,0)}}
+
+  /* ---------- 控制条 ---------- */
+  #controlbar{flex:0 0 auto;display:flex;align-items:center;gap:calc(8px*var(--scale));
+    padding:calc(6px*var(--scale)) calc(12px*var(--scale));background:rgba(10,20,36,.72);
+    border:1px solid var(--line);border-radius:var(--r-md);flex-wrap:wrap}
+  .ctrl-label{font-size:calc(12px*var(--scale));color:var(--t-lo);letter-spacing:1px}
+  .seg{display:flex;gap:2px;background:var(--bg-2);border-radius:var(--r-sm);padding:2px;border:1px solid var(--line-soft)}
+  .seg button{font-family:var(--font);font-size:calc(12px*var(--scale));
+    padding:calc(4px*var(--scale)) calc(11px*var(--scale));background:transparent;color:var(--t-mid);
+    border:0;border-radius:var(--r-sm);cursor:pointer;transition:all .16s}
+  .seg button:hover{color:var(--t-hi);background:var(--bg-3)}
+  .seg button.active{background:var(--c-primary);color:#fff;box-shadow:0 0 calc(10px*var(--scale)) var(--c-primary-glow)}
+  .btn{font-family:var(--font);font-size:calc(12px*var(--scale));
+    padding:calc(5px*var(--scale)) calc(12px*var(--scale));background:var(--bg-2);color:var(--t-mid);
+    border:1px solid var(--line);border-radius:var(--r-sm);cursor:pointer;transition:all .16s}
+  .btn:hover{background:var(--bg-3);color:var(--t-hi);border-color:var(--c-primary)}
+  .range-note{font-size:calc(10.5px*var(--scale));color:var(--t-dim)}
+
+  /* ---------- 状态图例（绿=运行 / 灰=未运行 / 红=故障） ---------- */
+  #legend{display:flex;align-items:center;gap:calc(14px*var(--scale));font-size:calc(12px*var(--scale))}
+  .lg{display:inline-flex;align-items:center;gap:calc(5px*var(--scale));color:var(--t-mid)}
+  .lg i{width:calc(10px*var(--scale));height:calc(10px*var(--scale));border-radius:2px;display:inline-block}
+  .lg.alarm i{animation:blink 1.2s infinite}
+  @keyframes blink{0%,100%{opacity:1}50%{opacity:.25}}
+
+  /* ---------- 主体：左孪生视图 + 右信息栏 ---------- */
+  #main{flex:1 1 auto;min-height:0;display:grid;grid-template-columns:1fr 452px;gap:calc(12px*var(--scale))}
+  #twin-wrap{position:relative;width:100%;height:100%}
+  #twin-wrap canvas{position:absolute;inset:0;width:100%;height:100%;cursor:pointer}
+
+  /* 右栏：KPI 固定高，其余面板 flex-basis 分配（不用 max-height，避免互相挤压） */
+  #right-col{display:flex;flex-direction:column;gap:calc(10px*var(--scale));min-height:0}
+  .kpi-row{display:grid;grid-template-columns:repeat(2,1fr);gap:calc(8px*var(--scale))}
+  .kpi{background:var(--bg-2);border:1px solid var(--line-soft);border-radius:var(--r-sm);
+    padding:calc(7px*var(--scale)) calc(10px*var(--scale));position:relative;overflow:hidden}
+  .kpi::before{content:'';position:absolute;left:0;top:0;bottom:0;width:3px;background:var(--kc,var(--c-primary))}
+  .kpi-name{font-size:calc(11px*var(--scale));color:var(--t-lo)}
+  .kpi-val{font-size:calc(21px*var(--scale));font-weight:700;line-height:1.2}
+  .kpi-val .unit{font-size:calc(11px*var(--scale));font-weight:400;color:var(--t-mid);margin-left:3px}
+  .kpi-sub{font-size:calc(10.5px*var(--scale));color:var(--t-dim)}
+
+  /* 产线汇总 */
+  #line-panel{flex:0 0 auto}
+  .line-tbl{width:100%;border-collapse:collapse;font-size:calc(11.5px*var(--scale))}
+  .line-tbl th{background:var(--bg-3);color:var(--t-mid);font-weight:500;
+    padding:calc(4px*var(--scale)) calc(7px*var(--scale));text-align:left;white-space:nowrap}
+  .line-tbl td{padding:calc(4px*var(--scale)) calc(7px*var(--scale));border-bottom:1px solid var(--line-soft);
+    color:var(--t-hi);white-space:nowrap}
+  .line-tbl td.v{text-align:right;font-weight:600}
+  .line-tbl tr{cursor:pointer;transition:background .14s}
+  .line-tbl tr:hover td{background:var(--bg-3)}
+  .line-tbl tr.active td{background:rgba(47,129,247,.14)}
+  .st-dot{display:inline-block;width:calc(8px*var(--scale));height:calc(8px*var(--scale));
+    border-radius:50%;margin-right:calc(5px*var(--scale));vertical-align:middle}
+
+  /* 设备指标表 */
+  #dev-panel{flex:1 1 40%;min-height:0;display:flex;flex-direction:column}
+  #dev-body{flex:1 1 auto;min-height:0;overflow-y:auto}
+  .dev-tbl{width:100%;border-collapse:collapse;font-size:calc(11.5px*var(--scale))}
+  .dev-tbl th{background:var(--bg-3);color:var(--t-mid);font-weight:500;
+    padding:calc(4px*var(--scale)) calc(7px*var(--scale));text-align:left;position:sticky;top:0;z-index:1}
+  .dev-tbl td{padding:calc(3.5px*var(--scale)) calc(7px*var(--scale));border-bottom:1px solid var(--line-soft);
+    color:var(--t-hi);white-space:nowrap}
+  .dev-tbl td.v{text-align:right;font-weight:600}
+  .dev-tbl tr{cursor:pointer;transition:background .14s}
+  .dev-tbl tr:hover td{background:var(--bg-3)}
+  .dev-tbl tr.active td{background:rgba(47,129,247,.16)}
+  .dev-tbl tr.fault td{color:#ffb4b0}
+
+  /* 异常与未运行 */
+  #alert-panel{flex:1 1 26%;min-height:0;display:flex;flex-direction:column}
+  #alert-body{flex:1 1 auto;min-height:0;overflow-y:auto}
+  .a-row{display:grid;grid-template-columns:auto 1fr auto;gap:calc(8px*var(--scale));
+    align-items:center;padding:calc(5px*var(--scale)) calc(8px*var(--scale));
+    background:var(--bg-2);border:1px solid var(--line-soft);border-left:3px solid var(--c-idle);
+    border-radius:var(--r-sm);font-size:calc(11.5px*var(--scale));margin-bottom:calc(4px*var(--scale));cursor:pointer}
+  .a-row:hover{background:var(--bg-3)}
+  .a-row.fault{border-left-color:var(--c-crit)}
+  .a-row .lv{font-size:calc(10px*var(--scale));padding:1px calc(5px*var(--scale));border-radius:3px;
+    background:rgba(107,122,150,.18);color:var(--c-idle)}
+  .a-row.fault .lv{background:rgba(244,84,76,.15);color:var(--c-crit)}
+  .a-row .pos{color:var(--t-hi);font-weight:600}
+  .a-row .msg{color:var(--t-mid);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .a-row .time{color:var(--t-dim);font-size:calc(10.5px*var(--scale))}
+  .empty-hint{color:var(--t-dim);font-size:calc(12px*var(--scale));text-align:center;padding:calc(16px*var(--scale))}
+
+  /* ---------- 悬停面板：设备当前在制品详情（跟随鼠标） ---------- */
+  #wip-tip{position:fixed;z-index:60;pointer-events:none;opacity:0;transition:opacity .12s;
+    width:calc(316px*var(--scale));
+    background:rgba(6,14,26,.97);border:1px solid var(--c-primary);border-radius:var(--r-md);
+    box-shadow:0 8px 28px rgba(0,0,0,.65);font-size:calc(12px*var(--scale));
+    overflow:hidden}
+  #wip-tip .wt-head{padding:calc(8px*var(--scale)) calc(11px*var(--scale));
+    background:linear-gradient(90deg,rgba(47,129,247,.18),transparent 70%);
+    border-bottom:1px solid var(--line-soft);display:flex;align-items:center;gap:calc(7px*var(--scale))}
+  #wip-tip .wt-name{font-weight:700;font-size:calc(13px*var(--scale))}
+  #wip-tip .wt-sub{color:var(--t-lo);font-size:calc(10.5px*var(--scale));margin-top:1px}
+  #wip-tip .wt-body{padding:calc(8px*var(--scale)) calc(11px*var(--scale))}
+  #wip-tip .wt-sec{font-size:calc(10.5px*var(--scale));color:var(--t-lo);letter-spacing:2px;
+    margin:calc(6px*var(--scale)) 0 calc(4px*var(--scale));display:flex;align-items:center;gap:6px}
+  #wip-tip .wt-sec::after{content:'';flex:1 1 auto;height:1px;background:var(--line-soft)}
+  #wip-tip .wt-kv{display:grid;grid-template-columns:auto 1fr;gap:calc(3px*var(--scale)) calc(10px*var(--scale));
+    font-size:calc(11.5px*var(--scale))}
+  #wip-tip .wt-kv dt{color:var(--t-lo);white-space:nowrap}
+  #wip-tip .wt-kv dd{color:var(--t-hi);text-align:right}
+  #wip-tip .prog{margin:calc(5px*var(--scale)) 0 calc(2px*var(--scale));height:calc(8px*var(--scale));
+    background:var(--bg-3);border-radius:4px;overflow:hidden}
+  #wip-tip .prog i{display:block;height:100%;border-radius:4px}
+  #wip-tip .prog-txt{display:flex;justify-content:space-between;font-size:calc(10.5px*var(--scale));color:var(--t-mid)}
+  #wip-tip .wt-metrics{display:grid;grid-template-columns:repeat(3,1fr);gap:calc(6px*var(--scale));margin-top:2px}
+  #wip-tip .wm{background:var(--bg-2);border:1px solid var(--line-soft);border-radius:var(--r-sm);
+    padding:calc(4px*var(--scale)) calc(6px*var(--scale));text-align:center}
+  #wip-tip .wm .n{font-size:calc(9.5px*var(--scale));color:var(--t-lo)}
+  #wip-tip .wm .v{font-size:calc(14px*var(--scale));font-weight:700}
+  .badge{display:inline-block;padding:1px calc(8px*var(--scale));border-radius:3px;
+    font-size:calc(11px*var(--scale));font-weight:600}
+  .badge.ok{background:rgba(46,204,143,.15);color:var(--c-ok)}
+  .badge.idle{background:rgba(107,122,150,.18);color:#a8b6cc}
+  .badge.crit{background:rgba(244,84,76,.15);color:var(--c-crit)}
+
+  #toast{position:fixed;left:50%;bottom:8%;transform:translateX(-50%) translateY(20px);
+    background:rgba(47,129,247,.94);color:#fff;padding:calc(8px*var(--scale)) calc(18px*var(--scale));
+    border-radius:var(--r-sm);font-size:calc(13px*var(--scale));opacity:0;pointer-events:none;
+    transition:all .28s;z-index:99;box-shadow:0 6px 24px rgba(0,0,0,.5)}
+  #toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
+</style>
+</head>
+<body>
+<div id="bg-deco"></div><div id="bg-grid"></div>
+
+<div id="viewport">
+  <header id="topbar">
+    <div class="brand">
+      <a class="back-btn" href="digital-twin-dashboard.html">← 返回运营大屏</a>
+      <div class="brand-logo">🏭</div>
+      <div class="brand-text">
+        <h1>生产情况孪生 · 产线架构与实时指标</h1>
+        <p>PRODUCTION DIGITAL TWIN · LINE ARCHITECTURE &amp; LIVE METRICS</p>
+      </div>
+    </div>
+    <div id="clock-box">
+      <div id="clock">--:--:--</div>
+      <div id="update-info"><span class="live-dot"></span>数据更新：等待中</div>
+    </div>
+  </header>
+
+  <nav id="controlbar">
+    <span class="ctrl-label">产线筛选</span>
+    <div class="seg" id="seg-line"></div>
+    <span class="ctrl-label" style="margin-left:6px">统计口径</span>
+    <div class="seg" id="seg-range">
+      <button data-range="shift" class="active">当班</button>
+      <button data-range="day">当日</button>
+      <button data-range="week">近7日</button>
+    </div>
+    <span class="range-note" id="range-note"></span>
+    <button class="btn" id="btn-reset">↻ 重置</button>
+    <span class="spacer"></span>
+    <span class="ctrl-label">设备状态图例</span>
+    <div id="legend">
+      <span class="lg"><i style="background:var(--c-ok)"></i>运行中</span>
+      <span class="lg"><i style="background:var(--c-idle)"></i>未运行</span>
+      <span class="lg alarm"><i style="background:var(--c-crit)"></i>故障</span>
+    </div>
+  </nav>
+
+  <main id="main">
+    <!-- 左：产线架构孪生视图 -->
+    <section class="panel" id="m-twin">
+      <div class="panel-head">
+        <div class="panel-title">产线架构视图（等距投影 · 悬停设备查看当前在制品）</div>
+        <span class="spacer"></span>
+        <span class="ctrl-label" id="twin-hint">拖拽可平移视角 · 滚轮缩放</span>
+      </div>
+      <div class="panel-body">
+        <div id="twin-wrap"><canvas id="twin"></canvas></div>
+      </div>
+    </section>
+
+    <!-- 右：KPI + 产线汇总 + 设备指标 + 异常 -->
+    <div id="right-col">
+      <section class="panel" style="flex:0 0 auto">
+        <div class="panel-body">
+          <div class="kpi-row" id="dev-kpi"></div>
+        </div>
+      </section>
+
+      <section class="panel" id="line-panel">
+        <div class="panel-head"><div class="panel-title">产线汇总</div><span class="spacer"></span>
+          <span class="ctrl-label">点击行可筛选该产线</span></div>
+        <div class="panel-body" style="padding:calc(6px*var(--scale)) calc(10px*var(--scale))">
+          <table class="line-tbl">
+            <thead><tr><th>产线</th><th style="text-align:right">运行</th><th style="text-align:right">产量(只)</th>
+              <th style="text-align:right">良率</th><th style="text-align:right">平均稼动</th></tr></thead>
+            <tbody id="line-body"></tbody>
+          </table>
+        </div>
+      </section>
+
+      <section class="panel" id="dev-panel">
+        <div class="panel-head"><div class="panel-title">设备实时指标</div><span class="spacer"></span>
+          <span class="ctrl-label" id="dev-count"></span></div>
+        <div class="panel-body" style="padding:0"><div id="dev-body">
+          <table class="dev-tbl">
+            <thead><tr><th>设备</th><th>状态</th><th style="text-align:right">产量(只)</th>
+              <th style="text-align:right">良率</th><th style="text-align:right">稼动时间</th></tr></thead>
+            <tbody id="dev-tbody"></tbody>
+          </table>
+        </div></div>
+      </section>
+
+      <section class="panel" id="alert-panel">
+        <div class="panel-head"><div class="panel-title">异常与未运行</div><span class="spacer"></span>
+          <span class="ctrl-label" id="alert-count"></span></div>
+        <div class="panel-body" style="padding:calc(8px*var(--scale))">
+          <div id="alert-body"></div>
+        </div>
+      </section>
+    </div>
+  </main>
+</div>
+
+<div id="wip-tip"></div>
+<div id="toast"></div>
+
+<script>
+'use strict';
+/* ============================================================================
+ * 生产情况孪生页
+ * 架构与其余三页孪生一致：MockSource(数据) → Store(单一数据源) → View(只读渲染)
+ * 孪生视图用 Canvas 2.5D 等距投影自绘（不引 WebGL 库，保证离线可用）
+ *
+ * 本页核心口径：
+ *   · 设备状态三色：绿=运行中 / 灰=未运行 / 红=故障（未运行原因细分见悬停面板）
+ *   · 悬停任一设备 → 弹出「当前在制品」详情面板（工单/型号/批次/工序/进度/班组）
+ *   · 实时指标三项：当班产量、良率、稼动时间（运行中设备随刷新单调累进）
+ *   · 统计口径三档：当班 / 当日 / 近7日 —— 仅产量按确定性倍率折算，良率与稼动为时点值不折算
+ * ========================================================================== */
+
+/* ---------- 工具 ---------- */
+const $ = s => document.querySelector(s);
+const clamp = (v,a,b) => Math.min(b, Math.max(a,v));
+const pad2 = n => String(n).padStart(2,'0');
+const hhmmss = d => `${pad2(d.getHours())}:${pad2(d.getMinutes())}:${pad2(d.getSeconds())}`;
+const hhmm = d => `${pad2(d.getHours())}:${pad2(d.getMinutes())}`;
+const fmt = n => Math.round(n).toLocaleString('en-US');
+function makeRng(seed){ let s=seed>>>0; return ()=>((s=(s*1664525+1013904223)>>>0)/4294967296); }
+
+/* ---------- 工厂台账（模拟，与设备孪生页同一工厂设定） ---------- */
+const LINES = [
+  { id:'L1', name:'L1 卷绕线', type:'卷绕' },
+  { id:'L2', name:'L2 涂布线', type:'涂布' },
+  { id:'L3', name:'L3 装配线', type:'装配' },
+  { id:'L4', name:'L4 化成线', type:'化成' },
+];
+const ZONES = ['A区 原料预处理','B区 电极制造','C区 电芯装配','D区 后处理化成'];
+const LI_INDEX_ZONE = { L1:0, L2:1, L3:2, L4:3 };
+
+/** 产线布局唯一真相源（与设备孪生页同一坐标系） */
+const PLANT = {
+  floor: { x0:0.06, y0:0.10, gap:0.088, n:9 },
+  lines: [
+    { x:0.10, y:0.20 },
+    { x:0.13, y:0.40 },
+    { x:0.10, y:0.60 },
+    { x:0.13, y:0.80 },
+  ],
+  lineLen: 0.70,
+  lineWid: 0.075,
+  lineHgt: 0.022,
+  devInset: 0.055,
+  devSize:  0.032,
+  devHgt:   0.042,
+};
+function lineBox(lineId){
+  const i = LI_INDEX_ZONE[lineId];
+  return { x: PLANT.lines[i].x, y: PLANT.lines[i].y, len: PLANT.lineLen, wid: PLANT.lineWid, hgt: PLANT.lineHgt };
+}
+const LINE_BOX = (() => {
+  const b = lineBox('L1');
+  const step = (b.len - PLANT.devInset*2 - PLANT.devSize) / 5;
+  return { x: b.x, y: b.y, wid: b.wid, len: b.len, step, devInset: PLANT.devInset, devSize: PLANT.devSize };
+})();
+
+/** 设备类型 → 工序名与监控参数模板 */
+const DEV_TYPES = {
+  '卷绕机':{ icon:'🔄', stage:'卷绕', stageIdx:2, params:[['卷绕速度','rpm',180,300,220],['张力','N',80,160,120]] },
+  '涂布机':{ icon:'🎨', stage:'涂布', stageIdx:1, params:[['涂布速度','m/min',10,60,32],['涂层厚度','μm',40,120,76]] },
+  '装配机':{ icon:'🔧', stage:'装配', stageIdx:3, params:[['装配节拍','s/只',4,12,7.2],['压装扭矩','N·m',20,80,48]] },
+  '化成柜':{ icon:'🔋', stage:'化成', stageIdx:5, params:[['化成温度','℃',30,70,52],['充电电流','A',20,200,120]] },
+  '注液机':{ icon:'💧', stage:'注液', stageIdx:4, params:[['注液量','g',3,12,6.5],['真空度','kPa',-95,-60,-82]] },
+  '检测仪':{ icon:'🔍', stage:'检测', stageIdx:6, params:[['内阻','mΩ',0.1,2,0.62],['容量偏差','%',0,8,1.6]] },
+};
+const STAGE_TOTAL = 6;                       // 电芯主工艺共 6 道工序
+
+/* 统计口径倍率（演示用：产量按倍率折算，良率/稼动为时点值不折算） */
+const RANGE_MULT = { shift:1, day:2.1, week:6.6 };
+const RANGE_NAME = { shift:'当班(8h)', day:'当日(双班)', week:'近7日累计' };
+const SHIFT_HOURS = 8;
+
+/* ---------- MockSource：设备生产指标 ---------- */
+const MockSource = {
+  _rng:null, _seed:66012345, devices:[], _alerts:[],
+
+  reset(seed){
+    this._seed = seed ?? this._seed;
+    this._rng = makeRng(this._seed);
+    this.devices = [];
+    this._alerts = [];
+    LINES.forEach((line) => {
+      const types = this._typesFor(line.type);
+      for (let i=0;i<6;i++){
+        const t = types[i % types.length];
+        this.devices.push(this._mkDevice(t, line, i));
+      }
+    });
+    this.tick();
+  },
+
+  _typesFor(lineType){
+    return ({ '卷绕':['卷绕机','注液机','检测仪'],
+              '涂布':['涂布机','检测仪'],
+              '装配':['装配机','注液机'],
+              '化成':['化成柜','检测仪'] })[lineType] || ['检测仪'];
+  },
+
+  _mkDevice(t, line, i){
+    const rng = this._rng;
+    const no = `${line.id}-${String(i+1).padStart(2,'0')}`;
+    const tpl = DEV_TYPES[t];
+    // 基线指标（确定性种子决定，重置后可复现）
+    const baseOutput = 520 + Math.floor(rng()*880);          // 当班已产 520~1399 只
+    const yieldBase  = 97.6 + rng()*2.1;                     // 良率 97.6~99.7%
+    const runBase    = 3.8 + rng()*3.6;                      // 稼动 3.8~7.4h
+    const r = rng();
+    const status = r > 0.94 ? 'fault' : r > 0.80 ? 'idle' : 'run';
+    const d = {
+      id:`EQ-${no}`, no, name:`${no} ${t}`, type:t, icon:tpl.icon,
+      lineId:line.id, lineName:line.name, zone: ZONES[LI_INDEX_ZONE[line.id]],
+      ux: lineBox(line.id).x + LINE_BOX.devInset + i * LINE_BOX.step,
+      uy: lineBox(line.id).y + PLANT.lineWid * 0.5,
+      status,
+      output: baseOutput, outputBase: baseOutput,
+      yield: yieldBase, yieldBase,
+      runHours: runBase, runBase,
+      reason:'', since: Date.now(),
+      wip: null,
+    };
+    d.wip = this._mkWip(d);
+    return d;
+  },
+
+  _mkWip(d){
+    const rng = this._rng;
+    const plan = Math.ceil((d.outputBase*1.35)/50)*50;       // 计划量与基线自洽
+    const startMin = 8*60 + Math.floor(rng()*45);            // 08:00~08:45 开班
+    const taktMap = { '卷绕机':6.8, '涂布机':9.4, '装配机':7.2, '化成柜':22.5, '注液机':6.0, '检测仪':4.2 };
+    const takt = taktMap[d.type] || 7;
+    const crewPool = [
+      ['甲班','张伟','李强','王磊'], ['乙班','陈晨','刘洋','赵敏'],
+      ['丙班','孙军','周洁','吴昊'],
+    ];
+    const crew = crewPool[Math.floor(rng()*crewPool.length)];
+    const etaMin = startMin + Math.round(plan*takt/60);
+    return {
+      wo:`WO-${new Date().getFullYear()}-1014-${String(Math.floor(rng()*90)+10)}`,
+      model:['SC-2.7V-3000F','SC-3.0V-1200F','SC-2.7V-5000F'][Math.floor(rng()*3)],
+      batch:`LOT-2026101${Math.floor(rng()*4)}-${String.fromCharCode(65+Math.floor(rng()*6))}`,
+      stage: DEV_TYPES[d.type].stage,
+      stageIdx: DEV_TYPES[d.type].stageIdx,
+      stageTotal: STAGE_TOTAL,
+      plan, done: Math.min(plan, Math.round(d.outputBase*0.72)),
+      takt, start: hhmm(new Date(2026,9,14,0,startMin)), eta: hhmm(new Date(2026,9,14,0,etaMin)),
+      crew: `${crew[0]} · ${crew[1]} 等${crew.length-1}人`,
+      paused: d.status === 'fault',
+    };
+  },
+
+  /** 刷新一次：状态迁移 + 指标演进（运行中单调累进，未运行/故障保持） */
+  tick(){
+    const rng = this._rng;
+    this.devices.forEach(d => {
+      // 状态迁移：约 80% 运行 / 14% 未运行 / 6% 故障；故障有粘性
+      const r = rng();
+      let st = r > 0.94 ? 'fault' : r > 0.80 ? 'idle' : 'run';
+      if (d.status === 'fault' && rng() > 0.35) st = 'fault';
+      if (st !== d.status){ d.status = st; d.since = Date.now(); d.reason = ''; }
+      if (st === 'idle' && !d.reason){
+        d.reason = ['计划停机','换型调整','等待物料','工单间隙','计划保养'][Math.floor(rng()*5)];
+      }
+      if (st === 'fault' && !d.reason){
+        d.reason = ['主轴温度超限报警','张力波动异常','通讯中断重连','驱动过载保护','传感器数据跳变'][Math.floor(rng()*5)];
+      }
+      if (st === 'run') d.reason = '';
+
+      // 指标演进
+      if (st === 'run'){
+        d.output += 1 + Math.floor(rng()*3);                 // 每拍 1~3 只
+        d.runHours = Math.min(SHIFT_HOURS, d.runHours + 0.008 + rng()*0.004);
+        d.yield = clamp(d.yield + (rng()-0.5)*0.14, 96.8, 99.8);
+        if (d.wip){
+          d.wip.done = Math.min(d.wip.plan, Math.round(d.output*0.72));
+          d.wip.paused = false;
+        }
+      } else {
+        if (st === 'fault'){
+          d.yield = clamp(d.yield - 0.03, 96.8, 99.8);       // 故障期间良率缓慢劣化
+          if (d.wip) d.wip.paused = true;
+        }
+        if (!d.wip && st === 'run') d.wip = this._mkWip(d);
+      }
+      // 未运行设备无在制工单（演示：换型/待料期间不挂工单）
+      if (st === 'idle') d.wip = null;
+      if (st === 'run' && !d.wip) d.wip = this._mkWip(d);
+    });
+
+    this._alerts = this.devices
+      .filter(d => d.status !== 'run')
+      .map(d => ({
+        devId:d.id, devNo:d.no, lineName:d.lineName, zone:d.zone,
+        level: d.status === 'fault' ? 'fault' : 'idle',
+        msg: d.status === 'fault' ? d.reason : d.reason || '未运行',
+        time: d.since,
+      }))
+      .sort((a,b) => (a.level===b.level ? b.time-a.time : a.level==='fault'?-1:1));
+    return this.snapshot();
+  },
+
+  snapshot(){
+    const byLine = {};
+    LINES.forEach(l => {
+      byLine[l.id] = { line:l, output:0, run:0, idle:0, fault:0, runHours:0, yNum:0, yDen:0 };
+    });
+    this.devices.forEach(d => {
+      const b = byLine[d.lineId];
+      b.output += d.output;
+      b.runHours += d.runHours;
+      b.yNum += d.yield * d.output;
+      b.yDen += d.output;
+      if (d.status==='run') b.run++;
+      else if (d.status==='idle') b.idle++;
+      else b.fault++;
+    });
+    return {
+      t: Date.now(), devices: this.devices, alerts: this._alerts, byLine,
+      total: this.devices.length,
+      run: this.devices.filter(d=>d.status==='run').length,
+      idle: this.devices.filter(d=>d.status==='idle').length,
+      fault: this.devices.filter(d=>d.status==='fault').length,
+    };
+  },
+};
+
+/* ---------- Store ---------- */
+const Store = {
+  state: { snap:null, line:'ALL', range:'shift', selected:null, lastUpdate:null, tickCount:0 },
+  _subs:[],
+  subscribe(fn){ this._subs.push(fn); return ()=>{ this._subs=this._subs.filter(f=>f!==fn); }; },
+  get(){ return this.state; },
+  dispatch(a){
+    const s = this.state;
+    switch(a.type){
+      case 'TICK': s.snap=a.snap; s.lastUpdate=new Date(); s.tickCount++; break;
+      case 'LINE': s.line=a.line; break;
+      case 'RANGE': s.range=a.range; break;
+      case 'SELECT': s.selected=a.id; break;
+    }
+    this._subs.forEach(f=>f(s,a));
+  },
+};
+
+/* ---------- 孪生视图：2.5D 等距投影 ---------- */
+const Twin = {
+  cv:null, ctx:null, w:0, h:0, dpr:1,
+  rot: -0.42,
+  zoom: 1, panX:0, panY:0,
+  hit:[], dragging:false, lastX:0, lastY:0, moved:false,
+
+  // 状态色（Canvas 内必须写字面值，不能用 CSS 变量）
+  C_RUN:'#2ecc8f', C_IDLE:'#6b7a96', C_FAULT:'#f4544c',
+
+  init(sel){ this.cv = $(sel); this.ctx = this.cv.getContext('2d'); this._bind(); },
+
+  color(st){ return st==='fault' ? this.C_FAULT : st==='idle' ? this.C_IDLE : this.C_RUN; },
+
+  _bind(){
+    const cv = this.cv;
+    cv.addEventListener('mousedown', e=>{ this.dragging=true; this.moved=false; this.lastX=e.clientX; this.lastY=e.clientY; });
+    window.addEventListener('mouseup', ()=>{ this.dragging=false; });
+    cv.addEventListener('mousemove', e=>{
+      if (this.dragging){
+        const dx=e.clientX-this.lastX, dy=e.clientY-this.lastY;
+        if (Math.abs(dx)+Math.abs(dy)>3) this.moved=true;
+        this.panX += dx; this.panY += dy;
+        this.lastX=e.clientX; this.lastY=e.clientY;
+        View.render();
+      }
+      View.showWipTip(e);
+    });
+    cv.addEventListener('mouseleave', ()=>View.hideWipTip());
+    cv.addEventListener('click', e=>{
+      if (this.moved) return;
+      const d = this._pick(e);
+      Store.dispatch({type:'SELECT', id: d ? d.id : null});
+    });
+    cv.addEventListener('wheel', e=>{
+      e.preventDefault();
+      this.zoom = clamp(this.zoom * (e.deltaY<0?1.1:0.9), 0.55, 2.4);
+      View.render();
+    }, {passive:false});
+  },
+
+  /** 世界坐标(0..1平面) → 屏幕等距坐标 */
+  project(ux, uy, height){
+    const cx=0.5, cy=0.5;
+    const X=(ux-cx), Y=(uy-cy);
+    const a=this.rot;
+    const rx = X*Math.cos(a) - Y*Math.sin(a);
+    const ry = X*Math.sin(a) + Y*Math.cos(a);
+    const S = Math.min(this.w, this.h*1.6) * 0.82 * this.zoom;
+    return { x:this.w/2 + rx*S, y:this.h/2 + (ry*S*0.5) - (height||0)*S*0.42 + this.panY, S };
+  },
+
+  _pick(e){
+    const r = this.cv.getBoundingClientRect();
+    const x=e.clientX-r.left, y=e.clientY-r.top;
+    for (let i=this.hit.length-1;i>=0;i--){
+      const h=this.hit[i];
+      if (x>=h.x && x<=h.x+h.w && y>=h.y && y<=h.y+h.h) return h.dev;
+    }
+    return null;
+  },
+
+  draw(devices){
+    const cv=this.cv; if(!cv) return;
+    const r = cv.getBoundingClientRect();
+    this.dpr = window.devicePixelRatio||1;
+    this.w=r.width; this.h=r.height;
+    cv.width=this.w*this.dpr; cv.height=this.h*this.dpr;
+    const ctx=this.ctx;
+    ctx.setTransform(this.dpr,0,0,this.dpr,0,0);
+    ctx.clearRect(0,0,this.w,this.h);
+    this.hit=[];
+
+    // —— ① 厂房地板（与产线同一屏幕空间伪等距：水平铺展 + 深度向上，不再倾斜）——
+    const { x0:X0, y0:Y0, gap:GAP, n:N } = PLANT.floor;
+    const S = Math.min(this.w, this.h*1.6) * 0.82 * this.zoom;
+    // 楼板范围按产线实际水平绘制范围 + 外扩边距，确保水平楼板完整托住所有产线
+    const _ordAll = LINES.map(l=>({b:lineBox(l.id)}));
+    let fX0=Infinity, fY0=Infinity, fX1=-Infinity, fY1=-Infinity;
+    const _bw=PLANT.lineLen*S, _bh=PLANT.lineWid*S*0.5, _th=PLANT.lineHgt*S*0.42;
+    _ordAll.forEach(({b})=>{
+      const p=this.project(b.x,b.y,0);
+      fX0=Math.min(fX0,p.x); fX1=Math.max(fX1,p.x+_bw);
+      fY0=Math.min(fY0,p.y-_bh-_th); fY1=Math.max(fY1,p.y);
+    });
+    const _M=0.5*GAP*S; fX0-=_M; fX1+=_M; fY0-=_M; fY1+=_M;
+    const fw=fX1-fX0, fh=fY1-fY0;
+    ctx.beginPath(); ctx.rect(fX0,fY0,fw,fh);
+    ctx.fillStyle='rgba(13,26,46,.55)'; ctx.fill();
+    for (let i=0;i<N;i++) for (let j=0;j<N;j++){
+      ctx.beginPath(); ctx.rect(fX0+i*(fw/N), fY0+j*(fh/N), fw/N, fh/N);
+      ctx.fillStyle = ((i+j)%2===0) ? 'rgba(20,40,68,.30)' : 'rgba(16,32,56,.30)';
+      ctx.fill();
+    }
+    ctx.strokeStyle='rgba(70,130,200,.10)'; ctx.lineWidth=1;
+    for (let i=0;i<=N;i++){ const gx=fX0+i*(fw/N); ctx.beginPath(); ctx.moveTo(gx,fY0); ctx.lineTo(gx,fY1); ctx.stroke(); }
+    for (let j=0;j<=N;j++){ const gy=fY0+j*(fh/N); ctx.beginPath(); ctx.moveTo(fX0,gy); ctx.lineTo(fX1,gy); ctx.stroke(); }
+    // 厂房外墙（贴合楼板四边）+ 后墙立柱
+    ctx.strokeStyle='rgba(47,129,247,.45)'; ctx.lineWidth=1.6;
+    ctx.beginPath(); ctx.rect(fX0,fY0,fw,fh); ctx.stroke();
+    const colH = 0.10 * S * 0.42;
+    [[fX0,fY0],[fX1,fY0]].forEach(([px,py]) => {
+      ctx.beginPath(); ctx.moveTo(px, py); ctx.lineTo(px, py-colH);
+      ctx.strokeStyle='rgba(47,129,247,.30)'; ctx.lineWidth=1.2; ctx.stroke();
+    });
+
+    // —— ② 产线（立体块 + 上/下料口 + 流向箭头，按 Y 排序保证遮挡）——
+    const ordered = LINES.map(l=>({l, b:lineBox(l.id)})).sort((p,q)=>p.b.y-q.b.y);
+    ordered.forEach(({l, b}) => {
+      const p = this.project(b.x, b.y, 0);
+      const bw = PLANT.lineLen*S, bh = PLANT.lineWid*S*0.5, th = PLANT.lineHgt*S*0.42;
+      // 侧面
+      ctx.beginPath();
+      ctx.moveTo(p.x, p.y); ctx.lineTo(p.x+bw, p.y);
+      ctx.lineTo(p.x+bw, p.y-th); ctx.lineTo(p.x, p.y-th);
+      ctx.closePath();
+      ctx.fillStyle='rgba(47,129,247,.20)'; ctx.fill();
+      // 顶面
+      ctx.beginPath();
+      ctx.moveTo(p.x, p.y-bh); ctx.lineTo(p.x+bw, p.y-bh);
+      ctx.lineTo(p.x+bw, p.y-bh-th); ctx.lineTo(p.x, p.y-bh-th);
+      ctx.closePath();
+      ctx.fillStyle='rgba(47,129,247,.30)'; ctx.fill();
+      ctx.strokeStyle='rgba(120,180,255,.75)'; ctx.lineWidth=1.2; ctx.stroke();
+
+      // 上料口（起点）/ 下料终检口（终点）
+      const inW = PLANT.devInset*S*0.62;
+      [[p.x, '上料'], [p.x+bw-inW, '终检']].forEach(([px]) => {
+        ctx.beginPath();
+        ctx.moveTo(px, p.y-bh); ctx.lineTo(px+inW, p.y-bh);
+        ctx.lineTo(px+inW, p.y-bh-th); ctx.lineTo(px, p.y-bh-th);
+        ctx.closePath();
+        ctx.fillStyle='rgba(53,198,212,.28)'; ctx.fill();
+        ctx.strokeStyle='rgba(53,198,212,.75)'; ctx.lineWidth=1; ctx.stroke();
+      });
+      // 流向箭头（顶面中央 3 个）
+      const ay = p.y - bh - th/2;
+      for (let k=0;k<3;k++){
+        const ax = p.x + bw*(0.36 + k*0.14);
+        ctx.beginPath();
+        ctx.moveTo(ax, ay-3.5); ctx.lineTo(ax+6, ay); ctx.lineTo(ax, ay+3.5);
+        ctx.closePath();
+        ctx.fillStyle='rgba(120,180,255,.55)'; ctx.fill();
+      }
+      // 产线名 + 区域标注
+      ctx.fillStyle='#9fb3d1'; ctx.font='11px sans-serif'; ctx.textAlign='left'; ctx.textBaseline='bottom';
+      ctx.fillText(l.name, p.x, p.y-bh-th-6);
+      ctx.fillStyle='rgba(100,120,154,.85)'; ctx.font='9.5px sans-serif';
+      ctx.fillText(ZONES[LI_INDEX_ZONE[l.id]], p.x, p.y-bh-th-18);
+    });
+
+    // —— ③ 设备点位（状态色 + 编号 + 当班产量徽标）——
+    //    构图修复：设备与线体用同一屏幕坐标系——x 沿线体水平方向、
+    //    深度在线体顶面居中（原实现走 project(ux,uy) 旋转轴，设备斜悬于线体外）
+    const dsz = PLANT.devSize*S, dth = PLANT.devHgt*S*0.42;
+    const rangeMult = RANGE_MULT[Store.get().range] || 1;
+    ordered.forEach(({l, b}) => {
+      const p0 = this.project(b.x, b.y, 0);
+      const bh = PLANT.lineWid*S*0.5, lth = PLANT.lineHgt*S*0.42, dh = bh*0.72;
+      devices.filter(d=>d.lineId===l.id).forEach(d => {
+        const base = { x: p0.x + (d.ux-b.x)*S, y: p0.y - lth - (bh-dh)/2 };
+        const w = dsz, h = dh, th = dth;
+        const c = this.color(d.status);
+        const sel = Store.get().selected === d.id;
+        const hover = View.hoverId === d.id;
+
+        // 底面（半透明，保留层次）
+        ctx.beginPath();
+        ctx.moveTo(base.x, base.y-h); ctx.lineTo(base.x+w, base.y-h);
+        ctx.lineTo(base.x+w, base.y); ctx.lineTo(base.x, base.y);
+        ctx.closePath();
+        ctx.fillStyle = c+'33'; ctx.fill();
+        // 顶面（纯色：状态色必须一眼可辨，不做半透明叠加）
+        ctx.beginPath();
+        ctx.moveTo(base.x, base.y-h-th); ctx.lineTo(base.x+w, base.y-h-th);
+        ctx.lineTo(base.x+w, base.y-th); ctx.lineTo(base.x, base.y-th);
+        ctx.closePath();
+        ctx.fillStyle = c; ctx.fill();
+        ctx.strokeStyle = c; ctx.lineWidth = (sel||hover) ? 2.2 : 1.2; ctx.stroke();
+
+        // 故障闪烁光环
+        if (d.status==='fault'){
+          const t = (Date.now()/500)%1;
+          ctx.beginPath();
+          ctx.arc(base.x+w/2, base.y-h-th/2, w*0.9 + t*w*0.9, 0, Math.PI*2);
+          ctx.strokeStyle = `rgba(244,84,76,${(1-t)*0.55})`;
+          ctx.lineWidth=2; ctx.stroke();
+        }
+        // 选中标记
+        if (sel){
+          ctx.beginPath();
+          ctx.moveTo(base.x+w/2, base.y-h-th-8); ctx.lineTo(base.x+w/2-5, base.y-h-th-16);
+          ctx.lineTo(base.x+w/2+5, base.y-h-th-16); ctx.closePath();
+          ctx.fillStyle='#fff'; ctx.fill();
+        }
+        // 编号 + 当班产量（运行中才显示产量，未运行/故障显示状态符）
+        ctx.textAlign='center'; ctx.textBaseline='top';
+        ctx.font = (sel?'bold ':'')+'10px sans-serif';
+        ctx.fillStyle = '#ffffff';
+        ctx.fillText(d.no, base.x+w/2, base.y-h-th+3);
+        ctx.font='9px sans-serif';
+        if (d.status==='run'){
+          ctx.fillStyle='rgba(255,255,255,.92)';
+          ctx.fillText(fmt(d.output*rangeMult), base.x+w/2, base.y-h-th+14);
+        } else if (d.status==='fault'){
+          ctx.fillStyle='#ffd9d6';
+          ctx.fillText('故障', base.x+w/2, base.y-h-th+14);
+        } else {
+          ctx.fillStyle='rgba(230,238,250,.75)';
+          ctx.fillText('未运行', base.x+w/2, base.y-h-th+14);
+        }
+
+        // 命中区（含编号与徽标）
+        this.hit.push({ x:base.x-2, y:base.y-h-th-6, w:w+4, h:h+th+30, dev:d });
+      });
+    });
+  },
+};
+
+/* ---------- View ---------- */
+const View = {
+  hoverId:null,
+
+  init(){
+    MockSource.reset();
+    Twin.init('#twin');
+    this.buildSegs();
+    this.bind();
+    Store.dispatch({type:'TICK', snap:MockSource.tick()});
+    Store.dispatch({type:'SELECT', id: MockSource.devices[0]?.id ?? null});
+    this.startTimer(); this.startClock(); this.fit();
+    this.renderRangeNote();
+  },
+
+  buildSegs(){
+    $('#seg-line').innerHTML = `<button data-line="ALL" class="active">全部产线</button>` +
+      LINES.map(l=>`<button data-line="${l.id}">${l.name}</button>`).join('');
+    $('#seg-line').onclick = e=>{ const b=e.target.closest('button'); if(!b) return;
+      Store.dispatch({type:'LINE', line:b.dataset.line}); };
+
+    $('#seg-range').onclick = e=>{ const b=e.target.closest('button'); if(!b) return;
+      Store.dispatch({type:'RANGE', range:b.dataset.range}); };
+
+    $('#btn-reset').onclick = ()=>{
+      MockSource.reset(Date.now()%100000);
+      Store.dispatch({type:'TICK', snap:MockSource.tick()});
+      this.toast('孪生数据已重置');
+    };
+  },
+
+  bind(){
+    Store.subscribe(()=>this.render());
+    window.addEventListener('resize',()=>this.fit());
+  },
+
+  fit(){
+    const scale = Math.min(window.innerWidth/1920, window.innerHeight/1080);
+    document.documentElement.style.setProperty('--scale', scale);
+    const vp=$('#viewport');
+    vp.style.transform=`scale(${scale})`;
+    vp.style.left=`${(window.innerWidth-1920*scale)/2}px`;
+    vp.style.top=`${(window.innerHeight-1080*scale)/2}px`;
+  },
+
+  startTimer(){
+    if (this._t) clearInterval(this._t);
+    this._t = setInterval(()=>Store.dispatch({type:'TICK', snap:MockSource.tick()}), 3000);
+  },
+
+  startClock(){
+    setInterval(()=>{ $('#clock').textContent = hhmmss(new Date()); }, 1000);
+    $('#clock').textContent = hhmmss(new Date());
+  },
+
+  toast(m){ const t=$('#toast'); t.textContent=m; t.classList.add('show');
+    clearTimeout(this._tt); this._tt=setTimeout(()=>t.classList.remove('show'),1800); },
+
+  renderRangeNote(){
+    const s = Store.get();
+    $('#range-note').textContent = `当前口径：${RANGE_NAME[s.range]} · 产量按倍率折算，良率/稼动为时点值`;
+  },
+
+  /** 按产线筛选 */
+  filtered(){
+    const s = Store.get();
+    return s.snap.devices.filter(d => s.line==='ALL' || d.lineId===s.line);
+  },
+
+  render(){
+    const s = Store.get();
+    if (!s.snap) return;
+    const snap = s.snap;
+    const list = this.filtered();
+
+    this.renderKPIs(list);
+    Twin.draw(list);
+    this.renderLineSummary(s);
+    this.renderDevTable(s, list);
+    this.renderAlerts(snap);
+
+    // 交互态
+    document.querySelectorAll('#seg-line button').forEach(b=>b.classList.toggle('active', b.dataset.line===s.line));
+    document.querySelectorAll('#seg-range button').forEach(b=>b.classList.toggle('active', b.dataset.range===s.range));
+    this.renderRangeNote();
+    $('#update-info').innerHTML = `<span class="live-dot"></span>数据更新：${hhmmss(s.lastUpdate)}　·　第 ${s.tickCount} 次刷新`;
+  },
+
+  renderKPIs(list){
+    const rangeMult = RANGE_MULT[Store.get().range] || 1;
+    const run = list.filter(d=>d.status==='run').length;
+    const totalOut = list.reduce((n,d)=>n+d.output*rangeMult, 0);
+    const yNum = list.reduce((n,d)=>n+d.yield*d.output, 0);
+    const yDen = list.reduce((n,d)=>n+d.output, 0);
+    const yieldAll = yDen>0 ? yNum/yDen : 0;
+    const util = list.length>0 ? list.reduce((n,d)=>n+d.runHours,0)/(list.length*SHIFT_HOURS)*100 : 0;
+    const kpis = [
+      {n:'总产量', v:fmt(totalOut), u:'只', sub:`${RANGE_NAME[Store.get().range]}口径`, c:'#2f81f7'},
+      {n:'综合良率', v:yieldAll.toFixed(2), u:'%', sub:'按产量加权', c:'#2ecc8f'},
+      {n:'平均稼动率', v:util.toFixed(1), u:'%', sub:`班次 ${SHIFT_HOURS}h 折算`, c:'#35c6d4'},
+      {n:'运行设备', v:`${run}/${list.length}`, u:'台', sub:`未运行 ${list.filter(d=>d.status==='idle').length} · 故障 ${list.filter(d=>d.status==='fault').length}`, c:'#f5a524'},
+    ];
+    $('#dev-kpi').innerHTML = kpis.map(k=>
+      `<div class="kpi" style="--kc:${k.c}">
+        <div class="kpi-name">${k.n}</div>
+        <div class="kpi-val" style="color:${k.c}">${k.v}<span class="unit">${k.u}</span></div>
+        <div class="kpi-sub">${k.sub}</div>
+      </div>`).join('');
+  },
+
+  renderLineSummary(s){
+    const rangeMult = RANGE_MULT[s.range] || 1;
+    $('#line-body').innerHTML = LINES.map(l=>{
+      const b = s.snap.byLine[l.id];
+      const y = b.yDen>0 ? (b.yNum/b.yDen) : 0;
+      const util = b.runHours/(6*SHIFT_HOURS)*100;
+      const dot = b.fault>0 ? 'var(--c-crit)' : (b.run===6 ? 'var(--c-ok)' : 'var(--c-idle)');
+      return `<tr data-line="${l.id}" class="${s.line===l.id?'active':''}">
+        <td><span class="st-dot" style="background:${dot}"></span>${l.name}</td>
+        <td class="v">${b.run}/6</td>
+        <td class="v">${fmt(b.output*rangeMult)}</td>
+        <td class="v">${y.toFixed(2)}%</td>
+        <td class="v">${util.toFixed(0)}%</td>
+      </tr>`;
+    }).join('');
+    $('#line-body').querySelectorAll('tr').forEach(tr=>{
+      tr.onclick = ()=>{
+        const id = tr.dataset.line;
+        Store.dispatch({type:'LINE', line: s.line===id ? 'ALL' : id});
+      };
+    });
+  },
+
+  renderDevTable(s, list){
+    const rangeMult = RANGE_MULT[s.range] || 1;
+    $('#dev-count').textContent = `${list.length} 台 · 点击行定位设备`;
+    $('#dev-tbody').innerHTML = list.map(d=>{
+      const stTxt = d.status==='run'?'<span style="color:var(--c-ok)">运行</span>'
+        : d.status==='fault'?'<span style="color:var(--c-crit)">故障</span>'
+        : '<span style="color:var(--c-idle)">未运行</span>';
+      return `<tr data-dev="${d.id}" class="${s.selected===d.id?'active':''} ${d.status==='fault'?'fault':''}">
+        <td>${d.no}</td>
+        <td>${stTxt}</td>
+        <td class="v">${fmt(d.output*rangeMult)}</td>
+        <td class="v">${d.yield.toFixed(2)}%</td>
+        <td class="v">${d.runHours.toFixed(1)} h</td>
+      </tr>`;
+    }).join('');
+    $('#dev-tbody').querySelectorAll('tr').forEach(tr=>{
+      tr.onclick = ()=>{
+        Store.dispatch({type:'SELECT', id: tr.dataset.dev});
+        const dev = s.snap.devices.find(x=>x.id===tr.dataset.dev);
+        if (dev) this.toast('已定位设备：'+dev.no+'（'+dev.lineName+'）');
+      };
+    });
+  },
+
+  renderAlerts(snap){
+    const box = $('#alert-body');
+    $('#alert-count').textContent = snap.alerts.length ? `${snap.alerts.length} 条` : '';
+    if (!snap.alerts.length){
+      box.innerHTML = '<div class="empty-hint">全部设备运行中</div>';
+      return;
+    }
+    box.innerHTML = snap.alerts.map(a=>`
+      <div class="a-row ${a.level}" data-dev="${a.devId}">
+        <span class="lv">${a.level==='fault'?'故障':'未运行'}</span>
+        <span class="msg"><span class="pos">${a.devNo}</span> ${a.msg} · ${a.lineName}</span>
+        <span class="time">${hhmm(new Date(a.time))}</span>
+      </div>`).join('');
+    box.querySelectorAll('.a-row').forEach(el=>{
+      el.onclick = ()=>{
+        Store.dispatch({type:'SELECT', id: el.dataset.dev});
+        this.toast('已定位设备：'+el.dataset.dev);
+      };
+    });
+  },
+
+  /* ---------- 悬停面板：当前在制品详情 ---------- */
+  showWipTip(e){
+    const d = Twin._pick(e);
+    if (!d){ this.hideWipTip(); return; }
+    this.hoverId = d.id;
+    const s = Store.get();
+    const rangeMult = RANGE_MULT[s.range] || 1;
+    const stMap = { run:['ok','运行中'], idle:['idle','未运行'], fault:['crit','故障'] };
+    const [stCls, stTxt] = stMap[d.status];
+
+    let wipHtml = '';
+    if (d.wip){
+      const w = d.wip;
+      const pct = w.plan>0 ? Math.round(w.done/w.plan*100) : 0;
+      const pCol = pct>=75 ? 'var(--c-ok)' : pct>=40 ? 'var(--c-primary)' : 'var(--c-warn)';
+      wipHtml = `
+        <div class="wt-sec">当前在制${w.paused?'（已暂停）':''}</div>
+        <dl class="wt-kv">
+          <dt>工单号</dt><dd>${w.wo}</dd>
+          <dt>产品型号</dt><dd>${w.model}</dd>
+          <dt>物料批次</dt><dd>${w.batch}</dd>
+          <dt>当前工序</dt><dd>${w.stage}（${w.stageIdx}/${w.stageTotal}）</dd>
+          <dt>生产节拍</dt><dd>${w.takt.toFixed(1)} s/只</dd>
+          <dt>计划开始</dt><dd>${w.start}</dd>
+          <dt>预计完成</dt><dd>${w.paused?'待恢复':w.eta}</dd>
+          <dt>操作班组</dt><dd>${w.crew}</dd>
+        </dl>
+        <div class="prog"><i style="width:${pct}%;background:${pCol}"></i></div>
+        <div class="prog-txt"><span>已完成 ${fmt(w.done)} 只</span><span>计划 ${fmt(w.plan)} 只 · ${pct}%</span></div>`;
+    } else {
+      wipHtml = `
+        <div class="wt-sec">当前在制</div>
+        <dl class="wt-kv">
+          <dt>在制工单</dt><dd style="color:var(--t-mid)">无（${d.reason||'等待派工'}）</dd>
+        </dl>`;
+    }
+
+    const util = (d.runHours/SHIFT_HOURS*100).toFixed(0);
+    $('#wip-tip').innerHTML = `
+      <div class="wt-head">
+        <div style="flex:1 1 auto;min-width:0">
+          <div class="wt-name">${d.icon} ${d.name}</div>
+          <div class="wt-sub">${d.id} · ${d.lineName} · ${d.zone}</div>
+        </div>
+        <span class="badge ${stCls}">${stTxt}</span>
+      </div>
+      <div class="wt-body">
+        ${d.reason && d.status!=='run' ? `<dl class="wt-kv" style="margin-bottom:4px">
+          <dt>${d.status==='fault'?'故障信息':'未运行原因'}</dt>
+          <dd style="color:${d.status==='fault'?'var(--c-crit)':'var(--c-idle)'}">${d.reason}</dd></dl>` : ''}
+        ${wipHtml}
+        <div class="wt-sec">关键生产指标（${RANGE_NAME[s.range]}）</div>
+        <div class="wt-metrics">
+          <div class="wm"><div class="n">产量</div><div class="v" style="color:var(--c-primary)">${fmt(d.output*rangeMult)}</div></div>
+          <div class="wm"><div class="n">良率</div><div class="v" style="color:var(--c-ok)">${d.yield.toFixed(2)}%</div></div>
+          <div class="wm"><div class="n">稼动时间</div><div class="v" style="color:var(--c-info)">${d.runHours.toFixed(1)}h</div></div>
+        </div>
+        <div class="prog-txt" style="margin-top:4px"><span>稼动率 ${util}%</span><span>状态持续 ${Math.max(0,Math.round((Date.now()-d.since)/60000))} 分钟</span></div>
+      </div>`;
+
+    const tip = $('#wip-tip');
+    tip.style.opacity = 1;
+    const tw = tip.offsetWidth, th = tip.offsetHeight;
+    let x = e.clientX + 16, y = e.clientY + 14;
+    if (x + tw > window.innerWidth - 8) x = e.clientX - tw - 12;
+    if (y + th > window.innerHeight - 8) y = Math.max(8, e.clientY - th - 12);
+    tip.style.left = x+'px'; tip.style.top = y+'px';
+    if (View._lastHover !== d.id){ View._lastHover = d.id; View.render(); }
+  },
+
+  hideWipTip(){
+    if (this.hoverId !== null){ this.hoverId = null; this.render(); }
+    $('#wip-tip').style.opacity = 0;
+  },
+};
+
+document.addEventListener('DOMContentLoaded', ()=>View.init());
+</script>
+</body>
+</html>
