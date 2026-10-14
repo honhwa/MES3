@@ -605,7 +605,7 @@ public partial class MainForm : Form
         RegisterPage(NavEnergy, BuildCarbonAuditTab());            // 碳核查支撑：台账存档 + 报告/清单导出
         RegisterPage(NavEnergy, BuildSupplyChainTab());              // 供应链碳管理：供应商碳数据 + 同物料对比
         RegisterPage(NavEnergy, BuildCarbonAssetTab());             // 碳资产管理：配额/CCER 台账 + 履约测算
-        RegisterPage(NavTwin, BuildTwinTab());                // 数字孪生：运营大屏 / 设备孪生 / 网络孪生 入口
+        RegisterPage(NavTwin, BuildTwinTab());                // 数字孪生：运营大屏 / 生产 / 设备 / 网络 四个孪生网页入口
         RegisterPage(NavQuality, BuildRootCauseTab());        // ② 质量根因交叉（工序×设备×批次）
         RegisterPage(NavQuality, BuildSpcTuningTab());        // ③ SPC 调机建议（复用 Cpk）
         RegisterPage(NavQuality, BuildDuplicateFaiTab());     // ⑤ 首检重复送检提醒

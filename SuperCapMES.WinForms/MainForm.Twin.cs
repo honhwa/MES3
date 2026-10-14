@@ -28,11 +28,13 @@ public partial class MainForm
     // 页面资产目录（相对 exe 运行目录，与 csproj 的输出规则对应）
     private const string TwinAssetDir = "WebAssets/digital-twin";
 
-    // 三个孪生页面：文件名 / 展示名 / 一句话说明 / 主题色
+    // 四个孪生页面：文件名 / 展示名 / 一句话说明 / 主题色
     private static readonly (string File, string Title, string Desc, string Color, string Icon)[] TwinPages =
     {
         ("digital-twin-dashboard.html", "运营大屏",
             "生产 / 网络 / 设备 / 碳排放 四大类核心指标总览，支持模块折叠、时间范围筛选与自动轮播。", "#2f81f7", "📊"),
+        ("production-twin.html", "生产情况孪生",
+            "产线架构等距视图 + 每台设备实时产量/良率/稼动指标，悬停设备查看当前在制品详情。", "#2ecc8f", "🏭"),
         ("device-twin.html", "设备数字孪生",
             "2.5D 等距厂房布局，标注各产线全部监控设备点位，点击查看实时运行参数与告警。", "#f5a524", "⚙️"),
         ("network-twin.html", "网络数字孪生",
@@ -59,7 +61,7 @@ public partial class MainForm
             Dock = DockStyle.Fill,
             ColumnCount = 1,
             RowCount = 5,
-            // 上：工具条 / 中：三张入口卡（自动撑高）/ 下：说明
+            // 上：工具条 / 中：四张入口卡（自动撑高）/ 下：说明
         };
         root.RowStyles.Add(new RowStyle(SizeType.AutoSize));                 // 工具条
         root.RowStyles.Add(new RowStyle(SizeType.Absolute, 16));              // 间距
@@ -152,7 +154,7 @@ public partial class MainForm
     private static readonly Color TwinCard = Color.FromArgb(248, 250, 252);
     private static readonly Color TwinBorder = Color.FromArgb(226, 232, 240);
 
-    /// <summary>重建三张入口卡</summary>
+    /// <summary>重建四张入口卡</summary>
     private void LoadTwinCards()
     {
         if (_twinHostPanel is null) return;
