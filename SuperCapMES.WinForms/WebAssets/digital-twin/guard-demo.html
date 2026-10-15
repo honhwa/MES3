@@ -1,0 +1,540 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>过站防呆演示台 · 泰州超级电容智能工厂</title>
+<style>
+  :root {
+    --bg-0:#050b16; --bg-1:#0a1424; --bg-2:#0f1d31; --bg-3:#16273f;
+    --c-primary:#2f81f7; --c-primary-glow:rgba(47,129,247,.35);
+    --c-ok:#2ecc8f; --c-warn:#f5a524; --c-crit:#f4544c; --c-info:#35c6d4;
+    --t-hi:#eaf2ff; --t-mid:#9fb3d1; --t-lo:#64789a; --t-dim:#3d4f6b;
+    --line:rgba(80,140,210,.16); --line-soft:rgba(80,140,210,.09);
+    --r-sm:4px; --r-md:8px; --r-lg:12px;
+    --shadow:0 4px 20px rgba(0,0,0,.45);
+    --scale:1;
+    --font:"HarmonyOS Sans SC","Microsoft YaHei",-apple-system,sans-serif;
+    --c-guard:#f4544c;
+  }
+  *{margin:0;padding:0;box-sizing:border-box}
+  html,body{width:100%;height:100%;background:var(--bg-0);color:var(--t-hi);
+    font-family:var(--font);overflow:hidden;font-variant-numeric:tabular-nums}
+  #bg-deco{position:fixed;inset:0;z-index:0;pointer-events:none;
+    background:radial-gradient(ellipse 60% 45% at 50% -10%,rgba(244,84,76,.12),transparent 70%),
+               radial-gradient(ellipse 45% 40% at 90% 100%,rgba(53,198,212,.07),transparent 70%)}
+  #bg-grid{position:fixed;inset:0;z-index:0;pointer-events:none;opacity:.5;
+    background-image:linear-gradient(rgba(70,130,200,.055) 1px,transparent 1px),
+                     linear-gradient(90deg,rgba(70,130,200,.055) 1px,transparent 1px);
+    background-size:48px 48px}
+  #viewport{position:fixed;width:1920px;height:1080px;left:0;top:0;transform-origin:top left;z-index:1;
+    display:flex;flex-direction:column;padding:18px 22px;gap:14px}
+
+  .topbar{flex:0 0 auto;display:flex;align-items:center;gap:14px}
+  .topbar h1{font-size:22px;font-weight:600;letter-spacing:2px;
+    background:linear-gradient(90deg,#eaf2ff,#ff9d97);-webkit-background-clip:text;-webkit-text-fill-color:transparent}
+  .topbar .sub{font-size:11.5px;color:var(--t-lo);letter-spacing:1px;margin-top:3px}
+  .clock{margin-left:auto;text-align:right}
+  .clock .t{font-size:20px;font-weight:600;letter-spacing:1px}
+  .clock .d{font-size:11px;color:var(--t-lo)}
+  .live{display:flex;align-items:center;gap:6px;font-size:11.5px;color:var(--c-ok)}
+  .live i{width:7px;height:7px;border-radius:50%;background:var(--c-ok);animation:pulse 1.6s infinite}
+  @keyframes pulse{0%,100%{opacity:1}50%{opacity:.25}}
+
+  .hero{flex:0 0 auto;display:flex;gap:14px;align-items:stretch}
+  .score-card{flex:0 0 360px;background:linear-gradient(135deg,var(--bg-2),var(--bg-3));
+    border:1px solid var(--line);border-radius:var(--r-lg);padding:16px 18px;
+    display:flex;align-items:center;gap:16px;box-shadow:var(--shadow);position:relative;overflow:hidden}
+  .score-card::before{content:'';position:absolute;left:0;top:0;bottom:0;width:3px;background:var(--c-guard)}
+  .score-num{font-size:46px;font-weight:600;line-height:1;letter-spacing:-1px}
+  .score-num small{font-size:15px;color:var(--t-lo);font-weight:400}
+  .score-meta .lv{font-size:17px;font-weight:600;letter-spacing:2px}
+  .score-meta .ds{font-size:11.5px;color:var(--t-lo);margin-top:4px}
+  .concl{flex:1 1 auto;background:var(--bg-1);border:1px solid var(--line);border-radius:var(--r-lg);
+    padding:14px 18px;display:flex;flex-direction:column;justify-content:center;gap:8px;box-shadow:var(--shadow)}
+  .concl .row{display:flex;align-items:flex-start;gap:10px;font-size:13.5px;line-height:1.5}
+  .concl .row .dot{flex:0 0 auto;width:8px;height:8px;border-radius:50%;margin-top:6px}
+  .concl .row b{font-weight:500}
+
+  .kpis{flex:0 0 auto;display:grid;grid-template-columns:repeat(6,1fr);gap:12px}
+  .kpi{background:var(--bg-1);border:1px solid var(--line);border-radius:var(--r-md);
+    padding:11px 13px;position:relative;overflow:hidden;box-shadow:var(--shadow)}
+  .kpi::before{content:'';position:absolute;left:0;top:0;bottom:0;width:2.5px;background:var(--c-guard)}
+  .kpi .lb{font-size:11.5px;color:var(--t-lo)}
+  .kpi .vl{font-size:24px;font-weight:600;margin-top:5px;letter-spacing:.5px}
+  .kpi .vl small{font-size:11px;color:var(--t-lo);font-weight:400;margin-left:3px}
+  .kpi .tr{font-size:10.5px;color:var(--t-lo);margin-top:4px}
+
+  .grid{flex:1 1 auto;min-height:0;display:grid;grid-template-columns:420px 1fr;gap:14px}
+
+  .panel{background:var(--bg-1);border:1px solid var(--line);border-radius:var(--r-lg);
+    box-shadow:var(--shadow);display:flex;flex-direction:column;min-height:0;overflow:hidden}
+  .panel-head{flex:0 0 auto;display:flex;align-items:center;gap:8px;padding:10px 14px;
+    border-bottom:1px solid var(--line-soft);background:linear-gradient(90deg,rgba(244,84,76,.09),transparent 60%)}
+  .panel-head .tt{font-size:14px;font-weight:500;letter-spacing:1px;display:flex;align-items:center;gap:7px}
+  .panel-head .tt::before{content:'';width:3px;height:14px;background:var(--c-guard);border-radius:2px;
+    box-shadow:0 0 8px rgba(244,84,76,.4)}
+  .panel-head .sp{flex:1}
+  .panel-head .cnt{font-size:11px;color:var(--t-lo)}
+  .panel-body{flex:1 1 auto;min-height:0;padding:12px 14px;overflow:hidden;display:flex;flex-direction:column;gap:10px}
+
+  /* 操作台表单 */
+  .field{display:flex;flex-direction:column;gap:5px}
+  .field .lb{font-size:11.5px;color:var(--t-lo)}
+  .field select,.field input{background:var(--bg-2);border:1px solid var(--line);border-radius:var(--r-sm);
+    color:var(--t-hi);font-size:13px;padding:8px 10px;font-family:var(--font);width:100%}
+  .field select:focus,.field input:focus{outline:none;border-color:var(--c-primary)}
+  .btn{border:0;border-radius:var(--r-sm);font-size:13px;padding:10px 14px;cursor:pointer;font-family:var(--font);
+    font-weight:500;transition:all .15s;width:100%}
+  .btn.primary{background:var(--c-primary);color:#fff}
+  .btn.primary:hover{background:#4a91f9}
+  .btn.ghost{background:var(--bg-2);color:var(--t-mid);border:1px solid var(--line)}
+  .btn.ghost:hover{color:var(--t-hi);border-color:rgba(47,129,247,.4)}
+  .btn.danger{background:rgba(244,84,76,.16);color:#ff9d97;border:1px solid rgba(244,84,76,.4)}
+  .btn:disabled{opacity:.45;cursor:not-allowed}
+
+  .scen-row{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+  .scen{background:var(--bg-2);border:1px solid var(--line);border-radius:var(--r-sm);padding:8px 10px;
+    cursor:pointer;font-size:11.5px;color:var(--t-mid);text-align:left;font-family:var(--font)}
+  .scen:hover{border-color:rgba(244,84,76,.5);color:var(--t-hi)}
+  .scen.sel{border-color:var(--c-guard);background:rgba(244,84,76,.12);color:#ffb3ae}
+
+  /* 工序流程条 */
+  .flow-steps{display:grid;grid-template-columns:repeat(8,1fr);gap:8px}
+  .step{background:var(--bg-2);border:1px solid var(--line-soft);border-radius:var(--r-sm);
+    padding:9px 6px;text-align:center;position:relative}
+  .step .n{font-size:9.5px;color:var(--t-dim)}
+  .step .nm{font-size:11.5px;color:var(--t-mid);margin-top:3px}
+  .step.done{border-color:rgba(46,204,143,.4)}
+  .step.done .nm{color:#7fe3c0}
+  .step.done::after{content:'✓';position:absolute;top:3px;right:6px;font-size:10px;color:#2ecc8f}
+  .step.current{border-color:var(--c-primary);background:rgba(47,129,247,.10)}
+  .step.current .nm{color:#cfe4ff}
+  .step.blocked{border-color:rgba(244,84,76,.55);background:rgba(244,84,76,.08)}
+  .step.blocked .nm{color:#ff9d97}
+  .step.rewound{border-color:rgba(245,165,36,.5)}
+  .step.rewound .nm{color:#ffce6b}
+
+  /* 判定结果 */
+  .verdict{flex:0 0 auto;border-radius:var(--r-md);padding:14px 16px;border:1px solid var(--line-soft);background:var(--bg-2)}
+  .verdict.pass{border-color:rgba(46,204,143,.5);background:rgba(46,204,143,.08)}
+  .verdict.block{border-color:rgba(244,84,76,.5);background:rgba(244,84,76,.08)}
+  .verdict .hd{display:flex;align-items:center;gap:10px;font-size:16px;font-weight:600}
+  .verdict.pass .hd{color:#7fe3c0}
+  .verdict.block .hd{color:#ff9d97}
+  .verdict .why{margin-top:8px;font-size:12.5px;color:var(--t-mid);line-height:1.6}
+  .verdict .rule{margin-top:8px;font-size:11px;color:var(--t-lo);line-height:1.6}
+  .verdict .acts{margin-top:10px;display:flex;gap:8px}
+
+  /* 事件日志 */
+  .log-list{flex:1 1 auto;overflow-y:auto;display:flex;flex-direction:column;gap:6px;min-height:0}
+  .log{display:flex;gap:9px;padding:7px 10px;border-radius:var(--r-sm);background:var(--bg-2);
+    border:1px solid var(--line-soft);font-size:11.5px;align-items:flex-start}
+  .log .tm{flex:0 0 auto;color:var(--t-dim);font-size:10.5px;font-variant-numeric:tabular-nums}
+  .log .ic{flex:0 0 auto;width:18px;text-align:center}
+  .log .tx{flex:1 1 auto;color:var(--t-mid);line-height:1.5}
+  .log .tx b{color:var(--t-hi);font-weight:500}
+  .log.ok .tx b{color:#7fe3c0} .log.block .tx b{color:#ff9d97} .log.warn .tx b{color:#ffce6b}
+
+  .bottom{flex:0 0 auto;display:grid;grid-template-columns:1.4fr 1fr;gap:14px}
+  .rules{display:grid;grid-template-columns:repeat(5,1fr);gap:10px}
+  .rule-card{background:var(--bg-1);border:1px solid var(--line);border-radius:var(--r-md);
+    padding:9px 11px;box-shadow:var(--shadow);border-left:3px solid var(--c-guard)}
+  .rule-card .nm{font-size:12px;font-weight:500}
+  .rule-card .ds{font-size:10px;color:var(--t-lo);margin-top:4px;line-height:1.5}
+
+  .foot{flex:0 0 auto;display:flex;justify-content:space-between;font-size:10.5px;color:var(--t-dim)}
+</style>
+</head>
+<body>
+<div id="bg-deco"></div>
+<div id="bg-grid"></div>
+<div id="viewport">
+  <div class="topbar">
+    <div>
+      <h1>过站防呆演示台</h1>
+      <div class="sub">泰州超级电容智能工厂 · 交互式工位防呆 / 拦截 / 返工分流演示 · 判定权归规则，不归模型</div>
+    </div>
+    <div class="live"><i></i>DEMO</div>
+    <div class="clock"><div class="t" id="clock-t">--:--:--</div><div class="d" id="clock-d">----</div></div>
+  </div>
+
+  <div class="hero">
+    <div class="score-card">
+      <div class="score-num" id="score-num">--<small>%</small></div>
+      <div class="score-meta">
+        <div class="lv" id="score-lv">待演示</div>
+        <div class="ds" id="score-ds">本台防呆拦截率</div>
+      </div>
+    </div>
+    <div class="concl" id="concl"></div>
+  </div>
+
+  <div class="kpis" id="kpis"></div>
+
+  <div class="grid">
+    <!-- 左：工位操作台 -->
+    <div class="panel">
+      <div class="panel-head"><div class="tt">工位操作台</div><div class="sp"></div><div class="cnt">模拟终端</div></div>
+      <div class="panel-body">
+        <div class="field">
+          <span class="lb">批次号（示例批次）</span>
+          <select id="sel-batch"></select>
+        </div>
+        <div class="field">
+          <span class="lb">过站工序</span>
+          <select id="sel-step"></select>
+        </div>
+        <div class="field">
+          <span class="lb">演示场景（一键触发对应防呆结果）</span>
+          <div class="scen-row" id="scen-row"></div>
+        </div>
+        <button class="btn primary" id="btn-check">🔍 执行过站校验</button>
+        <button class="btn ghost" id="btn-reset">↺ 重置演示</button>
+      </div>
+    </div>
+
+    <!-- 右：流程 + 结果 + 日志 -->
+    <div style="display:grid;grid-template-rows:auto auto 1fr;gap:14px;min-height:0">
+      <div class="panel">
+        <div class="panel-head"><div class="tt">工艺路线（8 道工序）</div><div class="sp"></div><div class="cnt" id="flow-cnt"></div></div>
+        <div class="panel-body" style="padding:12px"><div class="flow-steps" id="flow-steps"></div></div>
+      </div>
+      <div class="panel">
+        <div class="panel-head"><div class="tt">判定结果</div><div class="sp"></div><div class="cnt" id="verdict-cnt">未校验</div></div>
+        <div class="panel-body" style="padding:12px"><div class="verdict" id="verdict"></div></div>
+      </div>
+      <div class="panel">
+        <div class="panel-head"><div class="tt">防呆事件日志</div><div class="sp"></div><div class="cnt" id="log-cnt"></div></div>
+        <div class="panel-body"><div class="log-list" id="log-list"></div></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="bottom">
+    <div class="rules" id="rules"></div>
+    <div class="panel" style="padding:0">
+      <div class="panel-head"><div class="tt">关键说明</div></div>
+      <div class="panel-body" style="overflow-y:auto">
+        <div style="font-size:12px;line-height:1.7;color:var(--t-mid)">
+          · 防呆判定全部由**规则引擎**完成（跳站 / 参数超限 / 版本不符 / 质量挂起 / 物料齐套），AI 与模型不参与判定、不执行动作。<br/>
+          · 拦截后批次进入**返工分流**：回到指定工序重新校验，通过后方可继续过站。<br/>
+          · 物料齐套规则：需求 = 单位用量 ×(1+损耗率)× 投产数，缺料默认拒建。<br/>
+          · 本页为交互演示台（确定性规则），数据为演示数据；实际拦截策略以受控工艺文件为准。
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="foot">
+    <span>数据来源：MES 过站防呆 / 规则引擎 / 返工流程（演示规则为确定性模拟，口径与工艺文件一致）</span>
+    <span id="foot-update"></span>
+  </div>
+</div>
+
+<script>
+"use strict";
+const $ = (s) => document.querySelector(s);
+const pad2 = (n) => String(n).padStart(2, '0');
+const hhmmss = (d) => `${pad2(d.getHours())}:${pad2(d.getMinutes())}:${pad2(d.getSeconds())}`;
+const fmt = (v, d = 1) => Number(v).toLocaleString('zh-CN', { minimumFractionDigits: d, maximumFractionDigits: d });
+
+/* ================= 静态定义 ================= */
+const STEPS = ['投料', '涂布', '卷绕', '装配注液', '化成', '检测', '老化', '包装入库'];
+const STEP_INDEX = Object.fromEntries(STEPS.map((s, i) => [s, i]));
+
+const BATCHES = [
+  { id: 'BAT-2026-1015-001', prod: 'SC-3000F 超级电容', qty: 2000, done: 4, version: 'v2.3', quality: 'ok', kit: 'ok' },
+  { id: 'BAT-2026-1015-002', prod: 'SC-5000F 超级电容', qty: 1200, done: 3, version: 'v2.2', quality: 'ok', kit: 'ok' },
+  { id: 'BAT-2026-1015-003', prod: '锂电 32700', qty: 5000, done: 5, version: 'v2.3', quality: 'hold', kit: 'ok' },
+  { id: 'BAT-2026-1015-004', prod: 'SC-3000F 超级电容', qty: 1800, done: 2, version: 'v2.3', quality: 'ok', kit: 'short' },
+];
+
+/* 场景：一键触发对应防呆规则 */
+const SCENARIOS = [
+  { id: 'normal', name: '✅ 正常过站', desc: '全部规则通过，放行' },
+  { id: 'skip', name: '⛔ 跳站拦截', desc: '上一工序未完成' },
+  { id: 'param', name: '📊 参数超限', desc: '关键参数超规格上下限' },
+  { id: 'version', name: '🔀 版本不符', desc: '工单版本≠生效版本' },
+  { id: 'quality', name: '🔬 质量挂起', desc: '批次被质量判定挂起' },
+  { id: 'kit', name: '🧩 物料缺料', desc: '齐套不足，默认拒建' },
+];
+
+const RULES = [
+  { id: 'R1', name: '跳站检测', desc: '上一工序未完成 → 拦截，禁止跨工序过站' },
+  { id: 'R2', name: '参数超限', desc: '关键工艺参数超出规格上下限 → 拦截，触发 SPC 告警' },
+  { id: 'R3', name: '版本不符', desc: '工单工艺版本 ≠ 当前生效版本 → 拦截，走受控切换' },
+  { id: 'R4', name: '质量挂起', desc: '批次被质量挂起（不合格待处置）→ 拦截，转入 CAPA' },
+  { id: 'R5', name: '物料齐套', desc: '需求=单位用量×(1+损耗率)×投产数，缺料默认拒建' },
+];
+
+/* ================= 演示状态 ================= */
+const Demo = {
+  batch: BATCHES[0], step: STEPS[BATCHES[0].done], scenario: 'normal',
+  passed: 0, blocked: 0, checks: 0, lastVerdict: null,
+  logs: [],
+
+  reset() {
+    this.batch = BATCHES[0];
+    this.step = STEPS[this.batch.done];
+    this.scenario = 'normal';
+    this.passed = 0; this.blocked = 0; this.checks = 0; this.lastVerdict = null;
+    this.logs = [];
+    this.log('info', '演示台就绪，选择批次 / 工序 / 场景后执行过站校验。');
+  },
+
+  log(type, text) {
+    this.logs.unshift({ t: hhmmss(new Date()), type, text });
+    if (this.logs.length > 40) this.logs.pop();
+  },
+
+  /** 规则引擎：确定性判定 */
+  runCheck() {
+    this.checks++;
+    const b = this.batch, s = this.step, sIdx = STEP_INDEX[s];
+    this.log('info', `开始校验：批次 <b>${b.id}</b> 工序 <b>${s}</b>（场景：${SCENARIOS.find(x=>x.id===this.scenario).name}）`);
+    const checks = [];
+
+    // R1 跳站检测
+    if (this.scenario === 'skip') {
+      checks.push({ ok: false, rule: 'R1', text: `跳站：上一工序「${STEPS[sIdx - 1]}」未完成` });
+    } else {
+      checks.push({ ok: true, rule: 'R1', text: `上一工序「${sIdx > 0 ? STEPS[sIdx - 1] : '—'}」已完成` });
+    }
+    // R2 参数超限（场景模拟）
+    if (this.scenario === 'param') {
+      checks.push({ ok: false, rule: 'R2', text: '关键参数超限：化成电压 3.15V > 上限 3.10V（SPC 已告警）' });
+    } else {
+      checks.push({ ok: true, rule: 'R2', text: '关键工艺参数处于规格带内（SPC 受控）' });
+    }
+    // R3 版本不符
+    if (this.scenario === 'version' || (this.scenario === 'normal' && b.version !== 'v2.3')) {
+      checks.push({ ok: false, rule: 'R3', text: `工艺版本不符：工单版本 ${b.version} ≠ 当前生效版本 v2.3，需走受控切换` });
+    } else {
+      checks.push({ ok: true, rule: 'R3', text: `工艺版本一致（${b.version}）` });
+    }
+    // R4 质量挂起
+    if (this.scenario === 'quality' || (this.scenario === 'normal' && b.quality === 'hold')) {
+      checks.push({ ok: false, rule: 'R4', text: '批次被质量挂起：终检容量样本低于下限，待 CAPA 处置' });
+    } else {
+      checks.push({ ok: true, rule: 'R4', text: '批次质量状态正常（无挂起）' });
+    }
+    // R5 物料齐套
+    if (this.scenario === 'kit' || (this.scenario === 'normal' && b.kit === 'short')) {
+      checks.push({ ok: false, rule: 'R5', text: '物料不齐套：缺电解液（在途批待检），按规则默认拒建' });
+    } else {
+      checks.push({ ok: true, rule: 'R5', text: '物料齐套满足投产需求' });
+    }
+
+    checks.forEach((c) => this.log(c.ok ? 'ok' : 'block', `${c.ok ? '通过' : '拦截'} [${c.rule}] ${c.text}`));
+    const fails = checks.filter((c) => !c.ok);
+    const verdict = fails.length ? { pass: false, fails } : { pass: true };
+    this.lastVerdict = verdict;
+    if (verdict.pass) {
+      this.passed++;
+      this.log('ok', `判定：<b>放行</b>。批次 ${b.id} 完成「${s}」过站，记录写入过站履历。`);
+    } else {
+      this.blocked++;
+      this.log('block', `判定：<b>拦截</b>（${fails.length} 项规则命中）。批次转入返工分流，处理前禁止过站。`);
+    }
+    return verdict;
+  },
+
+  /** 返工：回到上一工序（或指定工序）重新校验 */
+  rework() {
+    const b = this.batch, sIdx = STEP_INDEX[this.step];
+    const back = STEPS[Math.max(0, sIdx - 1)];
+    this.step = back;
+    this.scenario = 'normal';
+    this.log('warn', `返工分流：批次 ${b.id} 回到「${back}」重新校验，上一工序重新验证后放行。`);
+    return back;
+  },
+
+  get interceptRate() { return this.checks === 0 ? 0 : this.blocked / this.checks * 100; },
+};
+
+/* ================= View ================= */
+const View = {
+  init() {
+    this.buildBatchSel();
+    this.buildStepSel();
+    this.buildScenarios();
+    this.buildRules();
+    this.buildFlow();
+    this.bind();
+    Demo.reset();
+    Store.dispatch({ type: 'RENDER' });
+    this.startClock(); this.fit();
+  },
+
+  buildBatchSel() {
+    $('#sel-batch').innerHTML = BATCHES.map((b, i) =>
+      `<option value="${i}">${b.id} · ${b.prod}（已过 ${b.done} 工序）</option>`).join('');
+    $('#sel-batch').onchange = (e) => {
+      const b = BATCHES[+e.target.value];
+      Demo.batch = b; Demo.step = STEPS[b.done]; Demo.scenario = 'normal';
+      this.syncScenarios(); this.buildStepSel(); this.renderFlow();
+      Demo.log('info', `切换批次：${b.id}（${b.prod}，当前工序「${Demo.step}」）`);
+      Store.dispatch({ type: 'RENDER' });
+    };
+  },
+
+  buildStepSel() {
+    $('#sel-step').innerHTML = STEPS.map((s, i) =>
+      `<option value="${s}" ${s === Demo.step ? 'selected' : ''}>${i + 1}. ${s}</option>`).join('');
+    $('#sel-step').onchange = (e) => { Demo.step = e.target.value; this.renderFlow(); Store.dispatch({ type: 'RENDER' }); };
+  },
+
+  buildScenarios() {
+    $('#scen-row').innerHTML = SCENARIOS.map((s) =>
+      `<button class="scen ${s.id === Demo.scenario ? 'sel' : ''}" data-id="${s.id}" title="${s.desc}">${s.name}</button>`).join('');
+    $('#scen-row').querySelectorAll('.scen').forEach((b) => {
+      b.onclick = () => { Demo.scenario = b.dataset.id; this.syncScenarios(); Store.dispatch({ type: 'RENDER' }); };
+    });
+  },
+
+  syncScenarios() {
+    $('#scen-row').querySelectorAll('.scen').forEach((b) => b.classList.toggle('sel', b.dataset.id === Demo.scenario));
+  },
+
+  buildRules() {
+    $('#rules').innerHTML = RULES.map((r) => `<div class="rule-card">
+      <div class="nm">${r.id} ${r.name}</div><div class="ds">${r.desc}</div></div>`).join('');
+  },
+
+  buildFlow() {
+    $('#flow-steps').innerHTML = STEPS.map((s, i) => {
+      const b = Demo.batch;
+      let cls = '';
+      if (i < b.done) cls = 'done';
+      if (s === Demo.step) cls = Demo.lastVerdict && !Demo.lastVerdict.pass ? 'blocked' : 'current';
+      return `<div class="step ${cls}" data-step="${s}"><div class="n">${i + 1}</div><div class="nm">${s}</div></div>`;
+    }).join('');
+    $('#flow-cnt').textContent = `已完成 ${Demo.batch.done} / 8`;
+  },
+
+  renderFlow() { this.buildFlow(); },
+
+  bind() {
+    $('#btn-check').onclick = () => {
+      const v = Demo.runCheck();
+      this.renderFlow();
+      Store.dispatch({ type: 'RENDER' });
+    };
+    $('#btn-reset').onclick = () => {
+      Demo.reset();
+      $('#sel-batch').value = '0'; this.buildStepSel(); this.syncScenarios();
+      Store.dispatch({ type: 'RENDER' });
+    };
+    window.addEventListener('resize', () => this.fit());
+  },
+
+  fit() {
+    const scale = Math.min(window.innerWidth / 1920, window.innerHeight / 1080);
+    document.documentElement.style.setProperty('--scale', scale);
+    const vp = $('#viewport');
+    vp.style.transform = `scale(${scale})`;
+    vp.style.left = `${(window.innerWidth - 1920 * scale) / 2}px`;
+    vp.style.top = `${(window.innerHeight - 1080 * scale) / 2}px`;
+  },
+
+  render(s) {
+    const rate = Demo.interceptRate;
+    const lv = Demo.checks === 0 ? { t: '待演示', c: '#9fb3d1' }
+      : rate <= 30 ? { t: '受控', c: '#2ecc8f' }
+      : rate <= 60 ? { t: '关注', c: '#f5a524' } : { t: '高频拦截', c: '#f4544c' };
+    $('#score-num').innerHTML = `${fmt(rate, 0)}<small>%</small>`;
+    $('#score-num').style.color = lv.c;
+    $('#score-lv').textContent = lv.t;
+    $('#score-lv').style.color = lv.c;
+
+    const concl = [];
+    concl.push(`<div class="row"><span class="dot" style="background:${lv.c}"></span>
+      <span><b>本台统计：</b>已校验 ${Demo.checks} 次，放行 ${Demo.passed} 次，拦截 ${Demo.blocked} 次（拦截率 ${fmt(rate, 0)}%）。当前批次 <b>${Demo.batch.id}</b> 工序「${Demo.step}」。</span></div>`);
+    concl.push(`<div class="row"><span class="dot" style="background:#f4544c"></span>
+      <span><b>五条防呆规则全部生效：</b>跳站 / 参数超限 / 版本不符 / 质量挂起 / 物料齐套。任一命中即拦截，批次转返工分流。</span></div>`);
+    concl.push(`<div class="row"><span class="dot" style="background:#35c6d4"></span>
+      <span>判定权归规则引擎——模型不取数、不判定、不执行；左侧选择场景后点「执行过站校验」即可现场演示拦截/放行。</span></div>`);
+    $('#concl').innerHTML = concl.join('');
+
+    this.renderKpis();
+    this.renderVerdict();
+    this.renderLogs();
+    $('#foot-update').textContent = `演示台运行中 · 规则引擎 v1.0 · ${hhmmss(new Date())}`;
+  },
+
+  renderKpis() {
+    const defs = [
+      { key: 'checks', label: '校验次数', v: fmt(Demo.checks, 0), u: '次', s: '本台累计' },
+      { key: 'passed', label: '放行', v: fmt(Demo.passed, 0), u: '次', s: '规则全通过' },
+      { key: 'blocked', label: '拦截', v: fmt(Demo.blocked, 0), u: '次', s: '转返工分流' },
+      { key: 'rate', label: '拦截率', v: fmt(Demo.interceptRate, 0), u: '%', s: '拦截/校验' },
+      { key: 'rules', label: '防呆规则', v: '5', u: '条', s: '全部生效' },
+      { key: 'steps', label: '工艺路线', v: '8', u: '工序', s: '正向链路' },
+    ];
+    $('#kpis').innerHTML = defs.map((d) => `
+      <div class="kpi">
+        <div class="lb">${d.label}</div>
+        <div class="vl"><span>${d.v}</span><small>${d.u}</small></div>
+        <div class="tr">${d.s}</div>
+      </div>`).join('');
+  },
+
+  renderVerdict() {
+    const el = $('#verdict');
+    const v = Demo.lastVerdict;
+    if (!v) {
+      $('#verdict-cnt').textContent = '未校验';
+      el.className = 'verdict';
+      el.innerHTML = `<div class="hd">⏳ 等待校验</div>
+        <div class="why">选择批次 / 工序 / 演示场景，点击「执行过站校验」查看防呆判定结果。</div>
+        <div class="rule">规则引擎将依次执行 R1 跳站 → R2 参数超限 → R3 版本不符 → R4 质量挂起 → R5 物料齐套。</div>`;
+      return;
+    }
+    if (v.pass) {
+      $('#verdict-cnt').textContent = '已放行';
+      el.className = 'verdict pass';
+      el.innerHTML = `<div class="hd">✅ 放行 — 规则全部通过</div>
+        <div class="why">批次 <b>${Demo.batch.id}</b> 通过「${Demo.step}」过站校验，5 条规则均未命中，过站记录写入履历。</div>
+        <div class="rule">R1 跳站 ✓ · R2 参数 ✓ · R3 版本 ✓ · R4 质量 ✓ · R5 齐套 ✓</div>
+        <div class="acts"><button class="btn ghost" id="btn-recheck" style="width:auto;padding:7px 14px">↻ 再校验一次</button></div>`;
+    } else {
+      $('#verdict-cnt').textContent = '已拦截';
+      el.className = 'verdict block';
+      el.innerHTML = `<div class="hd">⛔ 拦截 — ${v.fails.length} 项规则命中</div>
+        <div class="why">${v.fails.map((f) => `[${f.rule}] ${f.text}`).map((x) => `<div>· ${x}</div>`).join('')}</div>
+        <div class="rule">拦截后批次进入返工分流，处理完成前禁止过站；判定权归规则引擎。</div>
+        <div class="acts">
+          <button class="btn danger" id="btn-rework" style="width:auto;padding:7px 14px">🔧 返工分流（回上一工序）</button>
+          <button class="btn ghost" id="btn-recheck" style="width:auto;padding:7px 14px">↻ 重新校验</button>
+        </div>`;
+    }
+    const rc = $('#btn-recheck');
+    if (rc) rc.onclick = () => { Demo.runCheck(); this.renderFlow(); Store.dispatch({ type: 'RENDER' }); };
+    const rw = $('#btn-rework');
+    if (rw) rw.onclick = () => { const back = Demo.rework(); this.buildStepSel(); this.renderFlow(); Store.dispatch({ type: 'RENDER' }); };
+  },
+
+  renderLogs() {
+    const map = { info: 'ℹ️', ok: '✅', block: '⛔', warn: '⚠️' };
+    $('#log-cnt').textContent = `${Demo.logs.length} 条`;
+    $('#log-list').innerHTML = Demo.logs.map((l) => `
+      <div class="log ${l.type}"><span class="tm">${l.t}</span><span class="ic">${map[l.type] || '•'}</span><span class="tx">${l.text}</span></div>`).join('');
+  },
+
+  startClock() {
+    const upd = () => { const d = new Date(); $('#clock-t').textContent = hhmmss(d);
+      $('#clock-d').textContent = `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())} 星期${'日一二三四五六'[d.getDay()]}`; };
+    upd(); setInterval(upd, 1000);
+  },
+};
+
+/* 轻量 Store（触发 render） */
+const Store = {
+  dispatch() { View.render(Store); },
+};
+
+document.addEventListener('DOMContentLoaded', () => View.init());
+</script>
+</body>
+</html>

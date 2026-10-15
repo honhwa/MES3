@@ -1,0 +1,608 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>系统集成拓扑 · 泰州超级电容智能工厂</title>
+<style>
+  :root {
+    --bg-0:#050b16; --bg-1:#0a1424; --bg-2:#0f1d31; --bg-3:#16273f;
+    --c-primary:#2f81f7; --c-primary-glow:rgba(47,129,247,.35);
+    --c-ok:#2ecc8f; --c-warn:#f5a524; --c-crit:#f4544c; --c-info:#35c6d4;
+    --t-hi:#eaf2ff; --t-mid:#9fb3d1; --t-lo:#64789a; --t-dim:#3d4f6b;
+    --line:rgba(80,140,210,.16); --line-soft:rgba(80,140,210,.09);
+    --r-sm:4px; --r-md:8px; --r-lg:12px;
+    --shadow:0 4px 20px rgba(0,0,0,.45);
+    --scale:1;
+    --font:"HarmonyOS Sans SC","Microsoft YaHei",-apple-system,sans-serif;
+    --c-int:#2f81f7;
+  }
+  *{margin:0;padding:0;box-sizing:border-box}
+  html,body{width:100%;height:100%;background:var(--bg-0);color:var(--t-hi);
+    font-family:var(--font);overflow:hidden;font-variant-numeric:tabular-nums}
+  #bg-deco{position:fixed;inset:0;z-index:0;pointer-events:none;
+    background:radial-gradient(ellipse 60% 45% at 50% -10%,rgba(47,129,247,.14),transparent 70%),
+               radial-gradient(ellipse 45% 40% at 90% 100%,rgba(53,198,212,.08),transparent 70%)}
+  #bg-grid{position:fixed;inset:0;z-index:0;pointer-events:none;opacity:.5;
+    background-image:linear-gradient(rgba(70,130,200,.055) 1px,transparent 1px),
+                     linear-gradient(90deg,rgba(70,130,200,.055) 1px,transparent 1px);
+    background-size:48px 48px}
+  #viewport{position:fixed;width:1920px;height:1080px;left:0;top:0;transform-origin:top left;z-index:1;
+    display:flex;flex-direction:column;padding:18px 22px;gap:14px}
+
+  .topbar{flex:0 0 auto;display:flex;align-items:center;gap:14px}
+  .topbar h1{font-size:22px;font-weight:600;letter-spacing:2px;
+    background:linear-gradient(90deg,#eaf2ff,#7fb3f0);-webkit-background-clip:text;-webkit-text-fill-color:transparent}
+  .topbar .sub{font-size:11.5px;color:var(--t-lo);letter-spacing:1px;margin-top:3px}
+  .seg{display:flex;background:var(--bg-2);border:1px solid var(--line);border-radius:var(--r-md);overflow:hidden}
+  .seg button{border:0;background:transparent;color:var(--t-mid);font-size:12px;padding:6px 12px;cursor:pointer;font-family:var(--font)}
+  .seg button.active{background:rgba(47,129,247,.22);color:#cfe4ff}
+  .seg button:hover:not(.active){color:var(--t-hi)}
+  .clock{margin-left:auto;text-align:right}
+  .clock .t{font-size:20px;font-weight:600;letter-spacing:1px}
+  .clock .d{font-size:11px;color:var(--t-lo)}
+  .live{display:flex;align-items:center;gap:6px;font-size:11.5px;color:var(--c-ok)}
+  .live i{width:7px;height:7px;border-radius:50%;background:var(--c-ok);animation:pulse 1.6s infinite}
+  @keyframes pulse{0%,100%{opacity:1}50%{opacity:.25}}
+
+  .hero{flex:0 0 auto;display:flex;gap:14px;align-items:stretch}
+  .score-card{flex:0 0 340px;background:linear-gradient(135deg,var(--bg-2),var(--bg-3));
+    border:1px solid var(--line);border-radius:var(--r-lg);padding:16px 18px;
+    display:flex;align-items:center;gap:16px;box-shadow:var(--shadow);position:relative;overflow:hidden}
+  .score-card::before{content:'';position:absolute;left:0;top:0;bottom:0;width:3px;background:var(--c-int)}
+  .score-num{font-size:46px;font-weight:600;line-height:1;letter-spacing:-1px}
+  .score-num small{font-size:15px;color:var(--t-lo);font-weight:400}
+  .score-meta .lv{font-size:17px;font-weight:600;letter-spacing:2px}
+  .score-meta .ds{font-size:11.5px;color:var(--t-lo);margin-top:4px}
+  .concl{flex:1 1 auto;background:var(--bg-1);border:1px solid var(--line);border-radius:var(--r-lg);
+    padding:14px 18px;display:flex;flex-direction:column;justify-content:center;gap:8px;box-shadow:var(--shadow)}
+  .concl .row{display:flex;align-items:flex-start;gap:10px;font-size:13.5px;line-height:1.5}
+  .concl .row .dot{flex:0 0 auto;width:8px;height:8px;border-radius:50%;margin-top:6px}
+  .concl .row b{font-weight:500}
+
+  .kpis{flex:0 0 auto;display:grid;grid-template-columns:repeat(8,1fr);gap:12px}
+  .kpi{background:var(--bg-1);border:1px solid var(--line);border-radius:var(--r-md);
+    padding:11px 13px;position:relative;overflow:hidden;box-shadow:var(--shadow)}
+  .kpi::before{content:'';position:absolute;left:0;top:0;bottom:0;width:2.5px;background:var(--c-int)}
+  .kpi .lb{font-size:11.5px;color:var(--t-lo)}
+  .kpi .vl{font-size:24px;font-weight:600;margin-top:5px;letter-spacing:.5px}
+  .kpi .vl small{font-size:11px;color:var(--t-lo);font-weight:400;margin-left:3px}
+  .kpi .tr{font-size:10.5px;color:var(--t-lo);margin-top:4px}
+  .kpi.warn::before{background:var(--c-warn)} .kpi.crit::before{background:var(--c-crit)} .kpi.ok::before{background:var(--c-ok)}
+
+  .grid{flex:1 1 auto;min-height:0;display:grid;grid-template-columns:1fr 400px;gap:14px}
+  .panel{background:var(--bg-1);border:1px solid var(--line);border-radius:var(--r-lg);
+    box-shadow:var(--shadow);display:flex;flex-direction:column;min-height:0;overflow:hidden}
+  .panel-head{flex:0 0 auto;display:flex;align-items:center;gap:8px;padding:10px 14px;
+    border-bottom:1px solid var(--line-soft);background:linear-gradient(90deg,rgba(47,129,247,.10),transparent 60%)}
+  .panel-head .tt{font-size:14px;font-weight:500;letter-spacing:1px;display:flex;align-items:center;gap:7px}
+  .panel-head .tt::before{content:'';width:3px;height:14px;background:var(--c-int);border-radius:2px;
+    box-shadow:0 0 8px var(--c-primary-glow)}
+  .panel-head .sp{flex:1}
+  .panel-head .cnt{font-size:11px;color:var(--t-lo)}
+  .panel-body{flex:1 1 auto;min-height:0;padding:12px 14px;overflow:hidden;display:flex;flex-direction:column;gap:10px}
+
+  #twin-wrap{flex:1 1 auto;min-height:0;position:relative}
+  #twin{position:absolute;inset:0;width:100%;height:100%;cursor:pointer}
+  .twin-hint{position:absolute;right:12px;top:10px;font-size:10.5px;color:var(--t-lo);
+    background:rgba(5,11,22,.7);padding:5px 10px;border-radius:var(--r-md);border:1px solid var(--line-soft)}
+
+  /* 链路详情 */
+  .link-detail{flex:0 0 auto;background:var(--bg-2);border:1px solid var(--line-soft);border-radius:var(--r-md);padding:11px 13px}
+  .link-detail .h{font-size:12.5px;font-weight:500;display:flex;align-items:center;gap:6px}
+  .link-detail .rows{margin-top:8px;display:grid;grid-template-columns:auto 1fr;gap:5px 12px;font-size:11.5px}
+  .link-detail .rows .k{color:var(--t-lo)} .link-detail .rows .v{color:var(--t-hi)}
+  .link-detail .note{font-size:10.5px;color:var(--t-lo);margin-top:8px;line-height:1.5}
+
+  /* 接口清单 */
+  .link-list{flex:1 1 auto;overflow-y:auto;display:flex;flex-direction:column;gap:6px;min-height:0}
+  .lk{display:flex;align-items:center;gap:9px;padding:7px 10px;border-radius:var(--r-sm);background:var(--bg-2);
+    border:1px solid var(--line-soft);cursor:pointer;font-size:11.5px}
+  .lk:hover{border-color:rgba(47,129,247,.4)}
+  .lk.sel{border-color:var(--c-primary);background:rgba(47,129,247,.10)}
+  .lk .dir{flex:0 0 auto;font-size:10px;padding:1.5px 6px;border-radius:3px}
+  .lk .dir.bi{background:rgba(127,119,221,.16);color:#c7c1f5}
+  .lk .dir.fw{background:rgba(53,198,212,.14);color:#a8e8ef}
+  .lk .nm{flex:1 1 auto;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:var(--t-hi)}
+  .lk .pt{flex:0 0 auto;font-size:10px;color:var(--t-lo)}
+  .lk .st{flex:0 0 auto;width:7px;height:7px;border-radius:50%}
+
+  .bottom{flex:0 0 auto;display:grid;grid-template-columns:1.5fr 1fr;gap:14px}
+  .systems{display:grid;grid-template-columns:repeat(5,1fr);gap:10px}
+  .sys-card{background:var(--bg-1);border:1px solid var(--line);border-radius:var(--r-md);
+    padding:9px 11px;box-shadow:var(--shadow);border-left:3px solid var(--c-ok)}
+  .sys-card.plan{border-left-color:var(--c-warn)}
+  .sys-card .nm{font-size:12px;font-weight:500;display:flex;justify-content:space-between;align-items:center}
+  .sys-card .tg{font-size:9.5px;padding:1px 6px;border-radius:99px}
+  .sys-card .tg.ok{background:rgba(46,204,143,.14);color:#7fe3c0}
+  .sys-card .tg.plan{background:rgba(245,165,36,.14);color:#ffce6b}
+  .sys-card .ds{font-size:10px;color:var(--t-lo);margin-top:4px;line-height:1.5}
+
+  .foot{flex:0 0 auto;display:flex;justify-content:space-between;font-size:10.5px;color:var(--t-dim)}
+</style>
+</head>
+<body>
+<div id="bg-deco"></div>
+<div id="bg-grid"></div>
+<div id="viewport">
+  <div class="topbar">
+    <div>
+      <h1>系统集成拓扑</h1>
+      <div class="sub">泰州超级电容智能工厂 · 应用层集成视图（协议 / 频率 / 方向 / 状态） · 数据每 3 秒自动刷新</div>
+    </div>
+    <div class="seg" id="freq-seg">
+      <button data-freq="ALL" class="active">全部链路</button>
+      <button data-freq="realtime">实时(≤1s)</button>
+      <button data-freq="minute">分钟级</button>
+      <button data-freq="day">日级/按需</button>
+    </div>
+    <div class="live"><i></i>LIVE</div>
+    <div class="clock"><div class="t" id="clock-t">--:--:--</div><div class="d" id="clock-d">----</div></div>
+  </div>
+
+  <div class="hero">
+    <div class="score-card">
+      <div class="score-num" id="score-num">--<small>%</small></div>
+      <div class="score-meta">
+        <div class="lv" id="score-lv">评估中</div>
+        <div class="ds" id="score-ds">接口在线率</div>
+      </div>
+    </div>
+    <div class="concl" id="concl"></div>
+  </div>
+
+  <div class="kpis" id="kpis"></div>
+
+  <div class="grid">
+    <div class="panel">
+      <div class="panel-head"><div class="tt">集成拓扑图</div><div class="sp"></div><div class="cnt" id="topo-cnt"></div></div>
+      <div class="panel-body" style="padding:0">
+        <div id="twin-wrap">
+          <canvas id="twin"></canvas>
+          <div class="twin-hint">点击链路或节点查看接口详情 · 顶栏按频率筛选</div>
+        </div>
+      </div>
+    </div>
+    <div style="display:grid;grid-template-rows:auto 1fr;gap:14px;min-height:0">
+      <div class="panel">
+        <div class="panel-head"><div class="tt">链路详情</div><div class="sp"></div><div class="cnt" id="detail-hint">点击链路查看</div></div>
+        <div class="panel-body" style="padding:10px 12px">
+          <div class="link-detail" id="link-detail"></div>
+        </div>
+      </div>
+      <div class="panel">
+        <div class="panel-head"><div class="tt">接口清单</div><div class="sp"></div><div class="cnt" id="link-cnt"></div></div>
+        <div class="panel-body"><div class="link-list" id="link-list"></div></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="bottom">
+    <div class="systems" id="systems"></div>
+    <div class="panel" style="padding:0">
+      <div class="panel-head"><div class="tt">关键说明</div></div>
+      <div class="panel-body" style="overflow-y:auto">
+        <div style="font-size:12px;line-height:1.7;color:var(--t-mid)">
+          · MES 数据中台为唯一集成枢纽：上行对接 SAP / PLC / SCADA / QMS / WMS，下行支撑孪生看板群 / 政府申报 / AI 助手 / 供应商协同。<br/>
+          · 协议选型：设备层走 OPC UA / MQTT（实时），ERP 走 RFC / ODATA（分钟级），质量与仓储走 REST（实时/小时级）。<br/>
+          · QMS 与供应商协同接口为**规划中**（虚线），与建设规划一致；对外表述为"自研 MES 覆盖 QMS/WMS/EAW 范畴"。<br/>
+          · 本页为演示拓扑（确定性模拟），接口清单与频率以正式集成设计为准。
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="foot">
+    <span>数据来源：MES 集成平台 / 接口监控（演示数据为确定性模拟，口径与集成设计方案一致）</span>
+    <span id="foot-update"></span>
+  </div>
+</div>
+
+<script>
+"use strict";
+const $ = (s) => document.querySelector(s);
+const clamp = (v, a, b) => Math.min(b, Math.max(a, v));
+const fmt = (v, d = 1) => Number(v).toLocaleString('zh-CN', { minimumFractionDigits: d, maximumFractionDigits: d });
+function makeRng(seed) { let s = seed >>> 0; return () => { s = (s * 1664525 + 1013904223) >>> 0; return s / 4294967296; }; }
+const pad2 = (n) => String(n).padStart(2, '0');
+const hhmmss = (d) => `${pad2(d.getHours())}:${pad2(d.getMinutes())}:${pad2(d.getSeconds())}`;
+const hhmm = (d) => `${pad2(d.getHours())}:${pad2(d.getMinutes())}`;
+
+/* ================= 系统与链路定义（贴合 MES3 集成方案口径） ================= */
+const SYSTEMS = [
+  { id: 'SAP', name: 'SAP ERP', icon: '🏢', side: 'left', desc: '主数据 / 工单 / 库存 / 过账回写', status: 'online' },
+  { id: 'PLC', name: 'PLC 设备层', icon: '🔌', side: 'left', desc: '工艺参数 / 设备状态 / 报警（OPC UA）', status: 'online' },
+  { id: 'SCADA', name: 'SCADA', icon: '📈', side: 'left', desc: '过程数据 / 历史曲线 / 批次追溯参数', status: 'online' },
+  { id: 'QMS', name: 'QMS 质量系统', icon: '🔬', side: 'left', desc: '检验判定 / SPC / CAPA 闭环', status: 'plan' },
+  { id: 'WMS', name: 'WMS 仓储', icon: '📦', side: 'left', desc: '出入库 / 库位 / 物料批次', status: 'online' },
+  { id: 'MES', name: 'MES 数据中台', icon: '🧠', side: 'mid', desc: '采集 → 存储 → 服务 唯一集成枢纽', status: 'online' },
+  { id: 'TWIN', name: '数字孪生看板群', icon: '🖥️', side: 'right', desc: '13 页孪生指标 / 3s 刷新', status: 'online' },
+  { id: 'GOV', name: '政府申报版', icon: '🏛️', side: 'right', desc: '指标汇总 / 等级与 CMMM 自评', status: 'online' },
+  { id: 'AI', name: 'AI 助手', icon: '🤖', side: 'right', desc: '规则取数 + 模型措辞（13 意图）', status: 'online' },
+  { id: 'SUP', name: '供应商协同', icon: '🚚', side: 'right', desc: '来料通知 ASN / 交货看板', status: 'plan' },
+];
+const LINKS = [
+  { id: 'L1', from: 'SAP', to: 'MES', proto: 'RFC / ODATA', freq: 'minute', dir: 'bi', data: '主数据 / 生产工单 / 库存凭证 / 过账回写', status: 'online', note: '工单下发与过账回写为核心双向链路，分钟级批量 + 关键单据实时。' },
+  { id: 'L2', from: 'PLC', to: 'MES', proto: 'OPC UA', freq: 'realtime', dir: 'fw', data: '工艺参数 / 设备状态 / 报警事件', status: 'online', note: '1s 采集节拍，支撑过站防呆与实时看板。' },
+  { id: 'L3', from: 'SCADA', to: 'MES', proto: 'OPC UA', freq: 'realtime', dir: 'fw', data: '过程数据 / 历史曲线', status: 'online', note: '与 PLC 互补，提供批次级过程曲线归档。' },
+  { id: 'L4', from: 'QMS', to: 'MES', proto: 'REST', freq: 'day', dir: 'bi', data: '检验判定 / SPC 结果 / CAPA 闭环', status: 'plan', note: '规划中接口，当前质量数据由 MES 质量模块自持，对外口径为"覆盖 QMS 范畴"。' },
+  { id: 'L5', from: 'WMS', to: 'MES', proto: 'REST / MQTT', freq: 'realtime', dir: 'bi', data: '出入库流水 / 库位状态 / 物料批次', status: 'online', note: '实时事件推送，支撑仓储孪生与齐套看板；出货绑定不改库存、过账才改库存。' },
+  { id: 'L6', from: 'MES', to: 'TWIN', proto: '内部服务', freq: 'realtime', dir: 'fw', data: '13 页孪生指标 / 告警 / 事件', status: 'online', note: '同一数据底座，3s 推送刷新，保证数字三处一致。' },
+  { id: 'L7', from: 'MES', to: 'GOV', proto: '内部服务', freq: 'day', dir: 'fw', data: '指标汇总 / 自评状态', status: 'online', note: '日级汇总，口径可现场点开，等级自评带"以正式评审为准"免责。' },
+  { id: 'L8', from: 'MES', to: 'AI', proto: '内部服务', freq: 'day', dir: 'bi', data: '规则取数（模型不取数 / 不判定 / 不执行）', status: 'online', note: 'AI 仅读规则结果并生成措辞，判定权归规则。' },
+  { id: 'L9', from: 'MES', to: 'SUP', proto: 'REST', freq: 'day', dir: 'fw', data: '采购到货通知 / ASN 协同', status: 'plan', note: '规划中接口，当前供应商来料以线下 + WMS 入库单承载。' },
+];
+const FREQ_LABEL = { realtime: '实时 ≤1s', minute: '分钟级', day: '日级/按需' };
+const STATUS_COLOR = { online: '#2ecc8f', plan: '#f5a524' };
+
+/* ================= MockSource ================= */
+const MockSource = {
+  _rng: null, _seed: 20261015, _history: [],
+  reset(seed) { this._seed = seed ?? this._seed; this._rng = makeRng(this._seed); this._history = [];
+    for (let i = 24; i > 0; i--) this._history.push(this._build(new Date(Date.now() - i * 3600e3))); },
+  tick() { const snap = this._build(new Date()); this._history.push(snap); if (this._history.length > 400) this._history.shift(); return snap; },
+  _jitter(base, pct, rng) { return base * (1 + (rng() - 0.5) * 2 * pct); },
+  _build(t) {
+    const rng = this._rng;
+    const total = LINKS.length;
+    const online = LINKS.filter((l) => l.status === 'online').length;
+    const onlineRate = online / total * 100;
+    const messages = Math.round(this._jitter(128460, .05, rng));
+    const latency = clamp(this._jitter(86, .12, rng), 40, 180);
+    const rtLinks = LINKS.filter((l) => l.freq === 'realtime').length;
+    const planLinks = total - online;
+    const anomalies = rng() > 0.85 ? 1 : 0;
+    const sysCount = SYSTEMS.filter((s) => s.status === 'online').length;
+    return { t: t.getTime(), time: hhmmss(t), total, online, onlineRate, messages, latency, rtLinks, planLinks, anomalies, sysCount };
+  },
+};
+
+/* ================= Store ================= */
+const Store = {
+  state: { snap: null, freq: 'ALL', selected: null, tickCount: 0 },
+  _subs: [],
+  subscribe(fn) { this._subs.push(fn); },
+  get() { return this.state; },
+  dispatch(action) {
+    const s = this.state;
+    if (action.type === 'TICK') { s.snap = action.snap; s.tickCount++; }
+    else if (action.type === 'FREQ') { s.freq = action.freq; }
+    else if (action.type === 'SELECT') { s.selected = action.id; }
+    this._subs.forEach((f) => f(s, action));
+  },
+};
+
+/* ================= 拓扑图（Canvas 节点 + 贝塞尔链路 + 粒子） ================= */
+const NODE_W = 148, NODE_H = 58;
+const POS = {
+  SAP: { x: 40, y: 60 }, PLC: { x: 40, y: 175 }, SCADA: { x: 40, y: 290 }, QMS: { x: 40, y: 405 }, WMS: { x: 40, y: 520 },
+  MES: { x: 700, y: 250 },
+  TWIN: { x: 1330, y: 60 }, GOV: { x: 1330, y: 175 }, AI: { x: 1330, y: 290 }, SUP: { x: 1330, y: 405 },
+};
+const NODE_HITS = [], LINK_HITS = [];
+
+function nodeCenter(id) { const p = POS[id]; return { x: p.x + NODE_W / 2, y: p.y + NODE_H / 2 }; }
+
+const Topo = {
+  canvas: null,
+  init(sel) {
+    this.canvas = $(sel);
+    this.canvas.addEventListener('click', (e) => this.onClick(e));
+  },
+  visibleLinks() { const f = Store.get().freq; return f === 'ALL' ? LINKS : LINKS.filter((l) => l.freq === f); },
+  draw(snap) {
+    if (!this.canvas) return;
+    const rect = this.canvas.getBoundingClientRect();
+    const dpr = window.devicePixelRatio || 1;
+    const w = Math.max(rect.width, 10), h = Math.max(rect.height, 10);
+    if (this.canvas.width !== w * dpr || this.canvas.height !== h * dpr) { this.canvas.width = w * dpr; this.canvas.height = h * dpr; }
+    const ctx = this.canvas.getContext('2d');
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx.clearRect(0, 0, w, h);
+    // 布局适配：整体缩放置中
+    const sx = w / 1478, sy = h / 578, s = Math.min(sx, sy);
+    ctx.save();
+    ctx.translate((w - 1478 * s) / 2, (h - 578 * s) / 2);
+    ctx.scale(s, s);
+
+    const links = this.visibleLinks();
+    const sel = Store.get().selected;
+    NODE_HITS.length = 0; LINK_HITS.length = 0;
+
+    // 层标签
+    ctx.font = '11px sans-serif'; ctx.textBaseline = 'middle';
+    [['上游 / 对等系统', 114], ['MES 数据中台', 774], ['下游 / 消费方', 1404]].forEach(([t, x]) => {
+      ctx.fillStyle = '#3d4f6b'; ctx.textAlign = 'left'; ctx.fillText(t, x, 26);
+    });
+
+    // 链路（贝塞尔 + 沿线 hit）
+    links.forEach((l) => {
+      const a = nodeCenter(l.from), b = nodeCenter(l.to);
+      const isSel = sel === l.id;
+      const c = STATUS_COLOR[l.status];
+      ctx.strokeStyle = l.status === 'plan' ? 'rgba(245,165,36,.35)' : (isSel ? '#eaf2ff' : 'rgba(47,129,247,.45)');
+      ctx.lineWidth = isSel ? 2.4 : 1.6;
+      if (l.status === 'plan') ctx.setLineDash([6, 5]); else ctx.setLineDash([]);
+      ctx.beginPath();
+      ctx.moveTo(a.x + NODE_W / 2, a.y);
+      const midX = (a.x + b.x) / 2;
+      ctx.bezierCurveTo(midX, a.y, midX, b.y, b.x - NODE_W / 2, b.y);
+      ctx.stroke();
+      ctx.setLineDash([]);
+      // hit：贝塞尔采样点
+      const pts = [];
+      for (let i = 0; i <= 20; i++) pts.push(bez(a, { x: midX, y: a.y }, { x: midX, y: b.y }, b, i / 20));
+      pts.forEach((p, i) => {
+        const x0 = p.x + NODE_W / 2, y0 = p.y;
+        if (i % 2 === 0) LINK_HITS.push({ id: l.id, x: x0 - 8, y: y0 - 8, w: 16, h: 16 });
+      });
+      // 协议标签（中点）
+      const mp = pts[10];
+      ctx.font = '9.5px sans-serif'; ctx.textAlign = 'center';
+      const label = `${l.proto} · ${FREQ_LABEL[l.freq]}`;
+      const tw = ctx.measureText(label).width;
+      ctx.fillStyle = 'rgba(5,11,22,.85)';
+      ctx.fillRect(mp.x - tw / 2 - 5, mp.y - 8, tw + 10, 16);
+      ctx.fillStyle = l.status === 'plan' ? '#f5a524' : '#9fb3d1';
+      ctx.fillText(label, mp.x, mp.y + 1);
+    });
+
+    // 粒子动画（沿链路流动，方向 from→to）
+    const now = performance.now();
+    links.forEach((l, li) => {
+      if (l.status === 'plan') return; // 规划中不流动
+      const a = nodeCenter(l.from), b = nodeCenter(l.to);
+      const midX = (a.x + b.x) / 2;
+      const speed = l.freq === 'realtime' ? 0.00028 : l.freq === 'minute' ? 0.00012 : 0.00006;
+      for (let k = 0; k < 2; k++) {
+        const tt = ((now * speed + li * 0.37 + k * 0.5) % 1);
+        const p = bez(a, { x: midX, y: a.y }, { x: midX, y: b.y }, b, tt);
+        ctx.fillStyle = l.freq === 'realtime' ? 'rgba(53,198,212,.9)' : 'rgba(47,129,247,.7)';
+        ctx.beginPath(); ctx.arc(p.x + NODE_W / 2, p.y, 2.6, 0, Math.PI * 2); ctx.fill();
+      }
+    });
+
+    // 节点
+    SYSTEMS.forEach((sys) => {
+      const p = POS[sys.id];
+      const isSel = sel === sys.id;
+      const dim = Store.get().freq !== 'ALL' && !links.some((l) => l.from === sys.id || l.to === sys.id);
+      ctx.globalAlpha = dim ? 0.35 : 1;
+      // 节点体
+      const isMid = sys.side === 'mid';
+      const bw = isMid ? NODE_W + 40 : NODE_W, bh = isMid ? NODE_H + 24 : NODE_H;
+      const bx = isMid ? p.x - 20 : p.x, by = isMid ? p.y - 12 : p.y;
+      const g = ctx.createLinearGradient(bx, by, bx, by + bh);
+      g.addColorStop(0, isMid ? '#1d3a5f' : '#0f1d31'); g.addColorStop(1, '#0a1424');
+      ctx.fillStyle = g;
+      ctx.beginPath(); ctx.roundRect(bx, by, bw, bh, 10); ctx.fill();
+      ctx.strokeStyle = isSel ? '#eaf2ff' : (sys.status === 'plan' ? 'rgba(245,165,36,.5)' : 'rgba(80,140,210,.3)');
+      ctx.lineWidth = isSel ? 2 : 1;
+      ctx.stroke();
+      // 状态点
+      ctx.fillStyle = STATUS_COLOR[sys.status];
+      ctx.beginPath(); ctx.arc(bx + bw - 12, by + 12, 4, 0, Math.PI * 2); ctx.fill();
+      // 文本
+      ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
+      ctx.font = `${isMid ? '600 15px' : '12px'} sans-serif`;
+      ctx.fillStyle = '#eaf2ff';
+      ctx.fillText(`${sys.icon} ${sys.name}`, bx + 14, by + (isMid ? 30 : 20));
+      ctx.font = '9.5px sans-serif'; ctx.fillStyle = '#64789a';
+      ctx.fillText(sys.desc, bx + 14, by + (isMid ? 50 : 38));
+      ctx.globalAlpha = 1;
+      NODE_HITS.push({ id: sys.id, x: bx, y: by, w: bw, h: bh });
+    });
+    ctx.restore();
+  },
+  onClick(e) {
+    const rect = this.canvas.getBoundingClientRect();
+    const mx = e.clientX - rect.left, my = e.clientY - rect.top;
+    const w = rect.width, h = rect.height;
+    const s = Math.min(w / 1478, h / 578);
+    const ox = (w - 1478 * s) / 2, oy = (h - 578 * s) / 2;
+    const lx = (mx - ox) / s, ly = (my - oy) / s; // 逻辑坐标
+    for (const n of NODE_HITS) if (lx >= n.x && lx <= n.x + n.w && ly >= n.y && ly <= n.y + n.h) { Store.dispatch({ type: 'SELECT', id: n.id }); return; }
+    for (const l of LINK_HITS) if (lx >= l.x && lx <= l.x + l.w && ly >= l.y && ly <= l.y + l.h) { Store.dispatch({ type: 'SELECT', id: l.id }); return; }
+    Store.dispatch({ type: 'SELECT', id: null });
+  },
+};
+
+function bez(p0, p1, p2, p3, t) {
+  const u = 1 - t;
+  return {
+    x: u * u * u * p0.x + 3 * u * u * t * p1.x + 3 * u * t * t * p2.x + t * t * t * p3.x,
+    y: u * u * u * p0.y + 3 * u * u * t * p1.y + 3 * u * t * t * p2.y + t * t * t * p3.y,
+  };
+}
+
+/* ================= 图表 ================= */
+const Chart = {
+  _prep(sel) { const cv = $(sel); if (!cv) return null; const rect = cv.getBoundingClientRect();
+    const dpr = window.devicePixelRatio || 1; const w = Math.max(rect.width, 10), h = Math.max(rect.height, 10);
+    cv.width = w * dpr; cv.height = h * dpr; const ctx = cv.getContext('2d');
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0); ctx.clearRect(0, 0, w, h); return { ctx, w, h }; },
+};
+
+/* ================= View ================= */
+const KPI_DEFS = [
+  { key: 'total', label: '接口总数', unit: '条', get: (s) => fmt(s.total, 0), sub: () => `覆盖 ${SYSTEMS.length} 系统` },
+  { key: 'online', label: '在线接口', unit: '条', get: (s) => fmt(s.online, 0), sub: () => `运行正常` },
+  { key: 'rtLinks', label: '实时接口', unit: '条', get: (s) => fmt(s.rtLinks, 0), sub: () => `≤1s 节拍` },
+  { key: 'messages', label: '今日报文量', unit: '条', get: (s) => fmt(s.messages, 0), sub: () => `全天累计` },
+  { key: 'latency', label: '平均时延', unit: 'ms', get: (s) => fmt(s.latency, 0), sub: () => `全链路均值` },
+  { key: 'sysCount', label: '已接入系统', unit: '个', get: (s) => fmt(s.sysCount, 0), sub: () => `不含规划中` },
+  { key: 'planLinks', label: '规划中接口', unit: '条', get: (s) => fmt(s.planLinks, 0), sub: () => `QMS / 供应商协同` },
+  { key: 'anomalies', label: '接口异常', unit: '条', get: (s) => fmt(s.anomalies, 0), sub: () => `当前监控` },
+];
+
+const View = {
+  _timer: null, _raf: null,
+
+  init() {
+    MockSource.reset();
+    Topo.init('#twin');
+    this.buildKpis();
+    this.buildFreqSegs();
+    this.bindEvents();
+    Store.dispatch({ type: 'TICK', snap: MockSource.tick() });
+    this.startTimer(); this.startClock(); this.fit(); this.startAnim();
+  },
+
+  buildKpis() {
+    $('#kpis').innerHTML = KPI_DEFS.map((d) => `
+      <div class="kpi ok" data-k="${d.key}">
+        <div class="lb">${d.label}</div>
+        <div class="vl"><span data-v>--</span><small>${d.unit}</small></div>
+        <div class="tr"><span data-s></span></div>
+      </div>`).join('');
+  },
+
+  buildFreqSegs() {
+    $('#freq-seg').addEventListener('click', (e) => {
+      const b = e.target.closest('button'); if (!b) return;
+      $('#freq-seg').querySelectorAll('button').forEach((x) => x.classList.toggle('active', x === b));
+      Store.dispatch({ type: 'FREQ', freq: b.dataset.freq });
+    });
+  },
+
+  bindEvents() {
+    Store.subscribe((s) => this.render(s));
+    window.addEventListener('resize', () => this.fit());
+  },
+
+  fit() {
+    const scale = Math.min(window.innerWidth / 1920, window.innerHeight / 1080);
+    document.documentElement.style.setProperty('--scale', scale);
+    const vp = $('#viewport');
+    vp.style.transform = `scale(${scale})`;
+    vp.style.left = `${(window.innerWidth - 1920 * scale) / 2}px`;
+    vp.style.top = `${(window.innerHeight - 1080 * scale) / 2}px`;
+  },
+
+  startAnim() {
+    const loop = () => { Topo.draw(Store.get().snap); this._raf = requestAnimationFrame(loop); };
+    if (!this._raf) this._raf = requestAnimationFrame(loop);
+  },
+
+  render(s) {
+    const snap = s.snap; if (!snap) return;
+    this.renderScore(snap);
+    this.renderKpis(snap);
+    this.renderDetail(s);
+    this.renderLinkList(s);
+    this.renderSystems(snap);
+    $('#topo-cnt').textContent = `${Topo.visibleLinks().length} 条链路 · ${snap.online} 在线`;
+    $('#foot-update').textContent = `更新于 ${snap.time} · 第 ${s.tickCount} 次刷新`;
+  },
+
+  renderScore(snap) {
+    const lv = snap.onlineRate >= 85 ? { t: '集成就绪度高', c: '#2ecc8f' }
+      : snap.onlineRate >= 70 ? { t: '基本联通', c: '#f5a524' }
+      : { t: '建设中', c: '#f4544c' };
+    $('#score-num').innerHTML = `${fmt(snap.onlineRate, 0)}<small>%</small>`;
+    $('#score-num').style.color = lv.c;
+    $('#score-lv').textContent = lv.t;
+    $('#score-lv').style.color = lv.c;
+    const concl = [];
+    concl.push(`<div class="row"><span class="dot" style="background:${lv.c}"></span>
+      <span><b>总体判断：${lv.t}</b>。${snap.total} 条接口中 ${snap.online} 条在线（在线率 ${fmt(snap.onlineRate, 0)}%），今日报文 ${fmt(snap.messages, 0)} 条，平均时延 ${fmt(snap.latency, 0)} ms。</span></div>`);
+    concl.push(`<div class="row"><span class="dot" style="background:#35c6d4"></span>
+      <span><b>实时链路 ${snap.rtLinks} 条</b>（PLC / SCADA / WMS / 孪生看板推送）支撑过站防呆与孪生 3s 刷新；SAP 工单与过账回写为分钟级批量 + 关键单据实时。</span></div>`);
+    concl.push(`<div class="row"><span class="dot" style="background:#f5a524"></span>
+      <span>QMS 与供应商协同 ${snap.planLinks} 条接口为<b>规划中</b>（图中虚线），当前由 MES 质量/采购模块自持，对外口径为"自研 MES 覆盖 QMS/WMS/EAW 范畴"。</span></div>`);
+    $('#concl').innerHTML = concl.join('');
+  },
+
+  renderKpis(snap) {
+    KPI_DEFS.forEach((d) => {
+      const card = $(`.kpi[data-k="${d.key}"]`); if (!card) return;
+      card.querySelector('[data-v]').textContent = d.get(snap);
+      card.querySelector('[data-s]').textContent = d.sub(snap);
+      const lv = d.key === 'anomalies' ? (snap.anomalies > 0 ? 'warn' : 'ok')
+        : d.key === 'planLinks' ? 'warn' : 'ok';
+      card.classList.toggle('warn', lv === 'warn');
+      card.classList.toggle('crit', lv === 'crit');
+      card.classList.toggle('ok', lv === 'ok');
+    });
+  },
+
+  renderDetail(s) {
+    const el = $('#link-detail');
+    const id = s.selected;
+    const link = LINKS.find((l) => l.id === id);
+    const sys = SYSTEMS.find((x) => x.id === id);
+    if (link) {
+      $('#detail-hint').textContent = link.id;
+      const st = link.status === 'plan' ? '<span style="color:#f5a524">规划中</span>' : '<span style="color:#2ecc8f">在线</span>';
+      el.innerHTML = `<div class="h">🔗 ${nameOf(link.from)} → ${nameOf(link.to)}</div>
+        <div class="rows">
+          <div class="k">承载数据</div><div class="v">${link.data}</div>
+          <div class="k">协议</div><div class="v">${link.proto}</div>
+          <div class="k">频率</div><div class="v">${FREQ_LABEL[link.freq]}</div>
+          <div class="k">方向</div><div class="v">${link.dir === 'bi' ? '双向' : '单向（上行）'}</div>
+          <div class="k">状态</div><div class="v">${st}</div>
+        </div>
+        <div class="note">${link.note}</div>`;
+      return;
+    }
+    if (sys) {
+      $('#detail-hint').textContent = sys.id;
+      const rel = LINKS.filter((l) => l.from === sys.id || l.to === sys.id);
+      const st = sys.status === 'plan' ? '<span style="color:#f5a524">规划中</span>' : '<span style="color:#2ecc8f">在线</span>';
+      el.innerHTML = `<div class="h">${sys.icon} ${sys.name}</div>
+        <div class="rows">
+          <div class="k">定位</div><div class="v">${sys.desc}</div>
+          <div class="k">状态</div><div class="v">${st}</div>
+          <div class="k">关联链路</div><div class="v">${rel.length} 条</div>
+        </div>
+        <div class="note">${rel.map((l) => `${l.id} ${nameOf(l.from)} → ${nameOf(l.to)}（${l.proto}）`).join('<br/>') || '无直接链路'}</div>`;
+      return;
+    }
+    $('#detail-hint').textContent = '点击链路查看';
+    el.innerHTML = `<div class="h">🧠 MES 数据中台</div>
+      <div class="rows">
+        <div class="k">定位</div><div class="v">采集 → 存储 → 服务，唯一集成枢纽</div>
+        <div class="k">接口</div><div class="v">${LINKS.length} 条（在线 ${LINKS.filter(l=>l.status==='online').length}）</div>
+      </div>
+      <div class="note">点击拓扑图中的链路或节点，查看协议 / 频率 / 方向 / 状态详情；也可在右侧接口清单中选择。</div>`;
+  },
+
+  renderLinkList(s) {
+    const links = Topo.visibleLinks();
+    $('#link-cnt').textContent = `${links.length} 条`;
+    $('#link-list').innerHTML = links.map((l) => `
+      <div class="lk ${s.selected === l.id ? 'sel' : ''}" data-id="${l.id}">
+        <span class="st" style="background:${STATUS_COLOR[l.status]}"></span>
+        <span class="dir ${l.dir}">${l.dir === 'bi' ? '双向' : '上行'}</span>
+        <span class="nm">${nameOf(l.from)} → ${nameOf(l.to)}</span>
+        <span class="pt">${l.proto} · ${FREQ_LABEL[l.freq]}</span>
+      </div>`).join('');
+    $('#link-list').querySelectorAll('.lk').forEach((el) => {
+      el.onclick = () => Store.dispatch({ type: 'SELECT', id: el.dataset.id });
+    });
+  },
+
+  renderSystems(snap) {
+    $('#systems').innerHTML = SYSTEMS.map((sys) => `<div class="sys-card ${sys.status === 'plan' ? 'plan' : ''}">
+      <div class="nm"><span>${sys.icon} ${sys.name}</span><span class="tg ${sys.status === 'plan' ? 'plan' : 'ok'}">${sys.status === 'plan' ? '规划中' : '在线'}</span></div>
+      <div class="ds">${sys.desc}</div>
+    </div>`).join('');
+  },
+
+  startTimer() {
+    if (this._timer) clearInterval(this._timer);
+    this._timer = setInterval(() => Store.dispatch({ type: 'TICK', snap: MockSource.tick() }), 3000);
+  },
+  startClock() {
+    const upd = () => { const d = new Date(); $('#clock-t').textContent = hhmmss(d);
+      $('#clock-d').textContent = `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())} 星期${'日一二三四五六'[d.getDay()]}`; };
+    upd(); setInterval(upd, 1000);
+  },
+};
+
+function nameOf(id) { const s = SYSTEMS.find((x) => x.id === id); return s ? s.name : id; }
+
+document.addEventListener('DOMContentLoaded', () => View.init());
+</script>
+</body>
+</html>
