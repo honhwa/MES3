@@ -27,7 +27,7 @@ public static class LlmHttp
     };
 
     /// <summary>发一次对话请求，返回模型正文（失败抛异常，由调用方统一降级）。</summary>
-    public static string Send(AssistantLlmSettings cfg, string system, string user, HttpClient? http = null)
+    public static string Send(AssistantLlmSettings cfg, string system, string user, HttpClient? http = null, int? maxTokens = null)
     {
         var url = cfg.BaseUrl.TrimEnd('/') + "/chat/completions";
         var payload = new
@@ -39,7 +39,7 @@ public static class LlmHttp
                 new { role = "user", content = user }
             },
             temperature = cfg.Temperature,
-            max_tokens = cfg.MaxTokens,
+            max_tokens = maxTokens ?? cfg.MaxTokens,
             stream = false
         };
 

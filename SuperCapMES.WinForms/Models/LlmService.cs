@@ -102,7 +102,8 @@ public static class LlmService
         Func<JsonElement, (T? Value, double Confidence, string Reason)> parse,
         double minConfidence = DefaultMinConfidence,
         HashSet<string>? allowedNumbers = null,
-        HttpClient? http = null) where T : class
+        HttpClient? http = null,
+        int? maxTokens = null) where T : class
     {
         var cfg = CurrentSettings;
         if (!cfg.CanCall)
@@ -118,7 +119,7 @@ public static class LlmService
         string raw;
         try
         {
-            raw = LlmHttp.Send(cfg, systemPrompt, userPayload, http);
+            raw = LlmHttp.Send(cfg, systemPrompt, userPayload, http, maxTokens);
         }
         catch (Exception ex)
         {

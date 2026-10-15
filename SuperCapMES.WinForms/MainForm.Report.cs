@@ -1,7 +1,10 @@
 using System;
 using System.Collections.Generic;
 using System.Drawing;
+using System.IO;
 using System.Linq;
+using System.Text;
+using System.Threading.Tasks;
 using System.Windows.Forms;
 using SuperCapMES.WinForms.Data;
 using SuperCapMES.WinForms.Forms;
@@ -37,6 +40,7 @@ public partial class MainForm
         _reportSubTabs.TabPages.Add(MakeReportGridTab("良率趋势", out _yieldTrendGrid));
         _reportSubTabs.TabPages.Add(MakeReportGridTab("异常 TOP", out _abnormalTopGrid));
         _reportSubTabs.TabPages.Add(BuildOeeStockSubTab());
+        _reportSubTabs.TabPages.Add(BuildAiReportSubTab());   // AI 班报/日报一键生成
 
         page.Controls.Add(_reportSubTabs);
         page.Controls.Add(BuildReportQueryBar());
@@ -48,6 +52,175 @@ public partial class MainForm
         page.Enter -= ReportTab_Enter;
         page.Enter += ReportTab_Enter;   // 构造期数据绑定未物化，进入页签时兜底加载
         return page;
+    }
+
+    // ================= AI 班报 / 日报（报表中心子页） =================
+    // 字段就近声明：班报功能自包含，避免扩散改动到 MainForm.cs 的字段区。
+    private ComboBox _cboAiReportKind = null!;
+    private Button _btnAiReportGen = null!, _btnAiReportCopy = null!, _btnAiReportExport = null!;
+    private TextBox _txtAiReport = null!;
+    private Label _lblAiReportHint = null!;
+
+    /// <summary>「AI 班报」子页：类型切换 + 一键生成 + 结果展示 + 复制/导出。</summary>
+    private TabPage BuildAiReportSubTab()
+    {
+        var page = new TabPage("AI 班报");
+        page.Padding = new Padding(6);
+
+        var bar = new FlowLayoutPanel { Dock = DockStyle.Top, Height = 44, Padding = new Padding(4, 7, 4, 0), WrapContents = false };
+        bar.Controls.Add(new Label { Text = "类型：", AutoSize = true, Margin = new Padding(0, 8, 4, 0) });
+        _cboAiReportKind = new ComboBox { DropDownStyle = ComboBoxStyle.DropDownList, Width = 76, Margin = new Padding(0, 4, 10, 0) };
+        _cboAiReportKind.Items.AddRange(new object[] { "日报", "班报" });
+        _cboAiReportKind.SelectedIndex = 0;
+        bar.Controls.Add(_cboAiReportKind);
+        _btnAiReportGen = MakeToolbarButton("⚡ 一键生成", (_, _) => GenerateAiReport());
+        _btnAiReportCopy = MakeToolbarButton("复制", (_, _) => CopyAiReport());
+        _btnAiReportExport = MakeToolbarButton("导出 txt", (_, _) => ExportAiReport());
+        bar.Controls.Add(_btnAiReportGen);
+        bar.Controls.Add(_btnAiReportCopy);
+        bar.Controls.Add(_btnAiReportExport);
+        _lblAiReportHint = new Label { Text = "点「一键生成」，按当前类型生成班报/日报", AutoSize = true, ForeColor = Color.Gray, Margin = new Padding(12, 10, 0, 0) };
+        bar.Controls.Add(_lblAiReportHint);
+
+        _txtAiReport = new TextBox
+        {
+            Dock = DockStyle.Fill, Multiline = true, ReadOnly = true, ScrollBars = ScrollBars.Vertical,
+            Font = new Font("Consolas", 11F), BackColor = Color.FromArgb(250, 250, 252),
+            WordWrap = true, Text = ""
+        };
+
+        var foot = new Label
+        {
+            Dock = DockStyle.Bottom, AutoSize = false, Height = 46, ForeColor = Color.Gray,
+            Padding = new Padding(4, 6, 4, 0),
+            Text = "数字全部取自本地报表汇总（MesDatabase），AI 仅组织措辞、不生成数字；未启用云端时用本地模板。本页为演示原型，数据为内存模拟。"
+        };
+
+        page.Controls.Add(_txtAiReport);
+        page.Controls.Add(bar);
+        page.Controls.Add(foot);
+        return page;
+    }
+
+    /// <summary>一键生成：后台取数 + 生成（云端秒级调用不冻界面），完成后回 UI 渲染。</summary>
+    private async void GenerateAiReport()
+    {
+        if (_cboAiReportKind is null || _txtAiReport is null) return;
+        var kind = _cboAiReportKind.SelectedItem?.ToString() ?? "日报";
+        SetAiReportBusy(true, "正在生成…");
+        ShiftReportInput input;
+        try { input = CollectShiftReportInput(kind); }
+        catch (Exception ex) { SetAiReportBusy(false, "取数失败：" + ex.Message); return; }
+
+        try
+        {
+            var result = await Task.Run(() => ShiftReportTasks.Generate(input));
+            RunOnUi(() => RenderShiftReport(result, kind));
+        }
+        catch (Exception ex) { RunOnUi(() => { if (_lblAiReportHint is not null) _lblAiReportHint.Text = "生成失败：" + ex.Message; }); }
+        finally { RunOnUi(() => SetAiReportBusy(false, null)); }
+    }
+
+    private void SetAiReportBusy(bool busy, string? status)
+    {
+        if (_btnAiReportGen is not null) _btnAiReportGen.Enabled = !busy;
+        if (_btnAiReportCopy is not null) _btnAiReportCopy.Enabled = !busy;
+        if (_btnAiReportExport is not null) _btnAiReportExport.Enabled = !busy;
+        if (_cboAiReportKind is not null) _cboAiReportKind.Enabled = !busy;
+        if (status is not null && _lblAiReportHint is not null) _lblAiReportHint.Text = status;
+    }
+
+    /// <summary>规则取数：全部来自 MesDatabase 汇总，本地确定、可核对（模型不得更改）。</summary>
+    private ShiftReportInput CollectShiftReportInput(string kind)
+    {
+        var today = DateTime.Today;
+        var summary = MesDatabase.GetReportCenterSummary();
+        var trend = MesDatabase.GetYieldTrendReport(today, today);
+        var oeeList = MesDatabase.GetOeeSummaryReport();
+
+        var lowOee = oeeList
+            .Where(r => r.Judge != "达标")
+            .OrderBy(r => r.TodayOee)
+            .Take(3)
+            .Select(r => $"{r.DeviceName}（{r.Section}）今日 OEE {r.TodayOee:0.#}%（{r.Judge}）")
+            .ToList();
+
+        var abnormalTop = MesDatabase.GetAbnormalTopReport(today, 5)
+            .Select(a => $"{a.Dimension}·{a.Name} {a.Count} 单（占 {a.ShareText}）")
+            .ToList();
+
+        return new ShiftReportInput
+        {
+            Kind = kind,
+            DateText = today.ToString("yyyy-MM-dd"),
+            TodayOutput = summary.TodayOutput,
+            TodayYield = trend.Count > 0 ? trend[0].YieldRate : 0,
+            TodayTests = trend.Count > 0 ? trend[0].TestCount : 0,
+            AvgOee = summary.AvgOee,
+            TargetOee = oeeList.Count > 0 ? oeeList.Average(r => r.TargetOee) : 85,
+            OutputWow = summary.OutputWow,
+            MonthOutput = summary.MonthOutput,
+            OpenAbnormal = summary.OpenAbnormal,
+            TodayNewAbnormal = MesDatabase.AbnormalRecords.Count(a => a.OccurTime.Date == today),
+            AbnormalTop = abnormalTop,
+            LowOeeDevices = lowOee,
+            RunningWo = MesDatabase.WorkOrders.Count(w => w.Status == "生产中"),
+            DoneWo = MesDatabase.WorkOrders.Count(w => w.Status == "已完成")
+        };
+    }
+
+    /// <summary>把生成结果渲染成多行文本（模型版/规则版同构，无缝降级）。</summary>
+    private void RenderShiftReport(LlmCallResult<ShiftReportResult> result, string kind)
+    {
+        if (_txtAiReport is null) return;
+        var v = result.Value;
+        if (v is null) { _txtAiReport.Text = "生成失败，请重试。"; return; }
+
+        var sb = new StringBuilder();
+        sb.AppendLine(v.Title);
+        sb.AppendLine(new string('=', Math.Max(24, v.Title.Length * 2)));
+        sb.AppendLine();
+        sb.AppendLine("【总评】");
+        sb.AppendLine(v.Summary);
+        sb.AppendLine();
+        sb.AppendLine("【产量 / 良率 / OEE】");
+        foreach (var h in v.Highlights) sb.AppendLine("· " + h);
+        sb.AppendLine();
+        sb.AppendLine("【异常与关注设备】");
+        foreach (var c in v.Concerns) sb.AppendLine("· " + c);
+        sb.AppendLine();
+        sb.AppendLine(kind == "班报" ? "【交接班要点】" : "【改进建议】");
+        foreach (var x in v.Handover) sb.AppendLine("· " + x);
+        sb.AppendLine();
+        sb.AppendLine("——— " + result.TraceText + " ———");
+        _txtAiReport.Text = sb.ToString();
+        if (_lblAiReportHint is not null)
+            _lblAiReportHint.Text = result.Source == LlmSources.Model ? "已生成（云端润色）" : "已生成（本地模板）";
+    }
+
+    private void CopyAiReport()
+    {
+        if (_txtAiReport is null || string.IsNullOrWhiteSpace(_txtAiReport.Text)) { Warn("尚未生成班报，请先点「一键生成」。"); return; }
+        try { Clipboard.SetText(_txtAiReport.Text); if (_lblAiReportHint is not null) _lblAiReportHint.Text = "已复制到剪贴板"; }
+        catch (Exception ex) { Warn("复制失败：" + ex.Message); }
+    }
+
+    private void ExportAiReport()
+    {
+        if (_txtAiReport is null || string.IsNullOrWhiteSpace(_txtAiReport.Text)) { Warn("尚未生成班报，请先点「一键生成」。"); return; }
+        using var dlg = new SaveFileDialog
+        {
+            Title = "导出班报",
+            Filter = "文本文件 (*.txt)|*.txt",
+            FileName = $"{_cboAiReportKind?.SelectedItem}_{DateTime.Today:yyyyMMdd}.txt"
+        };
+        if (dlg.ShowDialog(this) != DialogResult.OK) return;
+        try
+        {
+            File.WriteAllText(dlg.FileName, _txtAiReport.Text, Encoding.UTF8);
+            if (_lblAiReportHint is not null) _lblAiReportHint.Text = "已导出：" + dlg.FileName;
+        }
+        catch (Exception ex) { Warn("导出失败：" + ex.Message); }
     }
 
     /// <summary>创建「ReportGridTab」控件/样式（统一样式的工厂方法）。</summary>

@@ -106,6 +106,7 @@
     background: linear-gradient(90deg, rgba(47,129,247,.10), transparent 60%);
   }
   .panel-title {
+    flex: 0 0 auto; white-space: nowrap;
     font-size: calc(15px * var(--scale)); font-weight: 600; letter-spacing: 1px;
     display: flex; align-items: center; gap: calc(7px * var(--scale));
   }
@@ -115,10 +116,11 @@
     box-shadow: 0 0 calc(8px * var(--scale)) var(--c-primary-glow);
   }
   /* 跳转孪生页入口 */
+  .twin-jumps { flex: 1 1 auto; min-width: 0; display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: calc(5px * var(--scale)); }
   .twin-jump {
-    display: inline-flex; align-items: center; gap: 4px;
-    font-size: calc(11.5px * var(--scale));
-    padding: calc(3px * var(--scale)) calc(9px * var(--scale));
+    display: inline-flex; align-items: center; gap: 3px;
+    font-size: calc(11px * var(--scale));
+    padding: calc(2px * var(--scale)) calc(8px * var(--scale));
     background: rgba(47,129,247,.14); color: var(--c-info);
     border: 1px solid rgba(47,129,247,.42); border-radius: var(--r-sm);
     text-decoration: none; transition: all .16s; white-space: nowrap;
@@ -273,7 +275,7 @@
   .panel.collapsed { flex: 0 0 auto; }
   .panel.collapsed .panel-body { display: none; }
   .panel.collapsed .collapse-icon::after { content: '▾'; }
-  .collapse-icon { font-size: calc(11px * var(--scale)); color: var(--t-lo); transition: transform .2s; }
+  .collapse-icon { flex: 0 0 auto; font-size: calc(11px * var(--scale)); color: var(--t-lo); transition: transform .2s; }
   .collapse-icon::after { content: '▴'; }
 
   /* 模块内布局 */
@@ -404,14 +406,15 @@
     <section class="panel" id="m-production">
       <div class="panel-head">
         <div class="panel-title">生产情况</div>
-        <a class="twin-jump" href="production-twin.html" title="进入生产情况孪生页">⇢ 进入生产孪生</a>
-        <a class="twin-jump" href="quality-twin.html" title="进入质量孪生页">⇢ 进入质量孪生</a>
-        <a class="twin-jump" href="recipe-twin.html" title="进入工艺/配方孪生页">⇢ 进入工艺孪生</a>
-        <a class="twin-jump" href="cost-twin.html" title="进入成本孪生页">⇢ 进入成本孪生</a>
-        <a class="twin-jump" href="warehouse-twin.html" title="进入仓储孪生页">⇢ 进入仓储孪生</a>
-        <a class="twin-jump" href="integration-twin.html" title="进入系统集成拓扑页">⇢ 进入集成拓扑</a>
-        <a class="twin-jump" href="guard-demo.html" title="进入过站防呆演示台">⇢ 进入防呆演示</a>
-        <span class="spacer"></span>
+        <div class="twin-jumps">
+          <a class="twin-jump" href="production-twin.html" title="进入生产情况孪生页">生产孪生 ↗</a>
+          <a class="twin-jump" href="quality-twin.html" title="进入质量孪生页">质量孪生 ↗</a>
+          <a class="twin-jump" href="recipe-twin.html" title="进入工艺/配方孪生页">工艺孪生 ↗</a>
+          <a class="twin-jump" href="cost-twin.html" title="进入成本孪生页">成本孪生 ↗</a>
+          <a class="twin-jump" href="warehouse-twin.html" title="进入仓储孪生页">仓储孪生 ↗</a>
+          <a class="twin-jump" href="integration-twin.html" title="进入系统集成拓扑页">集成拓扑 ↗</a>
+          <a class="twin-jump" href="guard-demo.html" title="进入过站防呆演示台">防呆演示 ↗</a>
+        </div>
         <span class="collapse-icon" data-toggle="m-production"></span>
       </div>
       <div class="panel-body">
