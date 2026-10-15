@@ -596,6 +596,7 @@ public partial class MainForm : Form
         RegisterPage(NavProduction, BuildModuleTab());       // 模组装配：模组级装配与追溯
         RegisterPage(NavProduction, BuildSchedulingTab());   // 智能排产：历史工单推理 → 投产数/线体/工期 + 齐套预警
         RegisterPage(NavProduction, BuildDeliveryRiskTab());   // ① 工单交期风险（复用产能引擎口径）
+        RegisterPage(NavProduction, BuildScheduleGanttTab());    // 智能排产甘特图：待下发订单建议排期可视化
         RegisterPage(NavEnergy, BuildEnergyMeterTab());        // 能源台账：三级计量点 + 抄表录入
         RegisterPage(NavEnergy, BuildEnergyQueryTab());        // 能耗查询：时间×区域×线体×设备×能源
         RegisterPage(NavEnergy, BuildCarbonTab());              // 碳排放核算：组织/项目边界 + 范围一二三
