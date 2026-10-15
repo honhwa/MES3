@@ -1,0 +1,802 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>仓储孪生 · 泰州超级电容智能工厂</title>
+<style>
+  /* 主题令牌 —— 与运营大屏 / 驾驶舱 / 各孪生页保持一致 */
+  :root {
+    --bg-0:#050b16; --bg-1:#0a1424; --bg-2:#0f1d31; --bg-3:#16273f;
+    --c-primary:#2f81f7; --c-primary-glow:rgba(47,129,247,.35);
+    --c-ok:#2ecc8f; --c-warn:#f5a524; --c-crit:#f4544c; --c-info:#35c6d4;
+    --t-hi:#eaf2ff; --t-mid:#9fb3d1; --t-lo:#64789a; --t-dim:#3d4f6b;
+    --line:rgba(80,140,210,.16); --line-soft:rgba(80,140,210,.09);
+    --r-sm:4px; --r-md:8px; --r-lg:12px;
+    --shadow:0 4px 20px rgba(0,0,0,.45);
+    --scale:1;
+    --font:"HarmonyOS Sans SC","Microsoft YaHei",-apple-system,sans-serif;
+    --c-wh:#35c6d4;
+  }
+  *{margin:0;padding:0;box-sizing:border-box}
+  html,body{width:100%;height:100%;background:var(--bg-0);color:var(--t-hi);
+    font-family:var(--font);overflow:hidden;font-variant-numeric:tabular-nums}
+  #bg-deco{position:fixed;inset:0;z-index:0;pointer-events:none;
+    background:radial-gradient(ellipse 60% 45% at 50% -10%,rgba(53,198,212,.13),transparent 70%),
+               radial-gradient(ellipse 45% 40% at 90% 100%,rgba(224,163,46,.06),transparent 70%)}
+  #bg-grid{position:fixed;inset:0;z-index:0;pointer-events:none;opacity:.5;
+    background-image:linear-gradient(rgba(70,130,200,.055) 1px,transparent 1px),
+                     linear-gradient(90deg,rgba(70,130,200,.055) 1px,transparent 1px);
+    background-size:48px 48px}
+  #viewport{position:fixed;width:1920px;height:1080px;left:0;top:0;transform-origin:top left;z-index:1;
+    display:flex;flex-direction:column;padding:18px 22px;gap:14px}
+
+  .topbar{flex:0 0 auto;display:flex;align-items:center;gap:14px}
+  .topbar h1{font-size:22px;font-weight:600;letter-spacing:2px;
+    background:linear-gradient(90deg,#eaf2ff,#8fd8e2);-webkit-background-clip:text;-webkit-text-fill-color:transparent}
+  .topbar .sub{font-size:11.5px;color:var(--t-lo);letter-spacing:1px;margin-top:3px}
+  .seg{display:flex;background:var(--bg-2);border:1px solid var(--line);border-radius:var(--r-md);overflow:hidden}
+  .seg button{border:0;background:transparent;color:var(--t-mid);font-size:12px;padding:6px 12px;cursor:pointer;font-family:var(--font)}
+  .seg button.active{background:rgba(53,198,212,.22);color:#b6ecf3}
+  .seg button:hover:not(.active){color:var(--t-hi)}
+  .clock{margin-left:auto;text-align:right}
+  .clock .t{font-size:20px;font-weight:600;letter-spacing:1px}
+  .clock .d{font-size:11px;color:var(--t-lo)}
+  .live{display:flex;align-items:center;gap:6px;font-size:11.5px;color:var(--c-ok)}
+  .live i{width:7px;height:7px;border-radius:50%;background:var(--c-ok);animation:pulse 1.6s infinite}
+  @keyframes pulse{0%,100%{opacity:1}50%{opacity:.25}}
+
+  .hero{flex:0 0 auto;display:flex;gap:14px;align-items:stretch}
+  .score-card{flex:0 0 340px;background:linear-gradient(135deg,var(--bg-2),var(--bg-3));
+    border:1px solid var(--line);border-radius:var(--r-lg);padding:16px 18px;
+    display:flex;align-items:center;gap:16px;box-shadow:var(--shadow);position:relative;overflow:hidden}
+  .score-card::before{content:'';position:absolute;left:0;top:0;bottom:0;width:3px;background:var(--c-wh)}
+  .score-num{font-size:46px;font-weight:600;line-height:1;letter-spacing:-1px}
+  .score-num small{font-size:15px;color:var(--t-lo);font-weight:400}
+  .score-meta .lv{font-size:17px;font-weight:600;letter-spacing:2px}
+  .score-meta .ds{font-size:11.5px;color:var(--t-lo);margin-top:4px}
+  .concl{flex:1 1 auto;background:var(--bg-1);border:1px solid var(--line);border-radius:var(--r-lg);
+    padding:14px 18px;display:flex;flex-direction:column;justify-content:center;gap:8px;box-shadow:var(--shadow)}
+  .concl .row{display:flex;align-items:flex-start;gap:10px;font-size:13.5px;line-height:1.5}
+  .concl .row .dot{flex:0 0 auto;width:8px;height:8px;border-radius:50%;margin-top:6px}
+  .concl .row b{font-weight:500}
+
+  .kpis{flex:0 0 auto;display:grid;grid-template-columns:repeat(8,1fr);gap:12px}
+  .kpi{background:var(--bg-1);border:1px solid var(--line);border-radius:var(--r-md);
+    padding:11px 13px;position:relative;overflow:hidden;box-shadow:var(--shadow)}
+  .kpi::before{content:'';position:absolute;left:0;top:0;bottom:0;width:2.5px;background:var(--c-wh)}
+  .kpi .lb{font-size:11.5px;color:var(--t-lo)}
+  .kpi .vl{font-size:24px;font-weight:600;margin-top:5px;letter-spacing:.5px}
+  .kpi .vl small{font-size:11px;color:var(--t-lo);font-weight:400;margin-left:3px}
+  .kpi .tr{font-size:10.5px;color:var(--t-lo);margin-top:4px}
+  .kpi.warn::before{background:var(--c-warn)} .kpi.crit::before{background:var(--c-crit)} .kpi.ok::before{background:var(--c-ok)}
+
+  .grid{flex:1 1 auto;min-height:0;display:grid;grid-template-columns:1fr 380px;gap:14px}
+  .panel{background:var(--bg-1);border:1px solid var(--line);border-radius:var(--r-lg);
+    box-shadow:var(--shadow);display:flex;flex-direction:column;min-height:0;overflow:hidden}
+  .panel-head{flex:0 0 auto;display:flex;align-items:center;gap:8px;padding:10px 14px;
+    border-bottom:1px solid var(--line-soft);background:linear-gradient(90deg,rgba(53,198,212,.10),transparent 60%)}
+  .panel-head .tt{font-size:14px;font-weight:500;letter-spacing:1px;display:flex;align-items:center;gap:7px}
+  .panel-head .tt::before{content:'';width:3px;height:14px;background:var(--c-wh);border-radius:2px;
+    box-shadow:0 0 8px rgba(53,198,212,.45)}
+  .panel-head .sp{flex:1}
+  .panel-head .cnt{font-size:11px;color:var(--t-lo)}
+  .panel-body{flex:1 1 auto;min-height:0;padding:12px 14px;overflow:hidden;display:flex;flex-direction:column;gap:10px}
+
+  /* 2.5D 孪生视图 */
+  #twin-wrap{flex:1 1 auto;min-height:0;position:relative}
+  #twin{position:absolute;inset:0;width:100%;height:100%;cursor:crosshair}
+  .twin-legend{position:absolute;left:12px;bottom:10px;display:flex;gap:12px;font-size:10.5px;color:var(--t-mid);
+    background:rgba(5,11,22,.7);padding:6px 10px;border-radius:var(--r-md);border:1px solid var(--line-soft)}
+  .twin-legend i{display:inline-block;width:9px;height:9px;border-radius:2px;margin-right:4px;vertical-align:-1px}
+  .twin-hint{position:absolute;right:12px;top:10px;font-size:10.5px;color:var(--t-lo);
+    background:rgba(5,11,22,.7);padding:5px 10px;border-radius:var(--r-md);border:1px solid var(--line-soft)}
+
+  /* 库位详情 */
+  .loc-detail{flex:0 0 auto;background:var(--bg-2);border:1px solid var(--line-soft);border-radius:var(--r-md);padding:11px 13px}
+  .loc-detail .h{font-size:12.5px;font-weight:500;display:flex;justify-content:space-between;align-items:center}
+  .loc-detail .rows{margin-top:8px;display:grid;grid-template-columns:1fr 1fr;gap:5px 12px;font-size:11.5px}
+  .loc-detail .rows .k{color:var(--t-lo)} .loc-detail .rows .v{color:var(--t-hi);text-align:right}
+  .badge{font-size:10px;padding:2px 8px;border-radius:99px}
+
+  /* 流水 */
+  .flow-list{flex:1 1 auto;overflow-y:auto;display:flex;flex-direction:column;gap:6px;min-height:0}
+  .flow{display:flex;align-items:center;gap:9px;padding:7px 10px;border-radius:var(--r-sm);background:var(--bg-2);
+    border:1px solid var(--line-soft);font-size:11.5px}
+  .flow .ty{flex:0 0 auto;width:34px;text-align:center;font-size:10px;padding:2px 0;border-radius:3px}
+  .flow .ty.in{background:rgba(46,204,143,.14);color:#7fe3c0}
+  .flow .ty.out{background:rgba(47,129,247,.14);color:#a8ccff}
+  .flow .nm{flex:1 1 auto;min-width:0;color:var(--t-hi);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .flow .bt{flex:0 0 auto;color:var(--t-lo);font-size:10px}
+  .flow .qt{flex:0 0 auto;color:var(--t-mid);font-variant-numeric:tabular-nums}
+
+  /* 底部 */
+  .bottom{flex:0 0 auto;display:grid;grid-template-columns:1.4fr 1fr 1.2fr;gap:14px}
+  .zones{display:grid;grid-template-columns:repeat(4,1fr);gap:10px}
+  .zone-card{background:var(--bg-1);border:1px solid var(--line);border-radius:var(--r-md);
+    padding:9px 11px;box-shadow:var(--shadow);border-left:3px solid var(--c-wh)}
+  .zone-card.warn{border-left-color:var(--c-warn)}
+  .zone-card .nm{font-size:12px;font-weight:500;display:flex;justify-content:space-between}
+  .zone-card .v{font-size:15px;font-weight:600;margin-top:4px}
+  .zone-card .k{font-size:10px;color:var(--t-lo);margin-top:1px}
+  .bar{height:4px;background:rgba(80,140,210,.14);border-radius:99px;margin-top:7px;overflow:hidden}
+  .bar i{display:block;height:100%;border-radius:99px;background:var(--c-wh)}
+
+  /* 齐套看板 */
+  .kit-list{flex:1 1 auto;overflow-y:auto;display:flex;flex-direction:column;gap:7px;min-height:0}
+  .kit{display:flex;align-items:center;gap:9px;padding:7px 10px;border-radius:var(--r-sm);background:var(--bg-2);border:1px solid var(--line-soft)}
+  .kit .st{flex:0 0 auto;font-size:10px;padding:2px 8px;border-radius:99px}
+  .kit .st.ok{background:rgba(46,204,143,.14);color:#7fe3c0}
+  .kit .st.warn{background:rgba(245,165,36,.14);color:#ffce6b}
+  .kit .st.crit{background:rgba(244,84,76,.14);color:#ff9d97}
+  .kit .tx{flex:1 1 auto;min-width:0}
+  .kit .tx .l1{font-size:11.5px;color:var(--t-hi);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .kit .tx .l2{font-size:10px;color:var(--t-lo);margin-top:2px}
+
+  .chart-box{flex:1 1 auto;min-height:0;position:relative;padding:4px 8px 8px}
+  .chart-box canvas{position:absolute;inset:0;width:100%;height:100%}
+  .legend{display:flex;gap:12px;font-size:10.5px;color:var(--t-mid)}
+  .legend i{display:inline-block;width:8px;height:8px;border-radius:2px;margin-right:4px;vertical-align:-1px}
+
+  .foot{flex:0 0 auto;display:flex;justify-content:space-between;font-size:10.5px;color:var(--t-dim)}
+</style>
+</head>
+<body>
+<div id="bg-deco"></div>
+<div id="bg-grid"></div>
+<div id="viewport">
+  <div class="topbar">
+    <div>
+      <h1>仓储孪生</h1>
+      <div class="sub">泰州超级电容智能工厂 · 立体库库位 / 物料批次 / AGV 调度 / 齐套看板 · 数据每 3 秒自动刷新</div>
+    </div>
+    <div class="seg" id="zone-seg">
+      <button data-zone="ALL" class="active">全部库区</button>
+      <button data-zone="Z1">原料库</button>
+      <button data-zone="Z2">辅料库</button>
+      <button data-zone="Z3">成品库</button>
+      <button data-zone="Z4">待检区</button>
+    </div>
+    <div class="live"><i></i>LIVE</div>
+    <div class="clock"><div class="t" id="clock-t">--:--:--</div><div class="d" id="clock-d">----</div></div>
+  </div>
+
+  <div class="hero">
+    <div class="score-card">
+      <div class="score-num" id="score-num">--<small>%</small></div>
+      <div class="score-meta">
+        <div class="lv" id="score-lv">评估中</div>
+        <div class="ds" id="score-ds">可用库存占比（已排除待检/退货）</div>
+      </div>
+    </div>
+    <div class="concl" id="concl"></div>
+  </div>
+
+  <div class="kpis" id="kpis"></div>
+
+  <div class="grid">
+    <div class="panel">
+      <div class="panel-head"><div class="tt">立体库 2.5D 布局</div><div class="sp"></div><div class="cnt" id="loc-cnt"></div></div>
+      <div class="panel-body" style="padding:0">
+        <div id="twin-wrap">
+          <canvas id="twin"></canvas>
+          <div class="twin-legend">
+            <span><i style="background:#35c6d4"></i>有料</span>
+            <span><i style="background:#22344d"></i>空位</span>
+            <span><i style="background:#f5a524"></i>待检</span>
+            <span><i style="background:#7f77dd"></i>锁定</span>
+            <span><i style="background:#f4544c"></i>告警</span>
+            <span><i style="background:#e0a32e"></i>AGV</span>
+          </div>
+          <div class="twin-hint">悬停库位查看物料批次详情 · 顶栏可筛选库区</div>
+        </div>
+      </div>
+    </div>
+    <div style="display:grid;grid-template-rows:auto 1fr;gap:14px;min-height:0">
+      <div class="panel">
+        <div class="panel-head"><div class="tt">库位详情</div><div class="sp"></div><div class="cnt" id="detail-hint">悬停库位查看</div></div>
+        <div class="panel-body" style="padding:10px 12px">
+          <div class="loc-detail" id="loc-detail"></div>
+        </div>
+      </div>
+      <div class="panel">
+        <div class="panel-head"><div class="tt">出入库流水</div><div class="sp"></div><div class="cnt" id="flow-cnt"></div></div>
+        <div class="panel-body"><div class="flow-list" id="flow-list"></div></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="bottom">
+    <div class="zones" id="zones"></div>
+    <div class="panel" style="padding:0">
+      <div class="panel-head"><div class="tt">库存金额与可用占比</div><div class="sp"></div>
+        <div class="legend"><span><i style="background:#35c6d4"></i>金额(万元)</span><span><i style="background:#2ecc8f"></i>可用占比(%)</span></div></div>
+      <div class="chart-box"><canvas id="c-stock"></canvas></div>
+    </div>
+    <div class="panel" style="padding:0">
+      <div class="panel-head"><div class="tt">工单齐套看板</div><div class="sp"></div><div class="cnt" id="kit-cnt"></div></div>
+      <div class="panel-body"><div class="kit-list" id="kit-list"></div></div>
+    </div>
+  </div>
+
+  <div class="foot">
+    <span>口径：可用库存已排除待检/退货待处理区；出货绑定不改库存、过账才改库存；需求=单位用量×(1+损耗率)×投产数，缺料默认拒建。演示数据为确定性模拟。</span>
+    <span id="foot-update"></span>
+  </div>
+</div>
+
+<script>
+"use strict";
+/* ================= 基础工具 ================= */
+const $ = (s) => document.querySelector(s);
+const clamp = (v, a, b) => Math.min(b, Math.max(a, v));
+const fmt = (v, d = 1) => Number(v).toLocaleString('zh-CN', { minimumFractionDigits: d, maximumFractionDigits: d });
+function makeRng(seed) { let s = seed >>> 0; return () => { s = (s * 1664525 + 1013904223) >>> 0; return s / 4294967296; }; }
+const pad2 = (n) => String(n).padStart(2, '0');
+const hhmmss = (d) => `${pad2(d.getHours())}:${pad2(d.getMinutes())}:${pad2(d.getSeconds())}`;
+const hhmm = (d) => `${pad2(d.getHours())}:${pad2(d.getMinutes())}`;
+function shade(hex, f) { // 纯色加深（Canvas 只认字面色，禁半透明混色）
+  const n = parseInt(hex.slice(1), 16);
+  const r = clamp(Math.round((n >> 16) * f), 0, 255), g = clamp(Math.round(((n >> 8) & 255) * f), 0, 255), b = clamp(Math.round((n & 255) * f), 0, 255);
+  return `rgb(${r},${g},${b})`;
+}
+
+const ZONES = [
+  { id: 'Z1', name: '原料库 A', kind: 'raw' },
+  { id: 'Z2', name: '辅料库 B', kind: 'aux' },
+  { id: 'Z3', name: '成品库 C', kind: 'fg' },
+  { id: 'Z4', name: '待检区 D', kind: 'qc' },
+  { id: 'Z5', name: '退货区 E', kind: 'rma' },
+];
+const ZONE_STATUS = {
+  occupied: { top: '#35c6d4', label: '有料' },
+  empty:    { top: '#22344d', label: '空位' },
+  quarantine: { top: '#f5a524', label: '待检' },
+  locked:   { top: '#7f77dd', label: '锁定' },
+  alert:    { top: '#f4544c', label: '告警' },
+};
+const MATERIALS = {
+  raw: [
+    { name: 'NCM 正极材料', sup: '厦门钨业' }, { name: '电解液', sup: '新宙邦' },
+    { name: '隔膜', sup: '恩捷新材料' }, { name: '铝箔集流体', sup: '鼎胜新材' }],
+  aux: [
+    { name: '电解纸', sup: '高度纸业' }, { name: '壳体组件', sup: '深圳信德' },
+    { name: '导针/极耳', sup: '常州博杰' }, { name: '包装材料', sup: '紫江集团' }],
+  fg: [
+    { name: 'SC-3000F 成品', sup: '—' }, { name: 'SC-5000F 成品', sup: '—' },
+    { name: '锂电 32700', sup: '—' }, { name: '模组 PACK', sup: '—' }],
+};
+const FLOW_TYPES = {
+  '采购入库': 'in', '生产领料': 'out', '成品入库': 'in', '销售出库': 'out', '退货入库': 'in', '委外发出': 'out',
+};
+const KITS = [
+  { id: 'WO-2026-1015-018', prod: 'SC-3000F 超级电容', qty: 2000, status: 'ok', note: '材料齐备，可投产' },
+  { id: 'WO-2026-1015-019', prod: 'SC-5000F 超级电容', qty: 1200, status: 'crit', note: '缺电解液（在途批待检），预计 10-16 到货' },
+  { id: 'WO-2026-1015-020', prod: '锂电 32700', qty: 5000, status: 'warn', note: '隔膜部分齐套，缺口 1.2 万㎡，已催交' },
+];
+const COLS = 4, LAYERS = 3;
+
+/* ================= MockSource ================= */
+const MockSource = {
+  _rng: null, _seed: 20261015, _history: [], _lastFlow: null,
+
+  reset(seed) {
+    this._seed = seed ?? this._seed;
+    this._rng = makeRng(this._seed);
+    this._history = [];
+    for (let i = 24; i > 0; i--) this._history.push(this._build(new Date(Date.now() - i * 3600e3)));
+  },
+  tick() {
+    const snap = this._build(new Date());
+    this._history.push(snap);
+    if (this._history.length > 400) this._history.shift();
+    return snap;
+  },
+  series(rangeId, key) {
+    const r = { '1h': { points: 12, stepMs: 5 * 60e3 }, '6h': { points: 12, stepMs: 30 * 60e3 },
+                '24h': { points: 24, stepMs: 3600e3 }, '7d': { points: 7, stepMs: 24 * 3600e3 } }[rangeId]
+              || { points: 24, stepMs: 3600e3 };
+    const now = Date.now();
+    const out = [];
+    for (let i = r.points - 1; i >= 0; i--) {
+      const t = now - i * r.stepMs;
+      let snap = null, best = Infinity;
+      for (const h of this._history) { const d = Math.abs(h.t - t); if (d < best) { best = d; snap = h; } }
+      out.push({ t, v: snap ? snap[key] : 0,
+        label: r.stepMs >= 24 * 3600e3 ? `${new Date(t).getMonth() + 1}/${new Date(t).getDate()}` : hhmm(new Date(t)) });
+    }
+    return out;
+  },
+  _jitter(base, pct, rng) { return base * (1 + (rng() - 0.5) * 2 * pct); },
+
+  _statusFor(kind, rng) {
+    if (kind === 'qc') return 'quarantine';
+    if (kind === 'rma') return 'locked';
+    const u = rng();
+    if (u < 0.72) return 'occupied';
+    if (u < 0.85) return 'empty';
+    if (u < 0.90) return 'quarantine';
+    if (u < 0.95) return 'locked';
+    return 'alert';
+  },
+
+  _build(t) {
+    const rng = this._rng;
+    // 库位网格：每库区 4 列 × 3 层
+    const locations = [];
+    for (const z of ZONES) {
+      for (let c = 0; c < COLS; c++) for (let l = 0; l < LAYERS; l++) {
+        const st = this._statusFor(z.kind, rng);
+        let loc = { id: `${z.id}-C${c + 1}-L${l + 1}`, zone: z.id, zoneName: z.name, col: c, layer: l, status: st };
+        if (st === 'occupied') {
+          const m = MATERIALS[z.kind][Math.floor(rng() * MATERIALS[z.kind].length)];
+          loc.material = m.name; loc.supplier = m.sup;
+          loc.batch = `LOT-${t.getFullYear()}${pad2(t.getMonth() + 1)}${pad2(t.getDate())}-${pad2(Math.floor(rng() * 24))}${Math.floor(rng() * 90 + 10)}`;
+          loc.qty = z.kind === 'fg' ? Math.round(this._jitter(860, .3, rng)) : Math.round(this._jitter(2400, .35, rng));
+          loc.age = Math.round(this._jitter(16, .6, rng));
+        }
+        locations.push(loc);
+      }
+    }
+    const occupied = locations.filter((l) => l.status === 'occupied').length;
+    const total = locations.length;
+    const rackUtil = occupied / total * 100;
+
+    const totalValue = clamp(this._jitter(2860, .02, rng), 2400, 3300);      // 万元
+    const todayIn = Math.round(this._jitter(46, .12, rng));
+    const todayOut = Math.round(this._jitter(58, .1, rng));
+    const quarantineBatches = locations.filter((l) => l.status === 'quarantine').length;
+    const shortOrders = KITS.filter((k) => k.status !== 'ok').length;
+    const turnoverDays = clamp(this._jitter(18, .06, rng), 12, 26);
+
+    const zoneData = ZONES.map((z) => {
+      const zl = locations.filter((l) => l.zone === z.id);
+      const occ = zl.filter((l) => l.status === 'occupied').length;
+      return { id: z.id, name: z.name, kind: z.kind, count: zl.length,
+        occupied: occ, util: occ / zl.length * 100,
+        value: Math.round(totalValue / ZONES.length * this._jitter(1, .2, rng)),
+        status: z.kind === 'qc' ? 'warn' : z.kind === 'rma' ? 'warn' : (occ / zl.length >= 0.55 ? 'ok' : 'warn') };
+    });
+
+    // 可用库存占比 = 可分配库区（原料/辅料/成品）有料库位 / 其总库位（待检/退货已天然排除）
+    const availShare = (zoneData[0].occupied + zoneData[1].occupied + zoneData[2].occupied)
+      / (zoneData[0].count + zoneData[1].count + zoneData[2].count) * 100;
+
+    // 出入库流水（确定性生成 12 条）
+    const flow = [];
+    const now = Date.now();
+    for (let i = 0; i < 12; i++) {
+      const kinds = ['raw', 'aux', 'fg'];
+      const k = kinds[Math.floor(rng() * kinds.length)];
+      const m = MATERIALS[k][Math.floor(rng() * MATERIALS[k].length)];
+      const types = k === 'fg' ? ['成品入库', '销售出库'] : ['采购入库', '生产领料', '委外发出'];
+      const type = types[Math.floor(rng() * types.length)];
+      flow.push({ time: hhmm(new Date(now - i * 9 * 60e3)), type, material: m.name, supplier: m.sup,
+        qty: Math.round(this._jitter(1200, .5, rng)), batch: `LOT-${pad2(Math.floor(rng() * 90 + 10))}${Math.floor(rng() * 900 + 100)}` });
+    }
+
+    // AGV：3 台，目标位置在通道上往返
+    const agvs = [
+      { id: 'AGV-01', task: '原料 → L3 装配线', tx: 0.30 + rng() * 0.2 },
+      { id: 'AGV-02', task: '成品出库缓存位', tx: 0.62 + rng() * 0.2 },
+      { id: 'AGV-03', task: '空箱回收 → 辅料库', tx: 0.10 + rng() * 0.25 },
+    ].map((a) => ({ ...a, x: a.tx }));
+
+    return { t: t.getTime(), time: hhmmss(t), locations, totalValue, availShare, rackUtil,
+      todayIn, todayOut, quarantineBatches, shortOrders, turnoverDays, zoneData, flow, agvs,
+      occupied, total };
+  },
+};
+
+/* ================= Twin（Canvas 2.5D 等距库位） ================= */
+const DW = 26, DH = 13, COLH = 24, LAYER_STEP = 36, COL_STEP = 58, ZONE_GAP = 64;
+
+const Twin = {
+  canvas: null, ctx: null, hits: [], layout: null,
+
+  init(sel) {
+    this.canvas = $(sel);
+    this.canvas.addEventListener('mousemove', (e) => this.onMove(e));
+    this.canvas.addEventListener('mouseleave', () => Store.dispatch({ type: 'SELECT', id: null }));
+  },
+
+  // 计算布局：按筛选库区生成等距坐标
+  computeLayout(zones, snap) {
+    this._rows = [];
+    zones.forEach((z, zi) => {
+      for (let l = 0; l < LAYERS; l++) for (let c = 0; c < COLS; c++) {
+        const loc = snap.locations.find((x) => x.zone === z.id && x.col === c && x.layer === l);
+        if (loc) this._rows.push({ loc, zi, c, l });
+      }
+    });
+    return this._rows;
+  },
+
+  draw(snap, zoneFilter, hoverId) {
+    if (!this.canvas) return;
+    const rect = this.canvas.getBoundingClientRect();
+    const dpr = window.devicePixelRatio || 1;
+    const w = Math.max(rect.width, 10), h = Math.max(rect.height, 10);
+    if (this.canvas.width !== w * dpr || this.canvas.height !== h * dpr) {
+      this.canvas.width = w * dpr; this.canvas.height = h * dpr;
+    }
+    const ctx = this.canvas.getContext('2d');
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx.clearRect(0, 0, w, h);
+
+    const zones = ZONES.filter((z) => zoneFilter === 'ALL' || z.id === zoneFilter);
+    this.computeLayout(zones, snap);
+
+    // 基线：货架组整体垂直居中偏下，留出 AGV 通道
+    const totalW = zones.length * COLS * COL_STEP + (zones.length - 1) * ZONE_GAP;
+    const groupH = LAYERS * LAYER_STEP + COLH;
+    const baseY = Math.max(groupH + 30, h * 0.52);
+    const originX = Math.max(20, (w - totalW) / 2);
+
+    this.hits = [];
+    ctx.font = '10px sans-serif'; ctx.textBaseline = 'middle';
+
+    // 地面通道参考线
+    ctx.strokeStyle = 'rgba(80,140,210,.12)'; ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.moveTo(30, baseY + 8); ctx.lineTo(w - 30, baseY + 8); ctx.stroke();
+
+    // 库区标签 + 货架
+    zones.forEach((z, zi) => {
+      const zx = originX + zi * (COLS * COL_STEP + ZONE_GAP);
+      ctx.fillStyle = '#9fb3d1'; ctx.textAlign = 'left'; ctx.font = '11px sans-serif';
+      ctx.fillText(z.name, zx, baseY - groupH - 16);
+      const zd = snap.zoneData.find((d) => d.id === z.id);
+      ctx.fillStyle = '#64789a'; ctx.font = '10px sans-serif';
+      if (zd) ctx.fillText(`利用率 ${fmt(zd.util, 0)}% · ${fmt(zd.value, 0)} 万元`, zx, baseY - groupH - 2);
+    });
+
+    // 先画下层再画上层（保证视觉遮挡正确）
+    for (let l = 0; l < LAYERS; l++) {
+      for (const row of this._rows) {
+        if (row.l !== l) continue;
+        const loc = row.loc;
+        const st = ZONE_STATUS[loc.status] || ZONE_STATUS.empty;
+        const x = originX + row.zi * (COLS * COL_STEP + ZONE_GAP) + row.c * COL_STEP + DW;
+        const y = baseY - (l + 1) * LAYER_STEP;
+        const hover = hoverId === loc.id;
+        const top = st.top, left = shade(top, 0.72), right = shade(top, 0.55);
+
+        // 柱体（左右两面）
+        ctx.fillStyle = left;
+        ctx.beginPath(); ctx.moveTo(x, y - DH); ctx.lineTo(x, y - DH + COLH); ctx.lineTo(x - DW, y + COLH); ctx.lineTo(x - DW, y); ctx.closePath(); ctx.fill();
+        ctx.fillStyle = right;
+        ctx.beginPath(); ctx.moveTo(x, y - DH); ctx.lineTo(x, y - DH + COLH); ctx.lineTo(x + DW, y + COLH); ctx.lineTo(x + DW, y); ctx.closePath(); ctx.fill();
+        // 顶面（纯色）
+        ctx.fillStyle = hover ? '#eaf2ff' : top;
+        ctx.beginPath();
+        ctx.moveTo(x, y - DH); ctx.lineTo(x + DW, y); ctx.lineTo(x, y + DH); ctx.lineTo(x - DW, y); ctx.closePath(); ctx.fill();
+        // 边框
+        ctx.strokeStyle = hover ? '#eaf2ff' : 'rgba(5,11,22,.55)'; ctx.lineWidth = hover ? 1.6 : 1;
+        ctx.beginPath(); ctx.moveTo(x, y - DH); ctx.lineTo(x + DW, y); ctx.lineTo(x, y + DH); ctx.lineTo(x - DW, y); ctx.closePath(); ctx.stroke();
+        if (hover) { ctx.strokeStyle = 'rgba(234,242,255,.5)';
+          ctx.strokeRect(x - DW - 2, y - DH - 2, DW * 2 + 4, DH * 2 + 4); }
+        // 命中区（外接矩形）
+        this.hits.push({ id: loc.id, x: x - DW, y: y - DH - 4, w: DW * 2, h: DH * 2 + 8 });
+      }
+    }
+
+    // AGV（地面通道，水平移动）
+    const agvY = baseY + 2;
+    snap.agvs.forEach((a) => {
+      const ax = originX + 20 + a.x * (totalW - 40);
+      ctx.fillStyle = 'rgba(224,163,46,.18)';
+      ctx.beginPath(); ctx.ellipse(ax, agvY + 4, 22, 7, 0, 0, Math.PI * 2); ctx.fill();
+      ctx.fillStyle = '#e0a32e';
+      ctx.beginPath(); ctx.roundRect(ax - 16, agvY - 10, 32, 16, 4); ctx.fill();
+      ctx.fillStyle = '#1a1206'; ctx.font = '9px sans-serif'; ctx.textAlign = 'center';
+      ctx.fillText(a.id, ax, agvY - 2);
+    });
+  },
+
+  onMove(e) {
+    const rect = this.canvas.getBoundingClientRect();
+    const mx = (e.clientX - rect.left), my = (e.clientY - rect.top);
+    // canvas 以 CSS 尺寸为准（dpr 已由 setTransform 处理）
+    for (const h of this.hits) {
+      if (mx >= h.x && mx <= h.x + h.w && my >= h.y && my <= h.y + h.h) {
+        if (Store.get().selected !== h.id) Store.dispatch({ type: 'SELECT', id: h.id });
+        this.canvas.style.cursor = 'pointer';
+        return;
+      }
+    }
+    this.canvas.style.cursor = 'crosshair';
+    if (Store.get().selected !== null) Store.dispatch({ type: 'SELECT', id: null });
+  },
+};
+
+/* AGV 平滑插值（rAF） */
+const AGV_ANIM = { raf: null, t: 0 };
+function startAgvAnim() {
+  const step = () => {
+    const s = Store.get();
+    if (s.snap) {
+      let dirty = false;
+      for (const a of s.snap.agvs) {
+        const d = a.tx - a.x;
+        if (Math.abs(d) > 0.002) { a.x += d * 0.04; dirty = true; } else a.x = a.tx;
+      }
+      if (dirty) Twin.draw(s.snap, s.zone, s.selected);
+    }
+    AGV_ANIM.raf = requestAnimationFrame(step);
+  };
+  if (!AGV_ANIM.raf) AGV_ANIM.raf = requestAnimationFrame(step);
+}
+
+/* ================= Store ================= */
+const Store = {
+  state: { snap: null, zone: 'ALL', selected: null, tickCount: 0 },
+  _subs: [],
+  subscribe(fn) { this._subs.push(fn); return () => { this._subs = this._subs.filter((f) => f !== fn); }; },
+  get() { return this.state; },
+  dispatch(action) {
+    const s = this.state;
+    switch (action.type) {
+      case 'TICK': s.snap = action.snap; s.tickCount++; break;
+      case 'ZONE': s.zone = action.zone; s.selected = null; break;
+      case 'SELECT': s.selected = action.id; break;
+    }
+    this._subs.forEach((f) => f(s, action));
+  },
+};
+
+/* ================= 图表 ================= */
+const Chart = {
+  _prep(sel) {
+    const cv = $(sel); if (!cv) return null;
+    const rect = cv.getBoundingClientRect();
+    const dpr = window.devicePixelRatio || 1;
+    const w = Math.max(rect.width, 10), h = Math.max(rect.height, 10);
+    cv.width = w * dpr; cv.height = h * dpr;
+    const ctx = cv.getContext('2d');
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx.clearRect(0, 0, w, h);
+    return { ctx, w, h };
+  },
+  dual(sel, left, right, labels) {
+    const p = this._prep(sel); if (!p) return;
+    const { ctx, w, h } = p;
+    const padL = 44, padR = 44, padT = 12, padB = 22;
+    const cw = w - padL - padR, ch = h - padT - padB;
+    if (cw <= 0 || ch <= 0) return;
+    const rangeOf = (arr) => { const vs = arr.filter((v) => isFinite(v)); let mn = Math.min(...vs), mx = Math.max(...vs);
+      if (!isFinite(mn) || !isFinite(mx)) { mn = 0; mx = 1; } if (mx === mn) { mx += 1; mn -= 1; }
+      const pd = (mx - mn) * 0.12; return [mn - pd, mx + pd]; };
+    const [lmn, lmx] = rangeOf(left.data), [rmn, rmx] = rangeOf(right.data);
+    const n = Math.max(left.data.length, right.data.length); if (!n) return;
+    const xOf = (i) => padL + cw * i / Math.max(1, n - 1);
+    ctx.font = '10px sans-serif'; ctx.textBaseline = 'middle';
+    for (let i = 0; i <= 4; i++) {
+      const y = padT + ch * i / 4;
+      ctx.strokeStyle = 'rgba(80,140,210,.10)'; ctx.beginPath(); ctx.moveTo(padL, y); ctx.lineTo(padL + cw, y); ctx.stroke();
+      ctx.fillStyle = '#64789a'; ctx.textAlign = 'right'; ctx.fillText(fmt(lmx - (lmx - lmn) * i / 4, 0), padL - 6, y);
+      ctx.textAlign = 'left'; ctx.fillText(fmt(rmx - (rmx - rmn) * i / 4, 0), padL + cw + 6, y);
+    }
+    if (labels && labels.length) { ctx.textAlign = 'center'; ctx.fillStyle = '#64789a';
+      const step = Math.max(1, Math.floor(labels.length / 6));
+      for (let i = 0; i < labels.length; i += step) ctx.fillText(labels[i], clamp(xOf(i), padL + 14, padL + cw - 14), padT + ch + 12); }
+    const draw = (s, mn, mx, color, fill) => {
+      const yOf = (v) => padT + ch - ((clamp(v, mn, mx) - mn) / Math.max(1e-9, mx - mn)) * ch;
+      if (fill) { const g = ctx.createLinearGradient(0, padT, 0, padT + ch); g.addColorStop(0, color + '4d'); g.addColorStop(1, color + '00');
+        ctx.fillStyle = g; ctx.beginPath(); ctx.moveTo(xOf(0), padT + ch); s.forEach((v, i) => ctx.lineTo(xOf(i), yOf(v))); ctx.lineTo(xOf(s.length - 1), padT + ch); ctx.closePath(); ctx.fill(); }
+      ctx.strokeStyle = color; ctx.lineWidth = 1.8; ctx.lineJoin = 'round';
+      ctx.beginPath(); s.forEach((v, i) => (i === 0 ? ctx.moveTo(xOf(i), yOf(v)) : ctx.lineTo(xOf(i), yOf(v)))); ctx.stroke();
+      ctx.fillStyle = color; ctx.beginPath(); ctx.arc(xOf(s.length - 1), yOf(s[s.length - 1]), 2.6, 0, Math.PI * 2); ctx.fill();
+    };
+    draw(left.data, lmn, lmx, left.color, true); draw(right.data, rmn, rmx, right.color, false);
+  },
+};
+
+/* ================= View ================= */
+const KPI_DEFS = [
+  { key: 'totalValue', label: '总库存金额', unit: '万元', get: (s) => fmt(s.totalValue, 0), sub: () => `含待检/退货` },
+  { key: 'availShare', label: '可用库存占比', unit: '%', get: (s) => fmt(s.availShare, 1), sub: () => `排除待检/退货` },
+  { key: 'rackUtil', label: '库位利用率', unit: '%', get: (s) => fmt(s.rackUtil, 1), sub: () => `在库/总库位` },
+  { key: 'todayIn', label: '今日入库', unit: '笔', get: (s) => fmt(s.todayIn, 0), sub: () => `采购/成品/退货` },
+  { key: 'todayOut', label: '今日出库', unit: '笔', get: (s) => fmt(s.todayOut, 0), sub: () => `领料/销售/委外` },
+  { key: 'quarantineBatches', label: '待检库位', unit: '个', get: (s) => fmt(s.quarantineBatches, 0), sub: () => `质量待判` },
+  { key: 'shortOrders', label: '齐套缺料工单', unit: '单', get: (s) => fmt(s.shortOrders, 0), sub: () => `缺料默认拒建` },
+  { key: 'turnoverDays', label: '库存周转天数', unit: '天', get: (s) => fmt(s.turnoverDays, 1), sub: () => `滚动测算` },
+];
+
+const View = {
+  _timer: null,
+
+  init() {
+    MockSource.reset();
+    Twin.init('#twin');
+    this.buildKpis();
+    this.buildZoneSegs();
+    this.bindEvents();
+    Store.dispatch({ type: 'TICK', snap: MockSource.tick() });
+    this.startTimer(); this.startClock(); this.fit();
+    startAgvAnim();
+  },
+
+  buildKpis() {
+    $('#kpis').innerHTML = KPI_DEFS.map((d) => `
+      <div class="kpi ok" data-k="${d.key}">
+        <div class="lb">${d.label}</div>
+        <div class="vl"><span data-v>--</span><small>${d.unit}</small></div>
+        <div class="tr"><span data-s></span></div>
+      </div>`).join('');
+  },
+
+  buildZoneSegs() {
+    $('#zone-seg').addEventListener('click', (e) => {
+      const b = e.target.closest('button'); if (!b) return;
+      $('#zone-seg').querySelectorAll('button').forEach((x) => x.classList.toggle('active', x === b));
+      Store.dispatch({ type: 'ZONE', zone: b.dataset.zone });
+    });
+  },
+
+  bindEvents() {
+    Store.subscribe((s) => this.render(s));
+    window.addEventListener('resize', () => { this.fit(); Twin.draw(Store.get().snap, Store.get().zone, Store.get().selected); });
+  },
+
+  fit() {
+    const scale = Math.min(window.innerWidth / 1920, window.innerHeight / 1080);
+    document.documentElement.style.setProperty('--scale', scale);
+    const vp = $('#viewport');
+    vp.style.transform = `scale(${scale})`;
+    vp.style.left = `${(window.innerWidth - 1920 * scale) / 2}px`;
+    vp.style.top = `${(window.innerHeight - 1080 * scale) / 2}px`;
+  },
+
+  render(s) {
+    const snap = s.snap; if (!snap) return;
+    this.renderScore(snap);
+    this.renderKpis(snap);
+    Twin.draw(snap, s.zone, s.selected);
+    this.renderLocDetail(snap, s.selected);
+    this.renderFlow(snap);
+    this.renderZones(snap);
+    this.renderChart(s);
+    this.renderKits(snap);
+    const filtered = s.zone === 'ALL' ? snap.locations : snap.locations.filter((l) => l.zone === s.zone);
+    const fOccupied = filtered.filter((l) => l.status === 'occupied').length;
+    $('#loc-cnt').textContent = `共 ${filtered.length} 库位 · 在库 ${fOccupied}`;
+    $('#foot-update').textContent = `更新于 ${snap.time} · 第 ${s.tickCount} 次刷新`;
+  },
+
+  renderScore(snap) {
+    const lv = snap.availShare >= 80 ? { t: '库存健康', c: '#2ecc8f' }
+      : snap.availShare >= 68 ? { t: '基本合理', c: '#f5a524' }
+      : { t: '需要关注', c: '#f4544c' };
+    $('#score-num').innerHTML = `${fmt(snap.availShare, 1)}<small>%</small>`;
+    $('#score-num').style.color = lv.c;
+    $('#score-lv').textContent = lv.t;
+    $('#score-lv').style.color = lv.c;
+    const concl = [];
+    concl.push(`<div class="row"><span class="dot" style="background:${lv.c}"></span>
+      <span><b>总体判断：${lv.t}</b>。总库存 ${fmt(snap.totalValue, 0)} 万元，可用占比 ${fmt(snap.availShare, 1)}%（已排除待检/退货待处理区），周转 ${fmt(snap.turnoverDays, 1)} 天。</span></div>`);
+    const shortKits = KITS.filter((k) => k.status !== 'ok');
+    if (shortKits.length) concl.push(`<div class="row"><span class="dot" style="background:#f5a524"></span>
+      <span><b>${shortKits.length} 个工单待齐套：</b>${shortKits.map((k) => `${k.prod}（${k.note}）`).join('；')}。按规则缺料默认拒建，请跟进到货。</span></div>`);
+    else concl.push(`<div class="row"><span class="dot" style="background:#2ecc8f"></span><span>全部在产工单材料齐套，无拒建风险。</span></div>`);
+    concl.push(`<div class="row"><span class="dot" style="background:#35c6d4"></span>
+      <span>今日入库 ${snap.todayIn} 笔 / 出库 ${snap.todayOut} 笔，待检库位 ${snap.quarantineBatches} 个；AGV ${snap.agvs.length} 台在线调度。出货绑定不改库存、过账才改库存。</span></div>`);
+    $('#concl').innerHTML = concl.join('');
+  },
+
+  renderKpis(snap) {
+    KPI_DEFS.forEach((d) => {
+      const card = $(`.kpi[data-k="${d.key}"]`); if (!card) return;
+      card.querySelector('[data-v]').textContent = d.get(snap);
+      card.querySelector('[data-s]').textContent = d.sub(snap);
+      const lv = d.key === 'shortOrders' ? (snap.shortOrders >= 2 ? 'crit' : snap.shortOrders >= 1 ? 'warn' : 'ok')
+        : d.key === 'quarantineBatches' ? (snap.quarantineBatches >= 6 ? 'warn' : 'ok')
+        : d.key === 'availShare' ? (snap.availShare >= 80 ? 'ok' : snap.availShare >= 68 ? 'warn' : 'crit') : 'ok';
+      card.classList.toggle('warn', lv === 'warn');
+      card.classList.toggle('crit', lv === 'crit');
+      card.classList.toggle('ok', lv === 'ok');
+    });
+  },
+
+  renderLocDetail(snap, selected) {
+    const el = $('#loc-detail');
+    const loc = selected ? snap.locations.find((l) => l.id === selected) : null;
+    if (!loc) {
+      $('#detail-hint').textContent = '悬停库位查看';
+      el.innerHTML = `<div class="h"><span>库区汇总</span><span class="badge" style="background:rgba(53,198,212,.14);color:#b6ecf3">共 ${snap.total} 库位</span></div>
+        <div class="rows">
+          <div class="k">在库库位</div><div class="v">${snap.occupied} 个</div>
+          <div class="k">库位利用率</div><div class="v">${fmt(snap.rackUtil, 1)}%</div>
+          <div class="k">待检库位</div><div class="v">${snap.quarantineBatches} 个</div>
+          <div class="k">AGV 在线</div><div class="v">${snap.agvs.length} 台</div>
+        </div>
+        <div style="font-size:10.5px;color:var(--t-lo);margin-top:8px">将鼠标移到左侧立体库任意库位，查看物料批次 / 数量 / 库龄详情。</div>`;
+      return;
+    }
+    $('#detail-hint').textContent = loc.id;
+    const st = ZONE_STATUS[loc.status];
+    const badge = loc.status === 'occupied' ? 'background:rgba(53,198,212,.14);color:#b6ecf3'
+      : loc.status === 'quarantine' ? 'background:rgba(245,165,36,.14);color:#ffce6b'
+      : loc.status === 'locked' ? 'background:rgba(127,119,221,.16);color:#c7c1f5'
+      : loc.status === 'alert' ? 'background:rgba(244,84,76,.14);color:#ff9d97'
+      : 'background:rgba(100,116,139,.16);color:#9fb3d1';
+    if (loc.status === 'occupied') {
+      el.innerHTML = `<div class="h"><span>${loc.id}</span><span class="badge" style="${badge}">${st.label}</span></div>
+        <div class="rows">
+          <div class="k">物料</div><div class="v">${loc.material}</div>
+          <div class="k">批次号</div><div class="v" style="font-size:10.5px">${loc.batch}</div>
+          <div class="k">数量</div><div class="v">${fmt(loc.qty, 0)}</div>
+          <div class="k">库龄</div><div class="v">${loc.age} 天</div>
+          <div class="k">供应商</div><div class="v" style="font-size:10.5px">${loc.supplier}</div>
+          <div class="k">所属库区</div><div class="v">${loc.zoneName}</div>
+        </div>
+        <div style="font-size:10.5px;color:var(--t-lo);margin-top:8px">提示：成品批次可在「批次追溯查询」页正向追溯工艺链路；物料批次可反查投放范围。</div>`;
+    } else {
+      const note = loc.status === 'quarantine' ? '质量判定中，暂不可用（可用库存已排除）'
+        : loc.status === 'locked' ? '退货待处理，冻结中（可用库存已排除）'
+        : loc.status === 'alert' ? '库位异常（超期/破损），待处理' : '空库位，可分配';
+      el.innerHTML = `<div class="h"><span>${loc.id}</span><span class="badge" style="${badge}">${st.label}</span></div>
+        <div class="rows">
+          <div class="k">所属库区</div><div class="v">${loc.zoneName}</div>
+          <div class="k">列/层</div><div class="v">第 ${loc.col + 1} 列 / 第 ${loc.layer + 1} 层</div>
+        </div>
+        <div style="font-size:10.5px;color:var(--t-lo);margin-top:8px">${note}</div>`;
+    }
+  },
+
+  renderFlow(snap) {
+    $('#flow-cnt').textContent = `今日 ${snap.todayIn + snap.todayOut} 笔`;
+    $('#flow-list').innerHTML = snap.flow.map((f) => {
+      const dir = FLOW_TYPES[f.type] || 'in';
+      return `<div class="flow">
+        <span class="ty ${dir}">${dir === 'in' ? '入库' : '出库'}</span>
+        <span class="nm">${f.type} · ${f.material}</span>
+        <span class="bt">${f.time}</span>
+        <span class="qt">${fmt(f.qty, 0)}</span>
+      </div>`;
+    }).join('');
+  },
+
+  renderZones(snap) {
+    $('#zones').innerHTML = snap.zoneData.map((z) => `<div class="zone-card ${z.status === 'warn' ? 'warn' : ''}">
+      <div class="nm"><span>${z.name}</span></div>
+      <div class="v">${fmt(z.util, 0)}<span style="font-size:10px;color:var(--t-lo)">%</span></div>
+      <div class="k">利用率 · ${fmt(z.value, 0)} 万元</div>
+      <div class="bar"><i style="width:${clamp(z.util, 0, 100)}%;background:${z.status === 'warn' ? '#f5a524' : '#35c6d4'}"></i></div>
+    </div>`).join('');
+  },
+
+  renderChart(s) {
+    const labels = MockSource.series('24h', 'totalValue').map((p) => p.label);
+    Chart.dual('#c-stock',
+      { data: MockSource.series('24h', 'totalValue').map((p) => p.v), color: '#35c6d4' },
+      { data: MockSource.series('24h', 'availShare').map((p) => p.v), color: '#2ecc8f' }, labels);
+  },
+
+  renderKits(snap) {
+    $('#kit-cnt').textContent = `缺料 ${snap.shortOrders} 单`;
+    const stMap = { ok: { t: '齐套', c: 'ok' }, warn: { t: '部分齐套', c: 'warn' }, crit: { t: '缺料', c: 'crit' } };
+    $('#kit-list').innerHTML = KITS.map((k) => {
+      const st = stMap[k.status];
+      return `<div class="kit">
+        <span class="st ${st.c}">${st.t}</span>
+        <div class="tx"><div class="l1">${k.id} · ${k.prod} × ${fmt(k.qty, 0)}</div><div class="l2">${k.note}</div></div>
+      </div>`;
+    }).join('');
+  },
+
+  startTimer() {
+    if (this._timer) clearInterval(this._timer);
+    this._timer = setInterval(() => Store.dispatch({ type: 'TICK', snap: MockSource.tick() }), 3000);
+  },
+  startClock() {
+    const upd = () => { const d = new Date(); $('#clock-t').textContent = hhmmss(d);
+      $('#clock-d').textContent = `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())} 星期${'日一二三四五六'[d.getDay()]}`; };
+    upd(); setInterval(upd, 1000);
+  },
+};
+
+document.addEventListener('DOMContentLoaded', () => View.init());
+</script>
+</body>
+</html>

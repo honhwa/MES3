@@ -1,0 +1,693 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>成本孪生 · 泰州超级电容智能工厂</title>
+<style>
+  /* 主题令牌 —— 与运营大屏 / 驾驶舱 / 各孪生页保持一致 */
+  :root {
+    --bg-0:#050b16; --bg-1:#0a1424; --bg-2:#0f1d31; --bg-3:#16273f;
+    --c-primary:#2f81f7; --c-primary-glow:rgba(47,129,247,.35);
+    --c-ok:#2ecc8f; --c-warn:#f5a524; --c-crit:#f4544c; --c-info:#35c6d4;
+    --t-hi:#eaf2ff; --t-mid:#9fb3d1; --t-lo:#64789a; --t-dim:#3d4f6b;
+    --line:rgba(80,140,210,.16); --line-soft:rgba(80,140,210,.09);
+    --r-sm:4px; --r-md:8px; --r-lg:12px;
+    --shadow:0 4px 20px rgba(0,0,0,.45);
+    --scale:1;
+    --font:"HarmonyOS Sans SC","Microsoft YaHei",-apple-system,sans-serif;
+    --c-cost:#e0a32e;
+  }
+  *{margin:0;padding:0;box-sizing:border-box}
+  html,body{width:100%;height:100%;background:var(--bg-0);color:var(--t-hi);
+    font-family:var(--font);overflow:hidden;font-variant-numeric:tabular-nums}
+  #bg-deco{position:fixed;inset:0;z-index:0;pointer-events:none;
+    background:radial-gradient(ellipse 60% 45% at 50% -10%,rgba(224,163,46,.13),transparent 70%),
+               radial-gradient(ellipse 45% 40% at 90% 100%,rgba(53,198,212,.08),transparent 70%)}
+  #bg-grid{position:fixed;inset:0;z-index:0;pointer-events:none;opacity:.5;
+    background-image:linear-gradient(rgba(70,130,200,.055) 1px,transparent 1px),
+                     linear-gradient(90deg,rgba(70,130,200,.055) 1px,transparent 1px);
+    background-size:48px 48px}
+  #viewport{position:fixed;width:1920px;height:1080px;left:0;top:0;transform-origin:top left;z-index:1;
+    display:flex;flex-direction:column;padding:18px 22px;gap:14px}
+
+  .topbar{flex:0 0 auto;display:flex;align-items:center;gap:14px}
+  .topbar h1{font-size:22px;font-weight:600;letter-spacing:2px;
+    background:linear-gradient(90deg,#eaf2ff,#e8c47a);-webkit-background-clip:text;-webkit-text-fill-color:transparent}
+  .topbar .sub{font-size:11.5px;color:var(--t-lo);letter-spacing:1px;margin-top:3px}
+  .seg{display:flex;background:var(--bg-2);border:1px solid var(--line);border-radius:var(--r-md);overflow:hidden}
+  .seg button{border:0;background:transparent;color:var(--t-mid);font-size:12px;padding:6px 13px;cursor:pointer;font-family:var(--font)}
+  .seg button.active{background:rgba(224,163,46,.22);color:#f2d79a}
+  .seg button:hover:not(.active){color:var(--t-hi)}
+  .clock{margin-left:auto;text-align:right}
+  .clock .t{font-size:20px;font-weight:600;letter-spacing:1px}
+  .clock .d{font-size:11px;color:var(--t-lo)}
+  .live{display:flex;align-items:center;gap:6px;font-size:11.5px;color:var(--c-ok)}
+  .live i{width:7px;height:7px;border-radius:50%;background:var(--c-ok);animation:pulse 1.6s infinite}
+  @keyframes pulse{0%,100%{opacity:1}50%{opacity:.25}}
+
+  .hero{flex:0 0 auto;display:flex;gap:14px;align-items:stretch}
+  .score-card{flex:0 0 340px;background:linear-gradient(135deg,var(--bg-2),var(--bg-3));
+    border:1px solid var(--line);border-radius:var(--r-lg);padding:16px 18px;
+    display:flex;align-items:center;gap:16px;box-shadow:var(--shadow);position:relative;overflow:hidden}
+  .score-card::before{content:'';position:absolute;left:0;top:0;bottom:0;width:3px;background:var(--c-cost)}
+  .score-num{font-size:46px;font-weight:600;line-height:1;letter-spacing:-1px}
+  .score-num small{font-size:15px;color:var(--t-lo);font-weight:400}
+  .score-meta .lv{font-size:17px;font-weight:600;letter-spacing:2px}
+  .score-meta .ds{font-size:11.5px;color:var(--t-lo);margin-top:4px}
+  .concl{flex:1 1 auto;background:var(--bg-1);border:1px solid var(--line);border-radius:var(--r-lg);
+    padding:14px 18px;display:flex;flex-direction:column;justify-content:center;gap:8px;box-shadow:var(--shadow)}
+  .concl .row{display:flex;align-items:flex-start;gap:10px;font-size:13.5px;line-height:1.5}
+  .concl .row .dot{flex:0 0 auto;width:8px;height:8px;border-radius:50%;margin-top:6px}
+  .concl .row b{font-weight:500}
+
+  .kpis{flex:0 0 auto;display:grid;grid-template-columns:repeat(8,1fr);gap:12px}
+  .kpi{background:var(--bg-1);border:1px solid var(--line);border-radius:var(--r-md);
+    padding:11px 13px;position:relative;overflow:hidden;box-shadow:var(--shadow)}
+  .kpi::before{content:'';position:absolute;left:0;top:0;bottom:0;width:2.5px;background:var(--c-cost)}
+  .kpi .lb{font-size:11.5px;color:var(--t-lo)}
+  .kpi .vl{font-size:24px;font-weight:600;margin-top:5px;letter-spacing:.5px}
+  .kpi .vl small{font-size:11px;color:var(--t-lo);font-weight:400;margin-left:3px}
+  .kpi .tr{font-size:10.5px;color:var(--t-lo);margin-top:4px}
+  .kpi.warn::before{background:var(--c-warn)} .kpi.crit::before{background:var(--c-crit)} .kpi.ok::before{background:var(--c-ok)}
+
+  .grid{flex:1 1 auto;min-height:0;display:grid;grid-template-columns:430px 1fr;gap:14px}
+  .panel{background:var(--bg-1);border:1px solid var(--line);border-radius:var(--r-lg);
+    box-shadow:var(--shadow);display:flex;flex-direction:column;min-height:0;overflow:hidden}
+  .panel-head{flex:0 0 auto;display:flex;align-items:center;gap:8px;padding:10px 14px;
+    border-bottom:1px solid var(--line-soft);background:linear-gradient(90deg,rgba(224,163,46,.10),transparent 60%)}
+  .panel-head .tt{font-size:14px;font-weight:500;letter-spacing:1px;display:flex;align-items:center;gap:7px}
+  .panel-head .tt::before{content:'';width:3px;height:14px;background:var(--c-cost);border-radius:2px;
+    box-shadow:0 0 8px rgba(224,163,46,.45)}
+  .panel-head .sp{flex:1}
+  .panel-head .cnt{font-size:11px;color:var(--t-lo)}
+  .panel-body{flex:1 1 auto;min-height:0;padding:12px 14px;overflow:hidden;display:flex;flex-direction:column;gap:10px}
+
+  .alert-list{flex:1 1 auto;overflow-y:auto;display:flex;flex-direction:column;gap:8px;min-height:0}
+  .alert{display:flex;gap:10px;padding:9px 11px;border-radius:var(--r-md);background:var(--bg-2);
+    border:1px solid var(--line-soft);border-left:3px solid var(--t-lo)}
+  .alert.crit{border-left-color:var(--c-crit);background:rgba(244,84,76,.07)}
+  .alert.warn{border-left-color:var(--c-warn);background:rgba(245,165,36,.06)}
+  .alert .ic{flex:0 0 auto;width:26px;height:26px;border-radius:var(--r-sm);display:flex;align-items:center;
+    justify-content:center;font-size:13px;font-weight:600}
+  .alert.crit .ic{background:rgba(244,84,76,.18);color:#ffb3ae}
+  .alert.warn .ic{background:rgba(245,165,36,.16);color:#ffd98a}
+  .alert .tx{flex:1 1 auto;min-width:0}
+  .alert .tx .l1{font-size:12.5px;color:var(--t-hi);line-height:1.45}
+  .alert .tx .l2{font-size:10.5px;color:var(--t-lo);margin-top:3px}
+  .alert-empty{color:var(--t-lo);font-size:12.5px;text-align:center;padding:24px 0}
+
+  .charts{display:grid;grid-template-columns:1fr 1fr;grid-template-rows:1fr 1fr;gap:14px;min-height:0}
+  .chart-cell{background:var(--bg-1);border:1px solid var(--line);border-radius:var(--r-lg);
+    box-shadow:var(--shadow);display:flex;flex-direction:column;min-height:0;overflow:hidden}
+  .chart-box{flex:1 1 auto;min-height:0;position:relative;padding:6px 10px 10px}
+  .chart-box canvas{position:absolute;inset:0;width:100%;height:100%}
+  .legend{display:flex;gap:12px;font-size:10.5px;color:var(--t-mid)}
+  .legend i{display:inline-block;width:8px;height:8px;border-radius:2px;margin-right:4px;vertical-align:-1px}
+
+  .bottom{flex:0 0 auto;display:grid;grid-template-columns:1.5fr 1fr;gap:14px}
+  .lines{display:grid;grid-template-columns:repeat(4,1fr);gap:12px}
+  .line-card{background:var(--bg-1);border:1px solid var(--line);border-radius:var(--r-md);
+    padding:10px 13px;box-shadow:var(--shadow);border-left:3px solid var(--c-ok)}
+  .line-card.warn{border-left-color:var(--c-warn)}
+  .line-card.crit{border-left-color:var(--c-crit)}
+  .line-card .nm{font-size:12.5px;font-weight:500;display:flex;justify-content:space-between;align-items:center}
+  .line-card .st{font-size:10px;padding:1.5px 7px;border-radius:99px}
+  .line-card .st.ok{background:rgba(46,204,143,.14);color:#7fe3c0}
+  .line-card .st.warn{background:rgba(245,165,36,.14);color:#ffce6b}
+  .line-card .st.crit{background:rgba(244,84,76,.14);color:#ff9d97}
+  .line-card .metrics{display:flex;gap:14px;margin-top:8px}
+  .line-card .m .v{font-size:15px;font-weight:600}
+  .line-card .m .k{font-size:10px;color:var(--t-lo);margin-top:2px}
+  .bar{height:4px;background:rgba(80,140,210,.14);border-radius:99px;margin-top:9px;overflow:hidden}
+  .bar i{display:block;height:100%;border-radius:99px;background:var(--c-cost)}
+
+  .foot{flex:0 0 auto;display:flex;justify-content:space-between;font-size:10.5px;color:var(--t-dim)}
+</style>
+</head>
+<body>
+<div id="bg-deco"></div>
+<div id="bg-grid"></div>
+<div id="viewport">
+  <div class="topbar">
+    <div>
+      <h1>成本孪生</h1>
+      <div class="sub">泰州超级电容智能工厂 · 单只成本 / 构成 / 良率损失 / 峰谷电费分析 · 数据每 3 秒自动刷新</div>
+    </div>
+    <div class="seg" id="range-seg">
+      <button data-range="1h">近1小时</button>
+      <button data-range="6h">近6小时</button>
+      <button data-range="24h" class="active">近24小时</button>
+      <button data-range="7d">近7天</button>
+    </div>
+    <div class="live"><i></i>LIVE</div>
+    <div class="clock"><div class="t" id="clock-t">--:--:--</div><div class="d" id="clock-d">----</div></div>
+  </div>
+
+  <div class="hero">
+    <div class="score-card">
+      <div class="score-num" id="score-num">--<small>元/只</small></div>
+      <div class="score-meta">
+        <div class="lv" id="score-lv">评估中</div>
+        <div class="ds" id="score-ds">今日单只制造成本</div>
+      </div>
+    </div>
+    <div class="concl" id="concl"></div>
+  </div>
+
+  <div class="kpis" id="kpis"></div>
+
+  <div class="grid">
+    <div class="panel">
+      <div class="panel-head"><div class="tt">成本告警与降本建议</div><div class="sp"></div><div class="cnt" id="alert-cnt"></div></div>
+      <div class="panel-body"><div class="alert-list" id="alert-list"></div></div>
+    </div>
+    <div class="charts">
+      <div class="chart-cell">
+        <div class="panel-head">
+          <div class="tt">单只成本构成趋势</div><div class="sp"></div>
+          <div class="legend"><span><i style="background:#e0a32e"></i>材料</span><span><i style="background:#2f81f7"></i>人工</span><span><i style="background:#2ecc8f"></i>能耗</span><span><i style="background:#7f77dd"></i>制费</span><span><i style="background:#f4544c"></i>质量损失</span></div>
+        </div>
+        <div class="chart-box"><canvas id="c-stack"></canvas></div>
+      </div>
+      <div class="chart-cell">
+        <div class="panel-head">
+          <div class="tt">成本构成占比</div><div class="sp"></div>
+          <div class="legend"><span><i style="background:#e0a32e"></i>材料</span><span><i style="background:#2f81f7"></i>人工</span><span><i style="background:#2ecc8f"></i>能耗</span><span><i style="background:#7f77dd"></i>制费</span><span><i style="background:#f4544c"></i>质量损失</span></div>
+        </div>
+        <div class="chart-box"><canvas id="c-donut"></canvas></div>
+      </div>
+      <div class="chart-cell">
+        <div class="panel-head">
+          <div class="tt">单只成本瀑布（元/只）</div><div class="sp"></div>
+          <div class="legend"><span><i style="background:#e0a32e"></i>材料</span><span><i style="background:#f4544c"></i>质量损失</span><span><i style="background:#35c6d4"></i>合计</span></div>
+        </div>
+        <div class="chart-box"><canvas id="c-water"></canvas></div>
+      </div>
+      <div class="chart-cell">
+        <div class="panel-head">
+          <div class="tt">峰谷电量占比与电费</div><div class="sp"></div>
+          <div class="legend"><span><i style="background:#f4544c"></i>尖峰</span><span><i style="background:#f5a524"></i>高峰</span><span><i style="background:#2ecc8f"></i>平段</span><span><i style="background:#35c6d4"></i>低谷</span></div>
+        </div>
+        <div class="chart-box"><canvas id="c-peak"></canvas></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="bottom">
+    <div class="lines" id="lines"></div>
+    <div class="panel" style="padding:0">
+      <div class="panel-head"><div class="tt">关键说明</div></div>
+      <div class="panel-body" style="overflow-y:auto">
+        <div style="font-size:12px;line-height:1.7;color:var(--t-mid)">
+          · 单只成本 = 材料 + 人工 + 能耗 + 制造费用 + 质量损失，口径与驾驶舱同源。<br/>
+          · 良率损失成本 = 不良只数 × 单只材料成本（含返工/报废分摊），随良率实时联动。<br/>
+          · 峰谷电费按尖峰/高峰/平段/低谷四时段电量与分时电价测算，指导负荷调度。<br/>
+          · 碳成本含配额履约与 CCER 抵消准备，与能源碳模块口径一致。<br/>
+          · 本页为演示数据（确定性模拟），成本为**演示测算口径、非财务决算口径**，正式成本以财务核算为准。
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="foot">
+    <span>数据来源：MES 成本核算 / 质量损失 / 能源碳模块（演示数据为确定性模拟，口径与各业务模块一致）</span>
+    <span id="foot-update"></span>
+  </div>
+</div>
+
+<script>
+"use strict";
+/* ================= 基础工具 ================= */
+const $ = (s) => document.querySelector(s);
+const clamp = (v, a, b) => Math.min(b, Math.max(a, v));
+const fmt = (v, d = 1) => Number(v).toLocaleString('zh-CN', { minimumFractionDigits: d, maximumFractionDigits: d });
+function makeRng(seed) { let s = seed >>> 0; return () => { s = (s * 1664525 + 1013904223) >>> 0; return s / 4294967296; }; }
+const pad2 = (n) => String(n).padStart(2, '0');
+const hhmmss = (d) => `${pad2(d.getHours())}:${pad2(d.getMinutes())}:${pad2(d.getSeconds())}`;
+const hhmm = (d) => `${pad2(d.getHours())}:${pad2(d.getMinutes())}`;
+
+const LINES = [
+  { id: 'L1', name: 'L1 卷绕线', zone: 'A 区' },
+  { id: 'L2', name: 'L2 涂布线', zone: 'A 区' },
+  { id: 'L3', name: 'L3 装配线', zone: 'B 区' },
+  { id: 'L4', name: 'L4 化成线', zone: 'B 区' },
+];
+const COST_TARGET = 8.00;   // 目标单只制造成本（元/只）
+
+/* ================= MockSource ================= */
+const THRESHOLDS = {
+  costAchieve: { warn: 96, crit: 90, dir: 'below' },   // 达成率 = 目标/实际 ×100，越低越差
+  yieldRate: { warn: 97.5, crit: 96.0, dir: 'below' },
+};
+
+const MockSource = {
+  _rng: null, _seed: 20261015, _history: [],
+
+  reset(seed) {
+    this._seed = seed ?? this._seed;
+    this._rng = makeRng(this._seed);
+    this._history = [];
+    for (let i = 24; i > 0; i--) this._history.push(this._build(new Date(Date.now() - i * 3600e3)));
+  },
+  tick() {
+    const snap = this._build(new Date());
+    this._history.push(snap);
+    if (this._history.length > 400) this._history.shift();
+    return snap;
+  },
+  series(rangeId, key) {
+    const r = { '1h': { points: 12, stepMs: 5 * 60e3 }, '6h': { points: 12, stepMs: 30 * 60e3 },
+                '24h': { points: 24, stepMs: 3600e3 }, '7d': { points: 7, stepMs: 24 * 3600e3 } }[rangeId]
+              || { points: 24, stepMs: 3600e3 };
+    const now = Date.now();
+    const out = [];
+    for (let i = r.points - 1; i >= 0; i--) {
+      const t = now - i * r.stepMs;
+      let snap = null, best = Infinity;
+      for (const h of this._history) { const d = Math.abs(h.t - t); if (d < best) { best = d; snap = h; } }
+      const v = snap ? (key.indexOf('c.') === 0 ? snap.costBreak[key.slice(2)] : snap[key]) : 0;
+      out.push({ t, v,
+        label: r.stepMs >= 24 * 3600e3 ? `${new Date(t).getMonth() + 1}/${new Date(t).getDate()}` : hhmm(new Date(t)) });
+    }
+    return out;
+  },
+  _jitter(base, pct, rng) { return base * (1 + (rng() - 0.5) * 2 * pct); },
+
+  _build(t) {
+    const rng = this._rng;
+    const output = Math.round(this._jitter(12800, .05, rng));       // 今日产量(只)，与生产/质量页同量级
+    const yieldRate = clamp(this._jitter(98.05, .005, rng), 95, 100); // 良品率，与质量页同源口径
+    const matCost = clamp(this._jitter(6.03, .015, rng), 5.6, 6.5);   // 材料
+    const laborCost = clamp(this._jitter(0.82, .02, rng), 0.7, 0.95); // 人工
+    const energyCost = clamp(this._jitter(0.58, .03, rng), 0.45, 0.72); // 能耗
+    const overheadCost = clamp(this._jitter(0.87, .02, rng), 0.75, 1.0); // 制造费用
+    // 质量损失（元/只）：不良率 × 单只材料成本 × 返工/报废综合系数
+    const lossPer = clamp((100 - yieldRate) / 100 * matCost * 0.32, 0.02, 0.4);
+    const unitCost = matCost + laborCost + energyCost + overheadCost + lossPer;
+    const costAchieve = COST_TARGET / unitCost * 100;
+    const badCount = Math.round(output * (100 - yieldRate) / 100);
+    const qualityLoss = lossPer * output;                            // 元/日
+    const quotaUsed = clamp(this._jitter(68, .12, rng), 20, 96);     // 碳配额使用率，与能源碳模块口径
+    const carbonCost = clamp(this._jitter(1860, .15, rng), 400, 4200); // 元/日（配额+CCER 准备）
+    const saving = Math.max(0, (unitCost - COST_TARGET) * output);   // 距目标降本空间 元/日
+    const costPer10k = unitCost * 10000 / 10000;                     // 万元/万只
+    const costBreak = { mat: matCost, labor: laborCost, energy: energyCost, overhead: overheadCost, loss: lossPer };
+
+    const lineData = LINES.map((l) => {
+      const uc = clamp(this._jitter(unitCost, .03, rng), 7.4, 9.4);
+      const lv = uc <= COST_TARGET ? 'ok' : uc <= COST_TARGET * 1.08 ? 'warn' : 'crit';
+      return { id: l.id, name: l.name, zone: l.zone, unitCost: uc,
+        matShare: clamp(this._jitter(matCost / uc * 100, .04, rng), 62, 80),
+        energyShare: clamp(this._jitter(energyCost / uc * 100, .06, rng), 4, 12), status: lv };
+    });
+
+    return { t: t.getTime(), time: hhmmss(t), output, yieldRate, matCost, laborCost, energyCost,
+      overheadCost, lossPer, unitCost, costAchieve, badCount, qualityLoss, quotaUsed, carbonCost,
+      saving, costPer10k, costBreak, lineData };
+  },
+};
+
+function evalThreshold(key, value) {
+  const th = THRESHOLDS[key];
+  if (!th) return 'ok';
+  const v = Number(value);
+  if (th.dir === 'below') { if (v <= th.crit) return 'crit'; if (v <= th.warn) return 'warn'; }
+  else { if (v >= th.crit) return 'crit'; if (v >= th.warn) return 'warn'; }
+  return 'ok';
+}
+
+/* ================= Store ================= */
+const Store = {
+  state: { snap: null, range: '24h', tickCount: 0, prev: null },
+  _subs: [],
+  subscribe(fn) { this._subs.push(fn); return () => { this._subs = this._subs.filter((f) => f !== fn); }; },
+  get() { return this.state; },
+  dispatch(action) {
+    const s = this.state;
+    switch (action.type) {
+      case 'TICK': s.prev = s.snap; s.snap = action.snap; s.tickCount++; break;
+      case 'RANGE': s.range = action.range; break;
+    }
+    this._subs.forEach((f) => f(s, action));
+  },
+};
+
+/* ================= 图表（原生 Canvas，零依赖） ================= */
+const C_MAT = '#e0a32e', C_LABOR = '#2f81f7', C_ENERGY = '#2ecc8f', C_OVER = '#7f77dd', C_LOSS = '#f4544c';
+
+const Chart = {
+  _prep(sel) {
+    const cv = $(sel); if (!cv) return null;
+    const rect = cv.getBoundingClientRect();
+    const dpr = window.devicePixelRatio || 1;
+    const w = Math.max(rect.width, 10), h = Math.max(rect.height, 10);
+    cv.width = w * dpr; cv.height = h * dpr;
+    const ctx = cv.getContext('2d');
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx.clearRect(0, 0, w, h);
+    return { ctx, w, h };
+  },
+  dual(sel, left, right, labels) {
+    const p = this._prep(sel); if (!p) return;
+    const { ctx, w, h } = p;
+    const padL = 46, padR = 46, padT = 12, padB = 22;
+    const cw = w - padL - padR, ch = h - padT - padB;
+    if (cw <= 0 || ch <= 0) return;
+    const rangeOf = (arr) => { const vs = arr.filter((v) => isFinite(v)); let mn = Math.min(...vs), mx = Math.max(...vs);
+      if (!isFinite(mn) || !isFinite(mx)) { mn = 0; mx = 1; } if (mx === mn) { mx += 1; mn -= 1; }
+      const pd = (mx - mn) * 0.12; return [mn - pd, mx + pd]; };
+    const [lmn, lmx] = rangeOf(left.data), [rmn, rmx] = rangeOf(right.data);
+    const n = Math.max(left.data.length, right.data.length); if (!n) return;
+    const xOf = (i) => padL + cw * i / Math.max(1, n - 1);
+    ctx.font = '10px sans-serif'; ctx.textBaseline = 'middle';
+    for (let i = 0; i <= 4; i++) {
+      const y = padT + ch * i / 4;
+      ctx.strokeStyle = 'rgba(80,140,210,.10)'; ctx.beginPath(); ctx.moveTo(padL, y); ctx.lineTo(padL + cw, y); ctx.stroke();
+      ctx.fillStyle = '#64789a'; ctx.textAlign = 'right'; ctx.fillText(fmt(lmx - (lmx - lmn) * i / 4, 1), padL - 6, y);
+      ctx.textAlign = 'left'; ctx.fillText(fmt(rmx - (rmx - rmn) * i / 4, 1), padL + cw + 6, y);
+    }
+    if (labels && labels.length) { ctx.textAlign = 'center'; ctx.fillStyle = '#64789a';
+      const step = Math.max(1, Math.floor(labels.length / 6));
+      for (let i = 0; i < labels.length; i += step) ctx.fillText(labels[i], clamp(xOf(i), padL + 14, padL + cw - 14), padT + ch + 12); }
+    const draw = (s, mn, mx, color, fill) => {
+      const yOf = (v) => padT + ch - ((clamp(v, mn, mx) - mn) / Math.max(1e-9, mx - mn)) * ch;
+      if (fill) { const g = ctx.createLinearGradient(0, padT, 0, padT + ch); g.addColorStop(0, color + '4d'); g.addColorStop(1, color + '00');
+        ctx.fillStyle = g; ctx.beginPath(); ctx.moveTo(xOf(0), padT + ch); s.forEach((v, i) => ctx.lineTo(xOf(i), yOf(v))); ctx.lineTo(xOf(s.length - 1), padT + ch); ctx.closePath(); ctx.fill(); }
+      ctx.strokeStyle = color; ctx.lineWidth = 1.8; ctx.lineJoin = 'round';
+      ctx.beginPath(); s.forEach((v, i) => (i === 0 ? ctx.moveTo(xOf(i), yOf(v)) : ctx.lineTo(xOf(i), yOf(v)))); ctx.stroke();
+      ctx.fillStyle = color; ctx.beginPath(); ctx.arc(xOf(s.length - 1), yOf(s[s.length - 1]), 2.6, 0, Math.PI * 2); ctx.fill();
+    };
+    draw(left.data, lmn, lmx, left.color, true); draw(right.data, rmn, rmx, right.color, false);
+  },
+  bars(sel, items) {
+    const p = this._prep(sel); if (!p) return;
+    const { ctx, w, h } = p;
+    const padL = 92, padR = 56, padT = 10, padB = 8;
+    const cw = w - padL - padR, ch = h - padT - padB;
+    if (cw <= 0 || ch <= 0) return;
+    const rowH = ch / items.length;
+    const mx = Math.max(...items.map((i) => i.value)) || 1;
+    ctx.font = '11px sans-serif'; ctx.textBaseline = 'middle';
+    items.forEach((it, i) => {
+      const y = padT + rowH * i + rowH / 2;
+      const bw = cw * clamp(it.value / mx, 0, 1);
+      ctx.fillStyle = '#9fb3d1'; ctx.textAlign = 'left'; ctx.fillText(it.name, 4, y);
+      ctx.fillStyle = 'rgba(80,140,210,.10)'; ctx.beginPath(); ctx.rect(padL, y - rowH * 0.26, cw, rowH * 0.52); ctx.fill();
+      ctx.fillStyle = it.color; ctx.beginPath(); ctx.rect(padL, y - rowH * 0.26, bw, rowH * 0.52); ctx.fill();
+      ctx.fillStyle = '#eaf2ff'; ctx.textAlign = 'left'; ctx.fillText(fmt(it.value, 1) + '%', padL + bw + 6, y);
+    });
+  },
+  /** 堆积面积图：多序列逐层累加 */
+  stacked(sel, series, labels) {
+    const p = this._prep(sel); if (!p) return;
+    const { ctx, w, h } = p;
+    const padL = 40, padR = 12, padT = 12, padB = 22;
+    const cw = w - padL - padR, ch = h - padT - padB;
+    if (cw <= 0 || ch <= 0) return;
+    const n = series[0]?.data.length || 0; if (!n) return;
+    const totals = [];
+    for (let i = 0; i < n; i++) totals.push(series.reduce((a, s) => a + (s.data[i] || 0), 0));
+    let mx = Math.max(...totals), mn = Math.min(...totals);
+    const pd = (mx - mn) * 0.15 || 0.1; mx += pd; mn = Math.max(0, mn - pd);
+    const xOf = (i) => padL + cw * i / Math.max(1, n - 1);
+    const yOf = (v) => padT + ch - ((clamp(v, mn, mx) - mn) / Math.max(1e-9, mx - mn)) * ch;
+    ctx.font = '10px sans-serif'; ctx.textBaseline = 'middle';
+    for (let i = 0; i <= 4; i++) {
+      const y = padT + ch * i / 4;
+      ctx.strokeStyle = 'rgba(80,140,210,.10)'; ctx.beginPath(); ctx.moveTo(padL, y); ctx.lineTo(padL + cw, y); ctx.stroke();
+      ctx.fillStyle = '#64789a'; ctx.textAlign = 'right'; ctx.fillText(fmt(mx - (mx - mn) * i / 4, 1), padL - 4, y);
+    }
+    if (labels && labels.length) { ctx.textAlign = 'center'; ctx.fillStyle = '#64789a';
+      const step = Math.max(1, Math.floor(labels.length / 6));
+      for (let i = 0; i < labels.length; i += step) ctx.fillText(labels[i], clamp(xOf(i), padL + 14, padL + cw - 14), padT + ch + 12); }
+    let base = new Array(n).fill(0);
+    series.forEach((s) => {
+      const top = s.data.map((v, i) => base[i] + (v || 0));
+      ctx.beginPath(); ctx.moveTo(xOf(0), yOf(base[0]));
+      for (let i = 0; i < n; i++) ctx.lineTo(xOf(i), yOf(base[i]));
+      for (let i = n - 1; i >= 0; i--) ctx.lineTo(xOf(i), yOf(top[i]));
+      ctx.closePath();
+      const g = ctx.createLinearGradient(0, padT, 0, padT + ch);
+      g.addColorStop(0, s.color + 'cc'); g.addColorStop(1, s.color + '66');
+      ctx.fillStyle = g; ctx.fill();
+      base = top;
+    });
+  },
+  /** 环形图：构成占比 + 中心合计 */
+  donut(sel, items, centerLabel, centerValue) {
+    const p = this._prep(sel); if (!p) return;
+    const { ctx, w, h } = p;
+    const total = items.reduce((a, b) => a + b.value, 0) || 1;
+    const cx = w / 2, cy = h / 2, R = Math.min(w, h) / 2 - 18, r = R * 0.62;
+    let a0 = -Math.PI / 2;
+    ctx.font = '10px sans-serif'; ctx.textBaseline = 'middle';
+    items.forEach((it) => {
+      const a1 = a0 + (it.value / total) * Math.PI * 2;
+      ctx.fillStyle = it.color;
+      ctx.beginPath(); ctx.arc(cx, cy, R, a0, a1); ctx.arc(cx, cy, r, a1, a0, true); ctx.closePath(); ctx.fill();
+      // 占比标签
+      const mid = (a0 + a1) / 2, lr = R + 0;
+      if (it.value / total >= 0.05) {
+        ctx.fillStyle = '#eaf2ff'; ctx.textAlign = 'center';
+        ctx.fillText(`${(it.value / total * 100).toFixed(1)}%`, cx + Math.cos(mid) * lr, cy + Math.sin(mid) * lr);
+      }
+      a0 = a1;
+    });
+    ctx.fillStyle = '#eaf2ff'; ctx.textAlign = 'center'; ctx.textBaseline = 'alphabetic';
+    ctx.font = '600 20px sans-serif'; ctx.fillText(centerValue, cx, cy + 2);
+    ctx.fillStyle = '#64789a'; ctx.font = '10px sans-serif'; ctx.fillText(centerLabel, cx, cy + 18);
+  },
+  /** 瀑布图：start 起柱 + delta 增量柱 + total 合计柱 */
+  waterfall(sel, steps) {
+    const p = this._prep(sel); if (!p) return;
+    const { ctx, w, h } = p;
+    const padL = 40, padR = 12, padT = 14, padB = 30;
+    const cw = w - padL - padR, ch = h - padT - padB;
+    if (cw <= 0 || ch <= 0 || !steps.length) return;
+    let cum = 0; const pos = [];
+    steps.forEach((s) => {
+      if (s.type === 'start') { pos.push({ x0: 0, x1: s.value, cum0: 0, cum1: s.value, s }); cum = s.value; }
+      else if (s.type === 'delta') { pos.push({ x0: cum, x1: cum + s.value, cum0: cum, cum1: cum + s.value, s }); cum += s.value; }
+      else { pos.push({ x0: 0, x1: cum, cum0: 0, cum1: cum, s }); }
+    });
+    const mx = Math.max(...pos.map((p) => p.x1)) * 1.08 || 1;
+    const bw = cw / steps.length * 0.6;
+    ctx.font = '10px sans-serif'; ctx.textBaseline = 'middle';
+    for (let i = 0; i <= 4; i++) {
+      const y = padT + ch * i / 4;
+      ctx.strokeStyle = 'rgba(80,140,210,.10)'; ctx.beginPath(); ctx.moveTo(padL, y); ctx.lineTo(padL + cw, y); ctx.stroke();
+      ctx.fillStyle = '#64789a'; ctx.textAlign = 'right'; ctx.fillText(fmt(mx - mx * i / 4, 1), padL - 4, y);
+    }
+    pos.forEach((pp, i) => {
+      const x = padL + cw * (i + 0.5) / steps.length;
+      const y0 = padT + ch - ch * pp.x0 / mx, y1 = padT + ch - ch * pp.x1 / mx;
+      ctx.fillStyle = pp.s.type === 'total' ? '#35c6d4' : (pp.s.color || '#e0a32e');
+      ctx.beginPath(); ctx.rect(x - bw / 2, Math.min(y0, y1), bw, Math.max(2, Math.abs(y1 - y0))); ctx.fill();
+      ctx.fillStyle = '#eaf2ff'; ctx.textAlign = 'center';
+      const val = pp.s.type === 'delta' ? (pp.s.value > 0 ? '+' + fmt(pp.s.value, 2) : fmt(pp.s.value, 2)) : fmt(pp.x1, 2);
+      ctx.fillText(val, x, Math.min(y0, y1) - 5);
+      ctx.fillStyle = '#9fb3d1'; ctx.font = '9.5px sans-serif';
+      ctx.fillText(pp.s.label, x, padT + ch + 12);
+      ctx.font = '10px sans-serif';
+    });
+  },
+};
+
+/* ================= View ================= */
+const KPI_DEFS = [
+  { key: 'unitCost', label: '单只制造成本', unit: '元/只', get: (s) => fmt(s.unitCost, 2), sub: () => `目标 ${fmt(COST_TARGET, 2)}` },
+  { key: 'costAchieve', label: '目标达成率', unit: '%', get: (s) => fmt(s.costAchieve, 1), sub: () => `目标/实际` },
+  { key: 'matCost', label: '单只材料成本', unit: '元/只', get: (s) => fmt(s.matCost, 2), sub: (s) => `占比 ${fmt(s.matCost / s.unitCost * 100, 1)}%` },
+  { key: 'qualityLoss', label: '良率损失成本', unit: '元/日', get: (s) => fmt(s.qualityLoss, 0), sub: (s) => `不良 ${fmt(s.badCount, 0)} 只` },
+  { key: 'energyCost', label: '单只能耗成本', unit: '元/只', get: (s) => fmt(s.energyCost, 2), sub: () => `峰谷优化中` },
+  { key: 'carbonCost', label: '碳成本(配额+CCER)', unit: '元/日', get: (s) => fmt(s.carbonCost, 0), sub: (s) => `配额已用 ${fmt(s.quotaUsed, 0)}%` },
+  { key: 'saving', label: '距目标降本空间', unit: '元/日', get: (s) => fmt(s.saving, 0), sub: () => `较目标测算` },
+  { key: 'costPer10k', label: '万只制造成本', unit: '万元', get: (s) => fmt(s.unitCost, 2), sub: () => `便于对账` },
+];
+
+const View = {
+  _timer: null,
+
+  init() {
+    MockSource.reset();
+    this.buildKpis();
+    this.buildRangeSegs();
+    this.bindEvents();
+    Store.dispatch({ type: 'TICK', snap: MockSource.tick() });
+    this.startTimer();
+    this.startClock();
+    this.fit();
+  },
+
+  buildKpis() {
+    $('#kpis').innerHTML = KPI_DEFS.map((d) => `
+      <div class="kpi ok" data-k="${d.key}">
+        <div class="lb">${d.label}</div>
+        <div class="vl"><span data-v>--</span><small>${d.unit}</small></div>
+        <div class="tr"><span data-s></span></div>
+      </div>`).join('');
+  },
+
+  buildRangeSegs() {
+    $('#range-seg').addEventListener('click', (e) => {
+      const b = e.target.closest('button'); if (!b) return;
+      $('#range-seg').querySelectorAll('button').forEach((x) => x.classList.toggle('active', x === b));
+      Store.dispatch({ type: 'RANGE', range: b.dataset.range });
+    });
+  },
+
+  bindEvents() {
+    Store.subscribe((s) => this.render(s));
+    window.addEventListener('resize', () => this.fit());
+  },
+
+  fit() {
+    const scale = Math.min(window.innerWidth / 1920, window.innerHeight / 1080);
+    document.documentElement.style.setProperty('--scale', scale);
+    const vp = $('#viewport');
+    vp.style.transform = `scale(${scale})`;
+    vp.style.left = `${(window.innerWidth - 1920 * scale) / 2}px`;
+    vp.style.top = `${(window.innerHeight - 1080 * scale) / 2}px`;
+  },
+
+  render(s) {
+    const snap = s.snap; if (!snap) return;
+    this.renderScore(snap);
+    this.renderKpis(snap);
+    this.renderAlerts(snap);
+    this.renderCharts(s);
+    this.renderLines(snap);
+    $('#foot-update').textContent = `更新于 ${snap.time} · 第 ${s.tickCount} 次刷新`;
+  },
+
+  renderScore(snap) {
+    const gap = (snap.unitCost - COST_TARGET) / COST_TARGET * 100;
+    const lv = gap <= 1.5 ? { t: '成本受控', c: '#2ecc8f' }
+      : gap <= 6 ? { t: '接近目标', c: '#f5a524' }
+      : { t: '超目标', c: '#f4544c' };
+    $('#score-num').innerHTML = `${fmt(snap.unitCost, 2)}<small>元/只</small>`;
+    $('#score-num').style.color = lv.c;
+    $('#score-lv').textContent = lv.t;
+    $('#score-lv').style.color = lv.c;
+    const alerts = collectAlerts(snap);
+    const concl = [];
+    concl.push(`<div class="row"><span class="dot" style="background:${lv.c}"></span>
+      <span><b>总体判断：${lv.t}</b>。今日单只制造成本 ${fmt(snap.unitCost, 2)} 元，较目标 ${fmt(COST_TARGET, 2)} 元${gap >= 0 ? '高' : '低'} ${fmt(Math.abs(gap), 1)}%，主要超支在材料（占比 ${fmt(snap.matCost / snap.unitCost * 100, 1)}%）。</span></div>`);
+    if (alerts.length === 0) {
+      concl.push(`<div class="row"><span class="dot" style="background:#2ecc8f"></span><span>成本各项均处于目标区间，暂无降本升级事项。</span></div>`);
+    } else {
+      concl.push(`<div class="row"><span class="dot" style="background:#f5a524"></span>
+        <span><b>${alerts.length} 项需关注：</b>${alerts.map((a) => a.text).join('；')}。</span></div>`);
+    }
+    concl.push(`<div class="row"><span class="dot" style="background:#35c6d4"></span>
+      <span>良率 ${fmt(snap.yieldRate, 2)}% 对应良率损失成本 ${fmt(snap.qualityLoss, 0)} 元/日（不良 ${fmt(snap.badCount, 0)} 只）；距目标降本空间约 ${fmt(snap.saving, 0)} 元/日。</span></div>`);
+    $('#concl').innerHTML = concl.join('');
+  },
+
+  renderKpis(snap) {
+    KPI_DEFS.forEach((d) => {
+      const card = $(`.kpi[data-k="${d.key}"]`); if (!card) return;
+      card.querySelector('[data-v]').textContent = d.get(snap);
+      card.querySelector('[data-s]').textContent = d.sub(snap);
+      const lv = d.key === 'costAchieve' ? evalThreshold('costAchieve', snap.costAchieve)
+        : d.key === 'unitCost' ? (snap.unitCost <= COST_TARGET ? 'ok' : snap.unitCost <= COST_TARGET * 1.08 ? 'warn' : 'crit')
+        : 'ok';
+      card.classList.toggle('warn', lv === 'warn');
+      card.classList.toggle('crit', lv === 'crit');
+      card.classList.toggle('ok', lv === 'ok');
+    });
+  },
+
+  renderAlerts(snap) {
+    const alerts = collectAlerts(snap);
+    $('#alert-cnt').textContent = `当前 ${alerts.length} 项`;
+    if (!alerts.length) { $('#alert-list').innerHTML = '<div class="alert-empty">暂无成本告警，各项均处于目标区间</div>'; return; }
+    $('#alert-list').innerHTML = alerts.map((a) => `
+      <div class="alert ${a.level}">
+        <div class="ic">${a.level === 'crit' ? '!' : '⚠'}</div>
+        <div class="tx"><div class="l1">${a.text}</div><div class="l2">${a.action}</div></div>
+      </div>`).join('');
+  },
+
+  renderCharts(s) {
+    const range = s.range;
+    const labels = MockSource.series(range, 'output').map((p) => p.label);
+    Chart.stacked('#c-stack', [
+      { data: MockSource.series(range, 'c.mat').map((p) => p.v), color: C_MAT },
+      { data: MockSource.series(range, 'c.labor').map((p) => p.v), color: C_LABOR },
+      { data: MockSource.series(range, 'c.energy').map((p) => p.v), color: C_ENERGY },
+      { data: MockSource.series(range, 'c.overhead').map((p) => p.v), color: C_OVER },
+      { data: MockSource.series(range, 'c.loss').map((p) => p.v), color: C_LOSS },
+    ], labels);
+    Chart.donut('#c-donut', [
+      { name: '材料', value: s.snap.matCost, color: C_MAT },
+      { name: '人工', value: s.snap.laborCost, color: C_LABOR },
+      { name: '能耗', value: s.snap.energyCost, color: C_ENERGY },
+      { name: '制费', value: s.snap.overheadCost, color: C_OVER },
+      { name: '质量损失', value: s.snap.lossPer, color: C_LOSS },
+    ], '单只成本合计', fmt(s.snap.unitCost, 2) + ' 元');
+    Chart.waterfall('#c-water', [
+      { label: '材料', value: s.snap.matCost, type: 'start', color: C_MAT },
+      { label: '质量损失', value: s.snap.lossPer, type: 'delta', color: C_LOSS },
+      { label: '人工', value: s.snap.laborCost, type: 'delta', color: C_LABOR },
+      { label: '能耗', value: s.snap.energyCost, type: 'delta', color: C_ENERGY },
+      { label: '制费', value: s.snap.overheadCost, type: 'delta', color: C_OVER },
+      { label: '单只成本', value: 0, type: 'total' },
+    ]);
+    Chart.bars('#c-peak', [
+      { name: '尖峰(19-21h)', value: 12.4, color: '#f4544c' },
+      { name: '高峰(8-11/13-19h)', value: 28.6, color: '#f5a524' },
+      { name: '平段(11-13/21-23h)', value: 36.2, color: '#2ecc8f' },
+      { name: '低谷(23-8h)', value: 22.8, color: '#35c6d4' },
+    ]);
+  },
+
+  renderLines(snap) {
+    $('#lines').innerHTML = snap.lineData.map((l) => {
+      const lv = l.status;
+      return `<div class="line-card ${lv === 'ok' ? '' : lv}">
+        <div class="nm"><span>${l.name} · ${l.zone}</span><span class="st ${lv}">${lv === 'ok' ? '达标' : lv === 'warn' ? '偏高' : '超支'}</span></div>
+        <div class="metrics">
+          <div class="m"><div class="v">${fmt(l.unitCost, 2)}</div><div class="k">单只成本(元)</div></div>
+          <div class="m"><div class="v">${fmt(l.matShare, 1)}%</div><div class="k">材料占比</div></div>
+          <div class="m"><div class="v">${fmt(l.energyShare, 1)}%</div><div class="k">能耗占比</div></div>
+        </div>
+        <div class="bar"><i style="width:${clamp(l.unitCost / COST_TARGET * 100, 0, 130)}%;background:${lv === 'ok' ? '#2ecc8f' : lv === 'warn' ? '#f5a524' : '#f4544c'}"></i></div>
+      </div>`;
+    }).join('');
+  },
+
+  startTimer() {
+    if (this._timer) clearInterval(this._timer);
+    this._timer = setInterval(() => Store.dispatch({ type: 'TICK', snap: MockSource.tick() }), 3000);
+  },
+  startClock() {
+    const upd = () => { const d = new Date(); $('#clock-t').textContent = hhmmss(d);
+      $('#clock-d').textContent = `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())} 星期${'日一二三四五六'[d.getDay()]}`; };
+    upd(); setInterval(upd, 1000);
+  },
+};
+
+function collectAlerts(snap) {
+  const out = [];
+  if (snap.unitCost > COST_TARGET * 1.08) out.push({ key: 'unitCost', level: 'crit',
+    text: `单只成本 ${fmt(snap.unitCost, 2)} 元，超目标 ${fmt((snap.unitCost - COST_TARGET) / COST_TARGET * 100, 1)}%`,
+    action: '建议：分解材料/能耗/制费超支项，制定专项降本' });
+  else if (snap.unitCost > COST_TARGET * 1.015) out.push({ key: 'unitCost', level: 'warn',
+    text: `单只成本 ${fmt(snap.unitCost, 2)} 元，略超目标 ${fmt((snap.unitCost - COST_TARGET) / COST_TARGET * 100, 1)}%`,
+    action: '建议：关注材料单价波动与产线单耗' });
+  if (snap.qualityLoss > 1500) out.push({ key: 'qualityLoss', level: snap.qualityLoss > 2400 ? 'crit' : 'warn',
+    text: `良率损失成本 ${fmt(snap.qualityLoss, 0)} 元/日（不良 ${fmt(snap.badCount, 0)} 只）`,
+    action: '建议：按质量孪生帕累托推进失效模式整改' });
+  if (snap.quotaUsed >= 85) out.push({ key: 'quota', level: snap.quotaUsed >= 92 ? 'crit' : 'warn',
+    text: `碳配额使用率 ${fmt(snap.quotaUsed, 0)}%`, action: '建议：评估节电调度与 CCER 抵消准备' });
+  if (snap.energyCost > 0.66) out.push({ key: 'energyCost', level: 'warn',
+    text: `单只能耗成本 ${fmt(snap.energyCost, 2)} 元，偏高`, action: '建议：优化尖峰时段负荷，移峰填谷' });
+  return out;
+}
+
+document.addEventListener('DOMContentLoaded', () => View.init());
+</script>
+</body>
+</html>
