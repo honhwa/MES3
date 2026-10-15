@@ -85,6 +85,9 @@
     padding:calc(5px*var(--scale)) calc(12px*var(--scale));background:var(--bg-2);color:var(--t-mid);
     border:1px solid var(--line);border-radius:var(--r-sm);cursor:pointer;transition:all .16s}
   .btn:hover{background:var(--bg-3);color:var(--t-hi);border-color:var(--c-info)}
+  .zoom-ctrl{display:inline-flex;align-items:center;gap:calc(4px*var(--scale))}
+  .zoom-ctrl .zb{width:calc(28px*var(--scale));padding:calc(5px*var(--scale)) 0;text-align:center;font-weight:700;font-size:calc(14px*var(--scale))}
+  .zoom-pct{min-width:calc(46px*var(--scale));text-align:center;font-size:calc(12px*var(--scale));color:var(--t-hi);font-weight:600}
 
   #legend{display:flex;align-items:center;gap:calc(14px*var(--scale));font-size:calc(12px*var(--scale))}
   .lg{display:inline-flex;align-items:center;gap:calc(5px*var(--scale));color:var(--t-mid)}
@@ -128,6 +131,8 @@
   .param-tbl tr.bad td{color:var(--c-crit)}
   .bar{height:calc(4px*var(--scale));background:var(--bg-3);border-radius:2px;margin-top:calc(3px*var(--scale));overflow:hidden}
   .bar>i{display:block;height:100%;border-radius:2px}
+  .rack{display:flex;flex-direction:column;height:150px;border:1px solid var(--line);border-radius:var(--r-sm);overflow:hidden;margin-bottom:calc(6px*var(--scale))}
+  .ru{display:flex;align-items:center;padding:0 calc(6px*var(--scale));font-size:calc(10px*var(--scale));color:#eaf2ff;border-bottom:1px solid rgba(0,0,0,.28);min-height:0;overflow:hidden;white-space:nowrap}
 
   #alert-panel{flex:1 1 44%;min-height:0;display:flex;flex-direction:column}
   #alert-body{flex:1 1 auto;min-height:0;overflow-y:auto}
@@ -197,6 +202,12 @@
       <div class="panel-head">
         <div class="panel-title">网络拓扑（核心 → 汇聚 → 接入 → 终端 · 点击节点查看详情）</div>
         <span class="spacer"></span>
+        <div class="zoom-ctrl">
+          <button class="btn zb" id="zoom-out" title="缩小">−</button>
+          <span class="zoom-pct" id="zoom-pct">100%</span>
+          <button class="btn zb" id="zoom-in" title="放大">＋</button>
+          <button class="btn" id="zoom-reset" title="重置视图">↺ 重置视图</button>
+        </div>
         <span class="ctrl-label">滚轮缩放 · 拖拽平移</span>
       </div>
       <div class="panel-body"><div id="topo-wrap"><canvas id="topo"></canvas></div></div>
@@ -276,6 +287,7 @@ const MockSource = {
           ip: `10.${LI[L.id]+20}.${i+1}.${10+i}`,
           status:'ok', mac:'', since: Date.now(),
           metrics:{},   // cpu/mem/带宽/时延/丢包/终端数
+          rack: L.id==='core' ? this._rack(i) : null,   // 数据中心机柜下钻数据
         });
       }
     });
@@ -292,6 +304,23 @@ const MockSource = {
   _link(a,b,speed){
     this.links.push({ id:`LK-${a.name}-${b.name}`, from:a.id, to:b.id, speed,
       status:'ok', since: Date.now() });
+  },
+
+  // 数据中心机柜下钻数据：42U 设备布局 + 上行端口连接（核心层节点专用）
+  _rack(i){
+    const devs=[
+      {u:42,name:'PDU 电源分配',model:'PDU-32A',ports:0,status:'ok'},
+      {u:38,name:'核心交换机(主)',model:'S12700E',ports:48,status:'ok'},
+      {u:33,name:'核心交换机(备)',model:'S12700E',ports:48,status:'ok'},
+      {u:26,name:'应用服务器',model:'R5300',ports:4,status: i===1?'crit':'ok'},
+      {u:21,name:'数据库服务器',model:'R5300',ports:4,status:'ok'},
+      {u:14,name:'光纤配线架 ODF',model:'ODF-48',ports:48,status:'ok'},
+      {u:1, name:'理线 / 预留',model:'—',ports:0,status:'ok'},
+    ];
+    const ports=[];
+    for(let k=1;k<=6;k++) ports.push({ no:`10GE1/0/${k}`, to:`AGG-0${((i+k)%3)+1}`, status: (i===1&&k===3)?'crit':'ok' });
+    return { rackNo:`DC-R${String(i+1).padStart(2,'0')}`, heightU:42,
+      usedU: devs.reduce((a,d)=>a+(d.name.includes('预留')?10:5),0), devices:devs, ports };
   },
 
   _find(id){ return this.nodes.find(n=>n.id===id); },
@@ -389,7 +418,10 @@ const Store = {
 /* ---------- 拓扑绘制：分层 + 链路 ---------- */
 const Topo = {
   cv:null, ctx:null, w:0, h:0, zoom:1, panX:0, panY:0,
-  hit:[], linkHit:[], dragging:false, lastX:0, lastY:0, moved:false,
+  hit:[], dragging:false, lastX:0, lastY:0, moved:false,
+  // 分层链路色（按上游层级）+ 带宽→线宽
+  LAYER_COLOR:{ core:'#a78bfa', agg:'#35c6d4', acc:'#2f81f7', term:'#5b9cf5' },
+  LINK_WIDTH:{ '40G':3.4, '10G':2.3, '1G':1.5 },
 
   init(sel){ this.cv=$(sel); this.ctx=this.cv.getContext('2d'); this._bind(); },
 
@@ -412,9 +444,21 @@ const Topo = {
       Store.dispatch({type:'SELECT', id: n ? n.id : null});
     });
     cv.addEventListener('wheel', e=>{ e.preventDefault();
-      this.zoom = clamp(this.zoom*(e.deltaY<0?1.1:0.9), 0.5, 2.5); View.render();
+      const r=cv.getBoundingClientRect();
+      this.zoomAt(e.clientX-r.left, e.clientY-r.top, e.deltaY<0?1.12:0.89);   // 以鼠标为锚缩放画布，不影响页面滚动
     },{passive:false});
   },
+
+  // 以画布坐标 (mx,my) 为锚缩放（该点世界坐标不动），仅作用于画布内容
+  zoomAt(mx,my,factor){
+    const nz=clamp(this.zoom*factor,0.4,3.2);
+    const wx=(mx-this.panX)/this.zoom, wy=(my-this.panY)/this.zoom;
+    this.zoom=nz; this.panX=mx-wx*nz; this.panY=my-wy*nz;
+    View.render(); if (View.updateZoomLabel) View.updateZoomLabel();
+  },
+  zoomBy(f){ this.zoomAt(this.w/2, this.h/2, f); },
+  resetView(){ this.zoom=1; this.panX=0; this.panY=0; View.render(); if (View.updateZoomLabel) View.updateZoomLabel(); },
+  zoomPct(){ return Math.round(this.zoom*100)+'%'; },
 
   _tip(e){
     const n=this._pick(e), tip=$('#tip');
@@ -440,7 +484,7 @@ const Topo = {
 
   color(st){ return st==='crit'?'#f4544c':st==='warn'?'#f5a524':'#2ecc8f'; },
 
-  /** 计算某层某节点的目标位置（未做等距变换，纯 2D 分层） */
+  /** 计算某层某节点的世界坐标位置（缩放/平移在 draw 里统一做 world→screen） */
   layout(nodes, layerFilter){
     const pos = {};
     // 左侧留出固定栏宽给层名标签，避免标签被节点压住
@@ -454,7 +498,7 @@ const Topo = {
         pos[nd.id] = {
           x: LEFT + t * (this.w - LEFT - 20),
           y: this.h * L.y,
-          r: (nd.layer==='core'?17:nd.layer==='agg'?14:nd.layer==='acc'?12:9) * clamp(this.zoom,0.7,1.4),
+          r: (nd.layer==='core'?17:nd.layer==='agg'?14:nd.layer==='acc'?12:9),
         };
       });
     });
@@ -472,97 +516,109 @@ const Topo = {
     this.hit=[];
 
     const pos = this.layout(nodes, layerFilter);
-    const T = (p) => ({ x: p.x + this.panX, y: p.y + this.panY });
+    const z = this.zoom;
+    const T = (p) => ({ x: p.x*z + this.panX, y: p.y*z + this.panY });   // world→screen
+    const RS = (v) => v * clamp(z, 0.7, 1.5);                            // 尺寸随缩放（钳制）
 
     // —— ① 层带背景 + 层名 ——
     LAYERS.forEach(L => {
-      const y = this.h * L.y + this.panY;
+      const y = this.h * L.y * z + this.panY, bandH = this.h*0.17*z;
       const dim = layerFilter!=='ALL' && layerFilter!==L.id;
       ctx.fillStyle = dim ? 'rgba(20,40,68,.10)' : 'rgba(20,40,68,.22)';
-      ctx.fillRect(0, y - this.h*0.085, this.w, this.h*0.17);
+      ctx.fillRect(0, y - bandH/2, this.w, bandH);
       ctx.strokeStyle = dim ? 'rgba(80,140,210,.08)' : 'rgba(80,140,210,.20)';
       ctx.lineWidth=1;
       ctx.setLineDash([5,5]);
-      ctx.beginPath(); ctx.moveTo(0, y-this.h*0.085); ctx.lineTo(this.w, y-this.h*0.085); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(0, y-bandH/2); ctx.lineTo(this.w, y-bandH/2); ctx.stroke();
       ctx.setLineDash([]);
       // 层名（⚠ Canvas 的 fillStyle 不认 CSS 变量，必须写字面色值）
       ctx.fillStyle = dim ? '#3d4f6b' : '#9fb3d1';
       ctx.font='bold 12px sans-serif'; ctx.textAlign='left'; ctx.textBaseline='middle';
-      ctx.fillText(`${L.icon} ${L.name}`, 10, y - this.h*0.085 + 12);
+      ctx.fillText(`${L.icon} ${L.name}`, 10, y - bandH/2 + 12);
       ctx.font='10px sans-serif'; ctx.fillStyle = dim ? '#33445c' : '#64789a';
-      ctx.fillText(L.desc, 10, y - this.h*0.085 + 26);
+      ctx.fillText(L.desc, 10, y - bandH/2 + 26);
     });
 
-    // —— ② 链路（先画，压在节点下）——
+    // —— ② 链路：分层配色 + 带宽粗细 + 告警加粗标红 ——
     links.forEach(l => {
       const a = pos[l.from], b = pos[l.to];
       if (!a || !b) return;
       const A = T(a), B = T(b);
-      const down = pos[l.to].y >= pos[l.from].y;   // 是否下行
-      // 贝塞尔：下行走平滑曲线，上行走底部绕线
+      const fromNode = nodes.find(n=>n.id===l.from);
+      const baseCol = this.LAYER_COLOR[fromNode?fromNode.layer:'acc'] || '#2f81f7';
+      const down = b.y >= a.y;
       const mx = (A.x+B.x)/2;
       const my = down ? A.y + Math.abs(B.y-A.y)*0.55 : A.y - Math.abs(B.y-A.y)*0.45;
       ctx.beginPath(); ctx.moveTo(A.x,A.y);
       ctx.quadraticCurveTo(mx, my, B.x, B.y);
-      const col = l.status==='crit' ? 'rgba(244,84,76,.85)' : l.status==='warn' ? 'rgba(245,165,36,.7)' : 'rgba(47,129,247,.42)';
-      ctx.strokeStyle = col;
-      ctx.lineWidth = l.status==='crit' ? 2.2 : 1.2;
-      if (l.status==='crit') ctx.setLineDash([6,4]); else ctx.setLineDash([]);
-      ctx.stroke();
-      ctx.setLineDash([]);
+      const lw = RS(this.LINK_WIDTH[l.speed] || 2);
+      if (l.status==='crit'){ ctx.strokeStyle='#f4544c'; ctx.lineWidth=Math.max(2.6,lw*1.2); ctx.setLineDash([7,4]); }
+      else if (l.status==='warn'){ ctx.strokeStyle='#f5a524'; ctx.lineWidth=lw; }
+      else { ctx.strokeStyle=baseCol; ctx.globalAlpha=.72; ctx.lineWidth=lw; }
+      ctx.stroke(); ctx.globalAlpha=1; ctx.setLineDash([]);
 
-      // 中断链路：中间画断口标记
+      // 告警链路：中点断口 + 红色脉冲告警点
       if (l.status==='crit'){
-        const mx2 = (A.x+B.x)/2, my2 = (A.y+my+B.y)/2;
+        const mx2=(A.x+B.x)/2, my2=(A.y+my+B.y)/2;
         ctx.strokeStyle='#f4544c'; ctx.lineWidth=2.4;
         ctx.beginPath();
         ctx.moveTo(mx2-5,my2-5); ctx.lineTo(mx2+5,my2+5);
         ctx.moveTo(mx2+5,my2-5); ctx.lineTo(mx2-5,my2+5);
         ctx.stroke();
+        const tp=(Date.now()/700)%1;
+        ctx.beginPath(); ctx.arc(mx2,my2,2.5+tp*4,0,Math.PI*2);
+        ctx.fillStyle=`rgba(244,84,76,${(1-tp)*0.8})`; ctx.fill();
       }
     });
 
-    // —— ③ 节点 ——
+    // —— ③ 节点 + 实时 mini 指标（CPU/带宽/时延）——
     LAYERS.forEach(L => {
       nodes.filter(n=>n.layer===L.id).forEach(n => {
         const p = pos[n.id]; if (!p) return;
-        const P = T(p);
+        const P = T(p), R = RS(p.r);
         const c = this.color(n.status);
         const sel = Store.get().selected === n.id;
         const dim = layerFilter!=='ALL' && layerFilter!==L.id;
 
         // 选中光晕
         if (sel){
-          ctx.beginPath(); ctx.arc(P.x,P.y,p.r+9,0,Math.PI*2);
+          ctx.beginPath(); ctx.arc(P.x,P.y,R+9,0,Math.PI*2);
           ctx.fillStyle='rgba(53,198,212,.16)'; ctx.fill();
         }
         // 故障脉冲圈
         if (n.status==='crit' && !dim){
           const t=(Date.now()/520)%1;
-          ctx.beginPath(); ctx.arc(P.x,P.y,p.r+4+t*13,0,Math.PI*2);
+          ctx.beginPath(); ctx.arc(P.x,P.y,R+4+t*13,0,Math.PI*2);
           ctx.strokeStyle=`rgba(244,84,76,${(1-t)*0.6})`; ctx.lineWidth=2; ctx.stroke();
         }
         // 主体
-        ctx.beginPath(); ctx.arc(P.x,P.y,p.r,0,Math.PI*2);
+        ctx.beginPath(); ctx.arc(P.x,P.y,R,0,Math.PI*2);
         ctx.fillStyle = dim ? c+'33' : c+'dd';
         ctx.fill();
         ctx.strokeStyle = sel ? '#fff' : c; ctx.lineWidth = sel?2.6:1.6; ctx.stroke();
         // 中心层图标点
-        ctx.beginPath(); ctx.arc(P.x,P.y,Math.max(2,p.r*0.28),0,Math.PI*2);
+        ctx.beginPath(); ctx.arc(P.x,P.y,Math.max(2,R*0.28),0,Math.PI*2);
         ctx.fillStyle='rgba(6,18,30,.85)'; ctx.fill();
 
         // 名称
         ctx.fillStyle = dim?'#3d4f6b':(sel?'#fff':'#cfe0f5');
         ctx.font=(sel?'bold ':'')+'11px sans-serif';
         ctx.textAlign='center'; ctx.textBaseline='top';
-        ctx.fillText(n.name, P.x, P.y+p.r+4);
+        ctx.fillText(n.name, P.x, P.y+R+4);
+        // 实时 mini 指标：核心/汇聚层直接显示 CPU/带宽/时延
+        const showMini = (n.layer==='core'||n.layer==='agg') && !dim;
+        if (showMini){
+          ctx.font='9px sans-serif';
+          ctx.fillStyle = n.status==='crit'?'#f4544c':(n.status==='warn'?'#f5a524':'#64789a');
+          ctx.fillText(`CPU ${n.metrics.cpu.toFixed(0)}% · 带宽 ${n.metrics.bw.toFixed(0)}% · ${n.metrics.lat.toFixed(0)}ms`, P.x, P.y+R+17);
+        }
         // 核心/汇聚层补 IP
         if ((n.layer==='core'||n.layer==='agg') && !dim){
           ctx.font='9px sans-serif'; ctx.fillStyle='#4a5d78';
-          ctx.fillText(n.ip, P.x, P.y+p.r+17);
+          ctx.fillText(n.ip, P.x, P.y+R+(showMini?29:17));
         }
 
-        this.hit.push({ x:P.x-p.r-4, y:P.y-p.r-4, w:p.r*2+8, h:p.r*2+26, node:n });
+        this.hit.push({ x:P.x-R-4, y:P.y-R-4, w:R*2+8, h:R*2+(showMini?42:26), node:n });
       });
     });
   },
@@ -584,7 +640,12 @@ const View = {
       LAYERS.map(l=>`<button data-layer="${l.id}">${l.icon} ${l.name}</button>`).join('');
     $('#seg-layer').onclick = e=>{ const b=e.target.closest('button'); if(!b) return; Store.dispatch({type:'LAYER',layer:b.dataset.layer}); };
     $('#btn-reset').onclick = ()=>{ MockSource.reset(Date.now()%100000); Store.dispatch({type:'TICK',snap:MockSource.tick()}); this.toast('拓扑数据已重置'); };
+    $('#zoom-in').onclick = ()=>Topo.zoomBy(1.2);
+    $('#zoom-out').onclick = ()=>Topo.zoomBy(1/1.2);
+    $('#zoom-reset').onclick = ()=>{ Topo.resetView(); this.toast('视图已重置'); };
+    this.updateZoomLabel();
   },
+  updateZoomLabel(){ const el=$('#zoom-pct'); if (el) el.textContent=Topo.zoomPct(); },
 
   bind(){ Store.subscribe((s,a)=>this.render(s,a)); window.addEventListener('resize',()=>this.fit()); },
 
@@ -604,6 +665,7 @@ const View = {
   toast(m){ const t=$('#toast'); t.textContent=m; t.classList.add('show'); clearTimeout(this._tt); this._tt=setTimeout(()=>t.classList.remove('show'),1800); },
 
   render(s){
+    s = s || Store.get();
     if (!s.snap) return;
     const snap=s.snap;
     const dim = L => s.layer==='ALL' || s.layer===L;
@@ -689,10 +751,34 @@ const View = {
           return `<tr><td>${on?on.name:other}</td><td>${l.speed}</td>
             <td class="v" style="color:${this.lkColor(l.status)}">${l.status==='crit'?'中断':l.status==='warn'?'降级':'正常'}</td></tr>`;
         }).join('')}
-        </tbody></table>`;
+        </tbody></table>
+      ${n.rack ? this.rackHtml(n.rack) : ''}`;
   },
 
   lkColor(st){ return st==='crit'?'var(--c-crit)':st==='warn'?'var(--c-warn)':'var(--c-ok)'; },
+
+  // 机柜下钻：42U 布局 + 设备清单 + 上行端口连接
+  rackHtml(rack){
+    const util = Math.round(rack.usedU/rack.heightU*100);
+    const bar = rack.devices.map(d=>{
+      const flex = d.name.includes('预留')?10:5;
+      const col = d.name.includes('预留') ? 'var(--bg-3)'
+                : d.name.includes('交换机') ? 'var(--c-info)'
+                : d.name.includes('服务器') ? 'var(--c-primary)' : 'var(--t-dim)';
+      return `<div class="ru" style="flex:${flex};background:${col}"><span>U${d.u} ${d.name}</span></div>`;
+    }).join('');
+    const devRows = rack.devices.map(d=>`<tr><td>U${d.u}</td><td>${d.name}</td><td>${d.model}</td>
+      <td class="v">${d.ports||'—'}</td>
+      <td class="v" style="color:${d.status==='crit'?'var(--c-crit)':'var(--c-ok)'}">${d.status==='crit'?'告警':'正常'}</td></tr>`).join('');
+    const portRows = rack.ports.map(p=>`<tr><td>${p.no}</td><td>${p.to}</td>
+      <td class="v" style="color:${p.status==='crit'?'var(--c-crit)':'var(--c-ok)'}">${p.status==='crit'?'中断':'连通'}</td></tr>`).join('');
+    return `<div class="sub-title">🏢 机房机柜下钻 · ${rack.rackNo}（42U · 已用 ${rack.usedU}U · 利用率 ${util}%）</div>
+      <div class="rack">${bar}</div>
+      <div class="sub-title">机柜设备</div>
+      <table class="param-tbl"><thead><tr><th>U位</th><th>设备</th><th>型号</th><th style="text-align:right">端口</th><th style="text-align:right">状态</th></tr></thead><tbody>${devRows}</tbody></table>
+      <div class="sub-title">上行端口连接</div>
+      <table class="param-tbl"><thead><tr><th>端口</th><th>对端</th><th style="text-align:right">状态</th></tr></thead><tbody>${portRows}</tbody></table>`;
+  },
 
   renderAlerts(snap){
     const box=$('#alert-body');
