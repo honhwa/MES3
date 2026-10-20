@@ -369,17 +369,27 @@ public static partial class MesDatabase
             : lineMatch.RecommendedReason;
         rec.RecommendedLine = line;
 
-        // ---- ④ 线体负载 → 最早开工时间 ----
-        var load = GetLineLoad(line, at);
+        // ---- ④ 线体时间线 → 最早开工时间（含换型；与"模拟插单"共用同一内核） ----
+        // 口径统一（2026-10-20）：新单排在队尾 = 队尾完工时间 + 换型（队尾型号 → 本型号），
+        // 再叠加本单生产周期。不再用「at + Σ工时/16h」那种不含换型的算法——
+        // 那样会和插单页、CTP 页各差一截，同一个 PO 出现三个完工日。
+        var load = GetLineLoad(line, at);          // 负载信息（工时口径）仍用于展示与加班测算
         rec.LineLoad = load;
-        rec.LineOpenWoNos = WorkOrders
-            .Where(w => IsOpenWorkOrder(w) && LineEquals(w.Line, line))
-            .OrderBy(w => w.DueDate)
-            .Select(w => w.WoNo)
-            .ToList();
 
-        rec.PlannedStart = load.EarliestFreeTime > at ? load.EarliestFreeTime : at;
+        var timeline = BuildLineTimeline(line, at);
+        rec.Timeline = timeline;
+        rec.LineOpenWoNos = timeline.Items.Where(i => i.IsWorkOrder).Select(i => i.TaskNo).ToList();
+
+        var append = AppendToLineTail(line, po.ProductModel, rec.RequiredHours, at);
+        rec.IncomingChangeoverMinutes = append.ChangeoverMinutes;
+        rec.PlannedStart = append.Start > at ? append.Start : at;
         rec.PlannedFinish = rec.PlannedStart.AddDays(rec.RequiredHours / SchedulingRules.DailyCapacityHours);
+
+        // 插队口径（老单顺延）：线体正在跑队首型号 → 换型起点是它，紧急单立刻上
+        var jumpCo = GetChangeoverInfo(timeline.HeadModel, po.ProductModel);
+        rec.PlannedFinishIfJumpQueue = at.AddMinutes(jumpCo.Minutes)
+            .AddDays(rec.RequiredHours / SchedulingRules.DailyCapacityHours);
+
         rec.SlackDays = (po.DueDate - rec.PlannedFinish).TotalDays;
 
         // ---- ⑤ 风险判定与处置建议 ----
@@ -390,7 +400,7 @@ public static partial class MesDatabase
             rec.RiskText = $"按 {line} 现有负载推算，最早 {rec.PlannedStart:MM-dd} 才能开工，"
                            + $"预计 {rec.PlannedFinish:MM-dd} 完工，比交期晚 {lateDays:0.#} 天。";
 
-            // 备选：换到更闲的线体
+            // 备选：换到更闲的线体（同样用时间线，避免"推荐线含换型、备选线不含"的口径不一致）
             var alt = KnownLines()
                 .Where(l => !LineEquals(l, line))
                 .Select(l => new { Line = l, Load = GetLineLoad(l, at) })
@@ -398,8 +408,10 @@ public static partial class MesDatabase
                 .FirstOrDefault();
             if (alt is not null)
             {
-                var altStart = alt.Load.EarliestFreeTime > at ? alt.Load.EarliestFreeTime : at;
-                var altFinish = altStart.AddDays(rec.RequiredHours / SchedulingRules.DailyCapacityHours);
+                var altAppend = AppendToLineTail(alt.Line, po.ProductModel, rec.RequiredHours, at);
+                var altFinish = altAppend.Finish > at.AddDays(rec.RequiredHours / SchedulingRules.DailyCapacityHours)
+                    ? altAppend.Finish
+                    : at.AddDays(rec.RequiredHours / SchedulingRules.DailyCapacityHours);
                 var altSlack = (po.DueDate - altFinish).TotalDays;
                 rec.AlternateLine = alt.Line;
                 rec.AlternateReason = altSlack >= 0
@@ -495,7 +507,9 @@ public static partial class MesDatabase
                 : $"⑥ 线体负载：{rec.RecommendedLine} 有 {rec.LineLoad.OpenWoCount} 张在手"
                   + $"（{string.Join("、", rec.LineOpenWoNos)}），剩余 {rec.LineLoad.RemainingHours:0.#}h"
                   + $" ≈ {rec.LineLoad.DaysToClear:0.#} 个生产日",
-            $"⑦ 建议开工 {rec.PlannedStart:yyyy-MM-dd HH:mm}（= 该线手上活干完的时间与当前时间取晚者）",
+            $"⑦ 建议开工 {rec.PlannedStart:yyyy-MM-dd HH:mm}（= 队尾完工 {rec.Timeline?.TailFinish:MM-dd HH:mm} + {rec.IncomingChangeoverText}；"
+              + $"队尾型号 {(string.IsNullOrEmpty(rec.Timeline?.TailModel) ? "线体空闲" : rec.Timeline!.TailModel)}）"
+              + $"｜插队对照：{rec.JumpQueueText}",
             $"⑧ 本单工时 = 投产 {rec.InputQty} × 单位工时 {rec.UnitHours * 3600:0.0} 秒 = {rec.RequiredHours:0.#}h"
               + $" ≈ {rec.RequiredHours / SchedulingRules.DailyCapacityHours:0.#} 个生产日"
               + $"（每日有效产能 {SchedulingRules.DailyCapacityHours:0.#}h）",

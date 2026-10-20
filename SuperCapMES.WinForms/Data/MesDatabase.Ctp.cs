@@ -251,19 +251,15 @@ public static partial class MesDatabase
                 MaterialText = materialText
             };
 
-            // 线体当前在制型号（换型起点）
-            var inProcess = WorkOrders
-                .Where(w => IsOpenWorkOrder(w) && LineEquals(w.Line, line))
-                .OrderBy(w => w.DueDate)
-                .ThenBy(w => w.WoNo, StringComparer.Ordinal)
-                .FirstOrDefault();
-            opt.FromModel = inProcess?.ProductModel ?? "";
+            // 线体时间线（与智能排产/插单同一内核）：队尾型号是换型起点，队尾完工是排队结束
+            var timeline = BuildLineTimeline(line, at);
+            opt.FromModel = timeline.TailModel;
 
-            var co = GetChangeoverInfo(opt.FromModel, q.ProductModel);
+            var co = GetChangeoverInfo(timeline.TailModel, q.ProductModel);
             opt.Changeover = co;
 
-            var load = GetLineLoad(line, at);
-            opt.LineFreeTime = load.EarliestFreeTime > at ? load.EarliestFreeTime : at;
+            var load = GetLineLoad(line, at);          // 仅用于"在制张数/剩余工时"的展示
+            opt.LineFreeTime = timeline.TailFinish > at ? timeline.TailFinish : at;
             opt.PlannedStart = opt.LineFreeTime.AddMinutes(co.Minutes);
             opt.PlannedFinish = opt.PlannedStart.AddDays(requiredHours / SchedulingRules.DailyCapacityHours);
 
@@ -308,7 +304,8 @@ public static partial class MesDatabase
 
             opt.Evidence.Add($"换型：{(opt.FromModel.Length == 0 ? "线体空闲" : $"在制 {opt.FromModel}")} → {q.ProductModel}，"
                            + $"{co.MinutesText}（{co.DetailText}）");
-            opt.Evidence.Add($"排队：线体在制 {load.OpenWoCount} 张 / 剩余 {load.RemainingHours:0.#} h → 最早 {opt.LineFreeTime:MM-dd HH:mm} 腾出");
+            opt.Evidence.Add($"排队：线体在制 {load.OpenWoCount} 张 / 剩余 {load.RemainingHours:0.#} h，"
+                           + $"含段间换型 {timeline.ChangeoverMinutes} 分 → 队尾 {opt.LineFreeTime:MM-dd HH:mm} 腾出");
             opt.Evidence.Add($"生产：{inputQty} 只 × {unitHours:0.00000} h ÷ {SchedulingRules.DailyCapacityHours:0.#} h/天 = "
                            + $"{requiredHours / SchedulingRules.DailyCapacityHours:0.##} 天 → {opt.PlannedFinish:MM-dd} 完工");
             opt.Evidence.Add($"物料：{(shortageCount == 0 ? "齐套" : $"{shortageCount} 项短缺，{materialReadyDate:MM-dd} 到料")}");

@@ -18,8 +18,15 @@ public sealed class UrgentAffectedWo
     public DateTime DueDate { get; set; }
     public DateTime OldFinish { get; set; }
     public DateTime NewFinish { get; set; }
+
+    /// <summary>对交期的影响（天）：新完工晚于交期的部分，0 = 仍能按期</summary>
     public double DelayDays { get; set; }
-    public string DelayText => DelayDays <= 0.01 ? "不受影响" : $"延期 {DelayDays:0.#} 天";
+
+    /// <summary>顺延量（天）：新完工比原计划完工晚多少（与交期无关，反映"被推后了多久"）</summary>
+    public double ShiftDays { get; set; }
+
+    public string DelayText => DelayDays <= 0.01 ? "仍按期" : $"超交期 {DelayDays:0.#} 天";
+    public string ShiftText => ShiftDays <= 0.01 ? "无需顺延" : $"顺延 {ShiftDays:0.#} 天";
     public string OldFinishText => OldFinish.ToString("MM-dd HH:mm");
     public string NewFinishText => NewFinish.ToString("MM-dd HH:mm");
     public string DueText => DueDate.ToString("MM-dd");
@@ -48,9 +55,21 @@ public sealed class UrgentPlan
     public DateTime UrgentFinish { get; set; }
     public bool UrgentOnTime { get; set; }
     public int AffectedWoCount { get; set; }
+
+    /// <summary>最大超交期天数（老单本身可能早已超期，属于历史问题，不参与评分）</summary>
     public double MaxDelayDays { get; set; }
+
+    /// <summary>最大顺延天数（本次插单让老单多等了多久 —— 这才是插单方案应付的代价）</summary>
+    public double MaxShiftDays { get; set; }
     public List<UrgentAffectedWo> Affected { get; set; } = new();
     public int ChangeoverMinutes { get; set; }
+
+    /// <summary>时间线口径：队首插入 / 分段插空 / 队尾追加（三方案与基线只有插入位置不同）</summary>
+    public string TimelineBasis { get; set; } = "";
+
+    /// <summary>相对基线（队尾追加 = 智能排产结论）可提前的天数；负数表示比排队更晚</summary>
+    public double GainVsBaselineDays { get; set; }
+
     public double CapacityLossHours { get; set; }
     public double Total { get; set; }
     public List<UrgentScoreDim> Scores { get; set; } = new();
@@ -59,10 +78,36 @@ public sealed class UrgentPlan
 
     public string TotalText => $"{Total:0.#}";
     public string OnTimeText => UrgentOnTime ? "紧急单可准时" : "紧急单将延期";
-    public string DelayText => MaxDelayDays <= 0.01 ? "老单无延期" : $"老单最大延期 {MaxDelayDays:0.#} 天";
+    public string DelayText => MaxShiftDays <= 0.01 ? "老单无顺延" : $"老单最大顺延 {MaxShiftDays:0.#} 天";
     public string AffectedText => AffectedWoCount == 0 ? "无老单受影响" : $"{AffectedWoCount} 单受影响";
     public string ChangeText => $"换型 {ChangeoverMinutes} 分钟";
     public string FinishText => UrgentFinish.ToString("MM-dd HH:mm");
+    public string GainText => Math.Abs(GainVsBaselineDays) < 0.01
+        ? "与排队一致"
+        : GainVsBaselineDays > 0 ? $"比排队提前 {GainVsBaselineDays:0.#} 天" : $"比排队晚 {-GainVsBaselineDays:0.#} 天";
+}
+
+/// <summary>
+/// 插单基线：把紧急单**排到线体队尾**（= 智能排产的推荐结论）。
+/// 三方案都与这条基线比，页面才有"插队到底能提前多少、代价是什么"的参照。
+/// </summary>
+public sealed class UrgentBaseline
+{
+    public string Line { get; set; } = "";
+    public int ChangeoverMinutes { get; set; }
+    public DateTime Start { get; set; }
+    public DateTime Finish { get; set; }
+    public bool OnTime { get; set; }
+
+    /// <summary>排队时前面还有几张在制工单</summary>
+    public int QueueWorkOrderCount { get; set; }
+
+    public string StartText => Start.ToString("MM-dd HH:mm");
+    public string FinishText => Finish.ToString("MM-dd HH:mm");
+    public string OnTimeText => OnTime ? "可准时" : "将延期";
+    public string ChangeoverText => ChangeoverMinutes <= 0 ? "无需换型" : $"换型 {ChangeoverMinutes} 分钟";
+    public string BaselineText =>
+        $"基线（不插队，= 智能排产）：{Line} 队尾追加，前面 {QueueWorkOrderCount} 张在制 → {StartText} 开工 / {FinishText} 完工（{OnTimeText}）";
 }
 
 /// <summary>插单模拟整体结果</summary>
@@ -79,5 +124,11 @@ public sealed class UrgentInsertSimulation
     public string RecommendedPlanId { get; set; } = "";
     public List<string> Notes { get; set; } = new();
 
+    /// <summary>基线（队尾追加）= 智能排产的结论，数值与 RecommendSchedule 完全一致</summary>
+    public UrgentBaseline Baseline { get; set; } = new();
+
     public UrgentPlan? Recommended => Plans.FirstOrDefault(p => p.Id == RecommendedPlanId);
+
+    /// <summary>最快方案相对基线提前的天数（≤0 表示插队/插空/转线都不比排队更早）</summary>
+    public double BestGainDays => Plans.Count == 0 ? 0 : Plans.Max(p => p.GainVsBaselineDays);
 }

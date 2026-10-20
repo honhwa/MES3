@@ -32,6 +32,7 @@ public partial class MainForm
     /// <summary>构建「智能排产」页签：PO 选择 → 排产建议 + 推理依据 + 齐套校验。</summary>
     // 排产决策明细（技术方案 2.1 三级选线 / 2.2 六维评分 / 换型指导书）
     private Label _lblScheduleLevel = null!, _lblScheduleHard = null!, _lblScheduleChangeover = null!;
+    private Label _lblScheduleTimeline = null!;
     private DataGridView _gridScheduleScore = null!;
     private sealed class ScheduleScoreRow
     {
@@ -272,6 +273,13 @@ public partial class MainForm
             Font = new Font("微软雅黑", 8.5F), ForeColor = SchMuted,
             TextAlign = ContentAlignment.MiddleLeft, Text = "硬约束：—"
         };
+        _lblScheduleTimeline = new Label
+        {
+            Dock = DockStyle.Top, Height = 46, AutoSize = false,
+            Font = new Font("微软雅黑", 8.5F), ForeColor = SchInk,
+            TextAlign = ContentAlignment.MiddleLeft,
+            Text = "时间线：—（队尾完工 + 换型 = 建议开工；插队对照见下）"
+        };
         _lblScheduleChangeover = new Label
         {
             Dock = DockStyle.Bottom, Height = 58, AutoSize = false,
@@ -284,6 +292,7 @@ public partial class MainForm
 
         p.Controls.Add(gridGroup);              // Fill 先加
         p.Controls.Add(_lblScheduleChangeover); // Bottom
+        p.Controls.Add(_lblScheduleTimeline);   // Top
         p.Controls.Add(_lblScheduleHard);       // Top
         p.Controls.Add(_lblScheduleLevel);      // Top（最后加 → 显示在最上）
         return p;
@@ -547,6 +556,15 @@ public partial class MainForm
             if (_lblScheduleHard is not null)
                 _lblScheduleHard.Text = lm.HardConstraints.Count == 0 ? "硬约束：—"
                     : "硬约束：" + string.Join("；", lm.HardConstraints.Select(h => $"{h.Name} {h.StateText}（{h.Note}）"));
+            if (_lblScheduleTimeline is not null)
+            {
+                var tl = rec.Timeline;
+                _lblScheduleTimeline.Text =
+                    $"时间线（统一口径，与「模拟插单」同源）：{rec.RecommendedLine} 在制 {tl?.WorkOrderCount ?? 0} 张 / "
+                    + $"剩余 {tl?.WorkHours ?? 0:0.#}h / 段间换型 {tl?.ChangeoverMinutes ?? 0} 分 → 队尾 {(tl is null ? "—" : tl.TailFinish.ToString("MM-dd HH:mm"))}"
+                    + $"；本单{rec.IncomingChangeoverText} → 开工 {rec.PlannedStart:MM-dd HH:mm} / 完工 {rec.PlannedFinish:MM-dd HH:mm}"
+                    + $"\n插队对照：{rec.JumpQueueText}";
+            }
             if (_lblScheduleChangeover is not null)
             {
                 var co = lm.Changeover;

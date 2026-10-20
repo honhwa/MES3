@@ -290,6 +290,28 @@ public class ScheduleRecommendation
     /// <summary>备选线体的理由</summary>
     public string AlternateReason { get; set; } = "";
 
+    // ---- 时间线（与"模拟插单"共用的唯一排产口径，2026-10-20 统一） ----
+
+    /// <summary>推荐线体的时间线（在制工单排队 + 换型；队尾即本单开工点）</summary>
+    public LineTimeline? Timeline { get; set; }
+
+    /// <summary>本单进入队尾时的换型分钟（来自换型矩阵，与队尾型号相关）</summary>
+    public int IncomingChangeoverMinutes { get; set; }
+
+    /// <summary>
+    /// 若允许插队（老单顺延）的最早完工时间。
+    /// 这是与「模拟插单」对照的基线：插单方案一的紧急单完工必须等于它。
+    /// </summary>
+    public DateTime? PlannedFinishIfJumpQueue { get; set; }
+
+    /// <summary>插队相对排队可提前的天数（≥0；0 表示线体空闲，插队无收益）</summary>
+    public double JumpQueueGainDays => PlannedFinishIfJumpQueue is null
+        ? 0 : Math.Max(0, (PlannedFinish - PlannedFinishIfJumpQueue.Value).TotalDays);
+
+    public string IncomingChangeoverText => IncomingChangeoverMinutes <= 0 ? "无需换型" : $"换型 {IncomingChangeoverMinutes} 分钟";
+    public string JumpQueueText => PlannedFinishIfJumpQueue is null
+        ? "—" : $"插队最早 {PlannedFinishIfJumpQueue:MM-dd HH:mm}（可提前 {JumpQueueGainDays:0.#} 天，代价是老单顺延）";
+
     // ---- 推理依据（可解释） ----
     /// <summary>三级选线评估（2.1 同型号在制优先 / 2.2 六维工艺相似度评分 / 换型指导书）</summary>
     public LineMatchEvaluation? LineMatch { get; set; }

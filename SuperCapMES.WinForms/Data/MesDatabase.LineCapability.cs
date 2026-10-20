@@ -114,8 +114,9 @@ public static partial class MesDatabase
         var curAbs = ModelAbilityIds(cur);
         var tgtAbs = ModelAbilityIds(model);
         int matched = tgtAbs.Count(a => LineAbilityIds(line).Contains(a));
-        int overlap = tgtAbs.Intersect(curAbs).Count();   // 与当前型号的能力交集
-        int minutes = overlap >= Math.Max(1, tgtAbs.Length - 1) ? 20 : (overlap == 1 ? 35 : 50);
+        // 换型分钟统一取自换型矩阵（清线 + 四维差异），不再另用一套 20/35/50 的粗估——
+        // 否则同一次换型在"六维评分""插单评分""CTP 时间线"三处会出现三个数（2026-10-20 修）。
+        int minutes = GetChangeoverInfo(cur, model).Minutes;
 
         var guide = new ChangeoverGuide
         {

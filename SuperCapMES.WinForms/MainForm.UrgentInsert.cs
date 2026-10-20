@@ -19,6 +19,7 @@ public partial class MainForm
     private DataGridView _gridUrgentAffected = null!;
     private Label _lblUrgentNote = null!;
     private UrgentInsertSimulation? _urgentSim;
+    private readonly ToolTip _urgTip = new();
 
     private TabPage BuildUrgentInsertTab()
     {
@@ -39,9 +40,12 @@ public partial class MainForm
         bar.Controls.Add(MakeToolbarButton("🧩 模拟插单", (_, _) => SimulateUrgent()));
         _lblUrgentNote = new Label
         {
-            AutoSize = true, ForeColor = Color.Gray, Margin = new Padding(14, 11, 0, 0),
-            Text = "选一张紧急订单，模拟三种局部重排方案并给出评分推荐。"
+            AutoSize = false, Width = 560, Height = 22, AutoEllipsis = true,
+            ForeColor = Color.Gray, Margin = new Padding(14, 8, 0, 0),
+            Text = "基线 = 智能排产的排队结论；三方案只是把紧急单插到时间线的不同位置。"
         };
+        _urgTip.SetToolTip(_lblUrgentNote, "基线 = 把紧急单排到线体队尾（= 智能排产的推荐结论）。\n"
+            + "三方案 = 同一条时间线上的三种插入位置：队首插入（最早完工，老单顺延）/ 分段插空（折中）/ 队尾追加（零影响但要等）。");
         bar.Controls.Add(_lblUrgentNote);
 
         _urgentCards = new FlowLayoutPanel
@@ -57,7 +61,9 @@ public partial class MainForm
         {
             Dock = DockStyle.Bottom, AutoSize = false, Height = 48, ForeColor = Color.Gray,
             Padding = new Padding(6, 6, 6, 0),
-            Text = "口径：紧急插单只做冲突局部重排（不全局打乱）；三方案为规则 What-if 模拟，评分权重 准时40% > 老单影响30% > 换型20% > 负载10%。「应用建议」为演示，不改真实排程。"
+            Text = "口径：基线 = 紧急单排到线体队尾（与「智能排产」同一时间线内核，两侧数字应完全一致）；三方案只是插入位置不同——"
+                 + "队首插入 / 分段插空 / 转次优线队尾。换型时间取自换型矩阵；评分 准时40% > 老单影响30%（按顺延量）> 换型20% > 负载10%。"
+                 + "「应用建议」为演示，不改真实排程。"
         };
 
         page.Controls.Add(gridGroup);    // Fill
@@ -80,10 +86,16 @@ public partial class MainForm
         _gridUrgentAffected.Columns.Add(MakeTextCol("DueText", "交期", true, 8));
         _gridUrgentAffected.Columns.Add(MakeTextCol("OldFinishText", "原完工", true, 11));
         _gridUrgentAffected.Columns.Add(MakeTextCol("NewFinishText", "插单后完工", true, 11));
+        _gridUrgentAffected.Columns.Add(MakeTextCol("ShiftText", "顺延量", true, 10));
         _gridUrgentAffected.Columns.Add(MakeTextCol("DelayText", "交期影响", true, 11));
     }
 
-    private void UrgentTab_Enter(object? sender, EventArgs e) => LoadUrgentPos();
+    private void UrgentTab_Enter(object? sender, EventArgs e)
+    {
+        LoadUrgentPos();
+        // 首次进入自动跑一次模拟：与智能排产对照的基线、三方案卡片直接可见，不用先点按钮
+        if (_urgentSim is null && _cboUrgentPo?.SelectedItem is string) SimulateUrgent();
+    }
 
     private void LoadUrgentPos()
     {
@@ -109,6 +121,15 @@ public partial class MainForm
         if (sim is null) { Warn("订单不存在，请刷新后重试。"); return; }
         _urgentSim = sim;
         RenderUrgentCards(sim);
+
+        if (_lblUrgentNote is not null)
+        {
+            var fastest = sim.Plans.OrderByDescending(p => p.GainVsBaselineDays).First();
+            _lblUrgentNote.Text = sim.Baseline.BaselineText
+                + $"｜最快方案 {fastest.Name}：{fastest.FinishText} 完工（{fastest.GainText}）";
+            _urgTip.SetToolTip(_lblUrgentNote, _lblUrgentNote.Text + "\n" + string.Join("\n", sim.Notes));
+        }
+
         var rec = sim.Recommended;
         if (rec is not null) SelectUrgentPlan(rec, null);
     }
@@ -136,6 +157,7 @@ public partial class MainForm
                      + $"线体：{plan.Line}　紧急完工：{plan.FinishText}\n"
                      + $"{plan.OnTimeText}　{plan.AffectedText}\n"
                      + $"{plan.DelayText}　{plan.ChangeText}\n"
+                     + $"{plan.GainText}　{plan.AffectedText}\n"
                      + $"产能损失：{plan.CapacityLossHours:0.#} h\n"
                      + (plan.Pros.Count > 0 ? "✔ " + plan.Pros[0] : "")
                      + (plan.Cons.Count > 0 ? "\n✘ " + plan.Cons[0] : "")
@@ -158,8 +180,14 @@ public partial class MainForm
         }
         if (_gridUrgentAffected is not null) _gridUrgentAffected.DataSource = plan.Affected;
         if (_lblUrgentNote is not null)
-            _lblUrgentNote.Text = plan.Desc
+        {
+            var baseText = _urgentSim is null ? "" : _urgentSim.Baseline.BaselineText + "　";
+            _lblUrgentNote.Text = baseText
+                + $"【{plan.Name}·{plan.TimelineBasis}】{plan.Desc}"
+                + $"　紧急单 {plan.FinishText} 完工（{plan.GainText}）"
                 + (plan.Pros.Count > 0 ? "　优点：" + string.Join("；", plan.Pros) : "")
                 + (plan.Cons.Count > 0 ? "　代价：" + string.Join("；", plan.Cons) : "");
+            _urgTip.SetToolTip(_lblUrgentNote, _lblUrgentNote.Text);
+        }
     }
 }
