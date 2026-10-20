@@ -356,19 +356,17 @@ public static partial class MesDatabase
         rec.InputQty = rec.Yield <= 0 ? po.OrderQty : (int)Math.Ceiling(po.OrderQty / rec.Yield);
         rec.RequiredHours = rec.InputQty * rec.UnitHours;
 
-        // ---- ③ 推荐线体：历史首选；无历史则挑当前最闲的线 ----
-        var line = history.PreferredLine;
-        string lineReason;
+        // ---- ③ 推荐线体：三级逻辑（2.1 同型号在制 → 2.2 六维评分 → 负载兜底） ----
+        // 历史首选已被更完整的"三级选线"取代（技术方案 2.1/2.2）；
+        // 历史样本仍用于良率/工时（②），并作为六维中 FTT/换型维度的参考。
+        var lineMatch = EvaluateLineMatch(po.PoNo, at);
+        rec.LineMatch = lineMatch;
+        var line = string.IsNullOrWhiteSpace(lineMatch.RecommendedLine) ? history.PreferredLine : lineMatch.RecommendedLine;
         if (string.IsNullOrWhiteSpace(line))
-        {
             line = KnownLines().OrderBy(l => GetLineLoad(l, at).RemainingHours).First();
-            lineReason = $"该型号无历史排线记录，取当前负载最轻的线体 {line}";
-        }
-        else
-        {
-            var used = history.LineUsage.FirstOrDefault(x => x.Line == line);
-            lineReason = $"历史 {history.SampleCount} 张同类工单中，{line} 用过 {used.Count} 次（占比最高）";
-        }
+        var lineReason = string.IsNullOrWhiteSpace(lineMatch.RecommendedReason)
+            ? $"历史 {history.SampleCount} 张同类工单中首选 {line}"
+            : lineMatch.RecommendedReason;
         rec.RecommendedLine = line;
 
         // ---- ④ 线体负载 → 最早开工时间 ----

@@ -30,6 +30,23 @@ public partial class MainForm
     // ================= 页面构建 =================
 
     /// <summary>构建「智能排产」页签：PO 选择 → 排产建议 + 推理依据 + 齐套校验。</summary>
+    // 排产决策明细（技术方案 2.1 三级选线 / 2.2 六维评分 / 换型指导书）
+    private Label _lblScheduleLevel = null!, _lblScheduleHard = null!, _lblScheduleChangeover = null!;
+    private DataGridView _gridScheduleScore = null!;
+    private sealed class ScheduleScoreRow
+    {
+        public string Line { get; set; } = "";
+        public string Segment { get; set; } = "";
+        public string Total { get; set; } = "";
+        public string Core { get; set; } = "";
+        public string Param { get; set; } = "";
+        public string Change { get; set; } = "";
+        public string Tooling { get; set; } = "";
+        public string Cert { get; set; } = "";
+        public string Ftt { get; set; } = "";
+        public string Alloc { get; set; } = "";
+    }
+
     private TabPage BuildSchedulingTab()
     {
         var page = new TabPage("智能排产");
@@ -211,12 +228,10 @@ public partial class MainForm
             Text = "齐套校验：生成建议后自动展开 BOM 逐项比对。"
         };
 
-        var evidenceBox = new GroupBox
-        {
-            Text = "推理依据（逐条可追问：样本 / 公式 / 口径）",
-            Dock = DockStyle.Fill,
-            Padding = new Padding(6, 12, 6, 6)
-        };
+        var detailTabs = new TabControl { Dock = DockStyle.Fill, Font = new Font("微软雅黑", 9F) };
+
+        var tabEvidence = new TabPage("推理依据");
+        tabEvidence.Padding = new Padding(4);
         _lstScheduleEvidence = new ListBox
         {
             Dock = DockStyle.Fill,
@@ -224,12 +239,70 @@ public partial class MainForm
             IntegralHeight = false,
             HorizontalScrollbar = true
         };
-        evidenceBox.Controls.Add(_lstScheduleEvidence);
+        tabEvidence.Controls.Add(_lstScheduleEvidence);
 
-        panel.Controls.Add(evidenceBox);      // Fill 必须最先加
+        var tabDecision = new TabPage("排产决策（三级 + 六维评分）");
+        tabDecision.Padding = new Padding(4);
+        tabDecision.Controls.Add(BuildScheduleDecisionPanel());
+
+        detailTabs.TabPages.Add(tabEvidence);
+        detailTabs.TabPages.Add(tabDecision);
+
+        panel.Controls.Add(detailTabs);       // Fill 必须最先加
         panel.Controls.Add(_lblScheduleStock); // Top
         panel.Controls.Add(cards);             // Top
         return panel;
+    }
+
+    /// <summary>「排产决策」页：三级选线结论 + 三项硬约束 + 六维评分表 + 换型指导书。</summary>
+    private Control BuildScheduleDecisionPanel()
+    {
+        var p = new Panel { Dock = DockStyle.Fill };
+
+        _lblScheduleLevel = new Label
+        {
+            Dock = DockStyle.Top, Height = 66, AutoSize = false,
+            Font = new Font("微软雅黑", 9F), ForeColor = SchInk,
+            TextAlign = ContentAlignment.MiddleLeft,
+            Text = "选择订单并生成排产建议后，这里显示三级选线与六维评分。"
+        };
+        _lblScheduleHard = new Label
+        {
+            Dock = DockStyle.Top, Height = 46, AutoSize = false,
+            Font = new Font("微软雅黑", 8.5F), ForeColor = SchMuted,
+            TextAlign = ContentAlignment.MiddleLeft, Text = "硬约束：—"
+        };
+        _lblScheduleChangeover = new Label
+        {
+            Dock = DockStyle.Bottom, Height = 58, AutoSize = false,
+            Font = new Font("微软雅黑", 8.5F), ForeColor = SchMuted,
+            TextAlign = ContentAlignment.MiddleLeft, Text = "换型指导：—"
+        };
+
+        var gridGroup = MakeGridGroup("六维工艺相似度评分（各线，满分 100，取综合最高分）", out _gridScheduleScore);
+        SetupScheduleScoreColumns();
+
+        p.Controls.Add(gridGroup);              // Fill 先加
+        p.Controls.Add(_lblScheduleChangeover); // Bottom
+        p.Controls.Add(_lblScheduleHard);       // Top
+        p.Controls.Add(_lblScheduleLevel);      // Top（最后加 → 显示在最上）
+        return p;
+    }
+
+    private void SetupScheduleScoreColumns()
+    {
+        _gridScheduleScore.AutoGenerateColumns = false;
+        _gridScheduleScore.Columns.Clear();
+        _gridScheduleScore.Columns.Add(MakeTextCol("Line", "线体", true, 6));
+        _gridScheduleScore.Columns.Add(MakeTextCol("Segment", "特长能力", true, 16));
+        _gridScheduleScore.Columns.Add(MakeTextCol("Total", "总分", true, 6));
+        _gridScheduleScore.Columns.Add(MakeTextCol("Core", "工序35%", true, 7));
+        _gridScheduleScore.Columns.Add(MakeTextCol("Param", "参数20%", true, 7));
+        _gridScheduleScore.Columns.Add(MakeTextCol("Change", "换型20%", true, 7));
+        _gridScheduleScore.Columns.Add(MakeTextCol("Tooling", "工装15%", true, 7));
+        _gridScheduleScore.Columns.Add(MakeTextCol("Cert", "人员5%", true, 6));
+        _gridScheduleScore.Columns.Add(MakeTextCol("Ftt", "FTT5%", true, 6));
+        _gridScheduleScore.Columns.Add(MakeTextCol("Alloc", "可分配", true, 7));
     }
 
     /// <summary>齐套校验表列定义（显式列名，供绑定与着色）。</summary>
@@ -457,6 +530,43 @@ public partial class MainForm
         finally
         {
             _lstScheduleEvidence.EndUpdate();
+        }
+
+        // ---- 排产决策页（2.1 三级 + 2.2 六维 + 换型指导）----
+        var lm = rec.LineMatch;
+        if (lm is null)
+        {
+            if (_lblScheduleLevel is not null) _lblScheduleLevel.Text = "（本次未产生三级选线评估）";
+            if (_gridScheduleScore is not null) _gridScheduleScore.DataSource = null;
+        }
+        else
+        {
+            if (_lblScheduleLevel is not null)
+                _lblScheduleLevel.Text = $"【{lm.Level}】{lm.RecommendedReason}"
+                    + (string.IsNullOrEmpty(lm.Level1SplitNote) ? "" : "\n" + lm.Level1SplitNote);
+            if (_lblScheduleHard is not null)
+                _lblScheduleHard.Text = lm.HardConstraints.Count == 0 ? "硬约束：—"
+                    : "硬约束：" + string.Join("；", lm.HardConstraints.Select(h => $"{h.Name} {h.StateText}（{h.Note}）"));
+            if (_lblScheduleChangeover is not null)
+            {
+                var co = lm.Changeover;
+                _lblScheduleChangeover.Text = co is null
+                    ? "换型指导：同型号连续生产 / 线体空闲，无需换型。"
+                    : "换型指导：" + co.Summary
+                      + (co.NeedParamChange.Count > 0 ? " 需调参：" + string.Join("、", co.NeedParamChange) : "")
+                      + (co.NeedToolingChange.Count > 0 ? " 需换工装：" + string.Join("、", co.NeedToolingChange) : "");
+            }
+            if (_gridScheduleScore is not null)
+            {
+                string W(LineScore s, string dim) => s.Details.FirstOrDefault(d => d.Dimension == dim)?.WeightedText ?? "—";
+                _gridScheduleScore.DataSource = lm.Candidates.Select(s => new ScheduleScoreRow
+                {
+                    Line = s.Line, Segment = s.SegmentName, Total = s.TotalText,
+                    Core = W(s, "核心工序重合度"), Param = W(s, "设备参数兼容性"), Change = W(s, "换型时间成本"),
+                    Tooling = W(s, "工装夹具通用性"), Cert = W(s, "人员技能匹配度"), Ftt = W(s, "质量历史表现(FTT)"),
+                    Alloc = s.Allocatable ? "✓" : "排除"
+                }).ToList();
+            }
         }
 
         // 已下发的订单不给生成入口（防重复建单）

@@ -597,6 +597,8 @@ public partial class MainForm : Form
         RegisterPage(NavProduction, BuildSchedulingTab());   // 智能排产：历史工单推理 → 投产数/线体/工期 + 齐套预警
         RegisterPage(NavProduction, BuildDeliveryRiskTab());   // ① 工单交期风险（复用产能引擎口径）
         RegisterPage(NavProduction, BuildScheduleGanttTab());    // 智能排产甘特图：待下发订单建议排期可视化
+        RegisterPage(NavProduction, BuildUrgentInsertTab());    // 插单模拟：紧急插单三方案 What-if + 评分推荐
+        RegisterPage(NavProduction, BuildCtpTab());             // 交期承诺 CTP：询单 → 各线最早可交日 + 三档承诺 + 换型矩阵
         RegisterPage(NavEnergy, BuildEnergyMeterTab());        // 能源台账：三级计量点 + 抄表录入
         RegisterPage(NavEnergy, BuildEnergyQueryTab());        // 能耗查询：时间×区域×线体×设备×能源
         RegisterPage(NavEnergy, BuildCarbonTab());              // 碳排放核算：组织/项目边界 + 范围一二三
@@ -628,6 +630,9 @@ public partial class MainForm : Form
         RegisterPage(NavWarehouse, BuildShipmentTab());      // 出货与召回：出库单绑定 + 召回反查
         RegisterPage(NavWarehouse, BuildMaterialHoldTab());  // 资材追溯：按料号/批次反查电芯并批量保留
         RegisterPage(NavWarehouse, BuildPurchaseReqTab());   // 资材采购申请：工单缺料 → 请购 → 审批 → 下单
+        RegisterPage(NavWarehouse, BuildShortageChainTab()); // 缺料三级校验：需求合并 → 扣减 → 净缺口 + 采购前置期/自动建单
+        RegisterPage(NavWarehouse, BuildMaterialAgeTab());    // 物料全链管控：临期三色 + 三方案决策 + 分级审批
+        RegisterPage(NavWarehouse, BuildMaterialStrategyTab());// 物料策略：替代料齐套试算 + 安全库存补货（ROP）
 
         // 【设备与人员】六维里的「机」与「人」
         RegisterPage(NavResource, BuildEquipmentsTab());     // 设备监控：设备状态一览

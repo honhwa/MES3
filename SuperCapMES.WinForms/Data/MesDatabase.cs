@@ -1730,6 +1730,13 @@ public static partial class MesDatabase
             // 齐套校验与库存台账都会拿不到名称/单位。
             new WmsMaterial { Code = "M-PKG-BOX-11", MaterialName = "彩盒（100F 专用）", Spec = "200×60×40 mm", Unit = "个", Category = WmsCategories.Aux, SafetyStock = 300, MaxPurchaseQty = 800 },
             new WmsMaterial { Code = "M-INS-PET-08", MaterialName = "绝缘胶带（PET）", Spec = "10 mm", Unit = "m", Category = WmsCategories.Aux, SafetyStock = 150 },
+            // 替代料主数据（技术方案第 4 章「替代料」用）：只作为主料的替代候选，不进任何 BOM。
+            // 单独建主数据而不是硬编码名字，是为了让替代料也有库存、安全库存与采购前置期，
+            // 否则"替代"只是纸面关系，算不出能顶多少。
+            new WmsMaterial { Code = "M-COL-AL-04B", MaterialName = "铝箔集流体（18μm）", Spec = "18 μm", Unit = "m²", Category = WmsCategories.Raw, SafetyStock = 200, MaxPurchaseQty = 500 },
+            new WmsMaterial { Code = "M-SEP-PE-03", MaterialName = "隔膜（PE）", Spec = "20 μm", Unit = "m²", Category = WmsCategories.Raw, SafetyStock = 300, MaxPurchaseQty = 1000 },
+            new WmsMaterial { Code = "M-ELE-ACN-02B", MaterialName = "电解液（PC基）", Spec = "1 mol/L", Unit = "L", Category = WmsCategories.Raw, SafetyStock = 60, MaxPurchaseQty = 200 },
+            new WmsMaterial { Code = "M-CAN-ALU-05B", MaterialName = "铝壳外壳（加高型）", Spec = "Φ18×42", Unit = "只", Category = WmsCategories.Raw, SafetyStock = 800, MaxPurchaseQty = 10000 },
             new WmsMaterial { Code = "M-FG-100F-09", MaterialName = "超级电容成品 SC-CX2026-100F", Spec = "100F/2.7V", Unit = "只", Category = WmsCategories.Finished, SafetyStock = 100 },
             new WmsMaterial { Code = "M-FG-300F-10", MaterialName = "超级电容成品 SC-CX2026-300F", Spec = "300F/2.7V", Unit = "只", Category = WmsCategories.Finished, SafetyStock = 80 },
         });
@@ -1750,6 +1757,11 @@ public static partial class MesDatabase
             // 极耳与彩盒：BOM 用量小但必须有料，缺了整单做不出来（此前库存台账里完全没有这两项）
             new WmsStock { MaterialCode = "M-TAB-NIC-07", MaterialName = "镍带极耳", Spec = "0.1×5 mm", Unit = "m", LotNo = "TAB-260811-001", Location = WmsLocations.RawA, Quantity = 120, LastUpdate = baseTime },
             new WmsStock { MaterialCode = "M-PKG-BOX-11", MaterialName = "彩盒（100F 专用）", Spec = "200×60×40 mm", Unit = "个", LotNo = "BOX-260811-001", Location = WmsLocations.RawA, Quantity = 700, LastUpdate = baseTime },
+            // 替代料库存（第 4 章替代料演示）：有货才谈得上"顶缺口"，数量刻意给成部分覆盖
+            new WmsStock { MaterialCode = "M-COL-AL-04B", MaterialName = "铝箔集流体（18μm）", Spec = "18 μm", Unit = "m²", LotNo = "CC-260915-011", Location = WmsLocations.RawA, Quantity = 200, LastUpdate = baseTime },
+            new WmsStock { MaterialCode = "M-SEP-PE-03", MaterialName = "隔膜（PE）", Spec = "20 μm", Unit = "m²", LotNo = "SP-260918-012", Location = WmsLocations.RawA, Quantity = 300, LastUpdate = baseTime },
+            new WmsStock { MaterialCode = "M-ELE-ACN-02B", MaterialName = "电解液（PC基）", Spec = "1 mol/L", Unit = "L", LotNo = "EL-260920-013", Location = WmsLocations.RawA, Quantity = 60, LastUpdate = baseTime },
+            new WmsStock { MaterialCode = "M-CAN-ALU-05B", MaterialName = "铝壳外壳（加高型）", Spec = "Φ18×42", Unit = "只", LotNo = "CAN-260916-012", Location = WmsLocations.RawA, Quantity = 800, LastUpdate = baseTime },
             new WmsStock { MaterialCode = "M-FG-100F-09", MaterialName = "超级电容成品 SC-CX2026-100F", Spec = "100F/2.7V", Unit = "只", LotNo = "FG-100F-260812-01", Location = WmsLocations.FinishedB, Quantity = 500, LastUpdate = baseTime },
             new WmsStock { MaterialCode = "M-FG-300F-10", MaterialName = "超级电容成品 SC-CX2026-300F", Spec = "300F/2.7V", Unit = "只", LotNo = "FG-300F-260813-01", Location = WmsLocations.FinishedB, Quantity = 220, LastUpdate = baseTime },
         });
@@ -2935,7 +2947,7 @@ public static partial class MesDatabase
     // ================= 库存效期与 FIFO =================
 
     /// <summary>
-    /// 库存效期种子：为部分批次设置有效期（含 1 条已过期「密封圈」、1 条临期「电解液」），演示效期预警；
+    /// 库存效期种子：为部分批次设置有效期（含 1 条已过期且超兜底期限的「密封圈」、1 条临期「电解液」），演示效期预警与临期处置；
     /// 成品不做效期管理。**仅设置 ExpiryDate，不改变任何数量**（库存总量基线不变）。
     /// </summary>
     private static void SeedStockExpiry()
@@ -2949,7 +2961,7 @@ public static partial class MesDatabase
             if (string.Equals(s.MaterialCode, "M-ELE-ACN-02", StringComparison.OrdinalIgnoreCase))
                 s.ExpiryDate = today.AddDays(12);      // 电解液：临期（有效期敏感物料）
             else if (string.Equals(s.MaterialCode, "M-SEL-RUB-06", StringComparison.OrdinalIgnoreCase))
-                s.ExpiryDate = today.AddDays(-5);      // 密封圈：已过期
+                s.ExpiryDate = today.AddDays(-20);     // 密封圈：已过期且**超过兜底期限**（演示兜底报废规则）
             else if (s.MaterialCode.StartsWith("M-FG-", StringComparison.OrdinalIgnoreCase))
                 s.ExpiryDate = null;                   // 成品不设效期
             else

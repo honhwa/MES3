@@ -291,6 +291,9 @@ public class ScheduleRecommendation
     public string AlternateReason { get; set; } = "";
 
     // ---- 推理依据（可解释） ----
+    /// <summary>三级选线评估（2.1 同型号在制优先 / 2.2 六维工艺相似度评分 / 换型指导书）</summary>
+    public LineMatchEvaluation? LineMatch { get; set; }
+
     public ProductionHistory History { get; set; } = new();
 
     /// <summary>推荐线体的负载情况</summary>
