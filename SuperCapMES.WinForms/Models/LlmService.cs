@@ -104,8 +104,22 @@ public static class LlmService
         HashSet<string>? allowedNumbers = null,
         HttpClient? http = null,
         int? maxTokens = null) where T : class
+        => CallJson(CurrentSettings, systemPrompt, payload, parse, minConfidence, allowedNumbers, http, maxTokens);
+
+    /// <summary>
+    /// 同上，但**显式指定配置**。存在的唯一理由是自测：可以在不碰用户真实配置、
+    /// 不联网的前提下，用假配置 + 假 HttpClient 跑真实的护栏链路
+    /// （JSON 提取 / 业务校验 / 置信度门槛 / 数字核对 / 降级）。
+    /// </summary>
+    public static LlmCallResult<T> CallJson<T>(
+        AssistantLlmSettings cfg,
+        string systemPrompt, object payload,
+        Func<JsonElement, (T? Value, double Confidence, string Reason)> parse,
+        double minConfidence = DefaultMinConfidence,
+        HashSet<string>? allowedNumbers = null,
+        HttpClient? http = null,
+        int? maxTokens = null) where T : class
     {
-        var cfg = CurrentSettings;
         if (!cfg.CanCall)
             return new LlmCallResult<T> { Ok = false, Source = LlmSources.Rule, Reason = "云端大模型未启用或未配置 API Key" };
 

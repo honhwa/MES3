@@ -645,6 +645,14 @@ public partial class MainForm : Form
         RegisterPage(NavTrace, BuildReportTab());            // 报表中心：产量 / 良率 / 异常 / OEE 与库存
         RegisterPage(NavTrace, BuildInsightTab());           // 主动预警与决策：物料临期×消耗 / 设备异常集中 / 呆滞料占压
 
+        // 【现场无纸化】导入 Excel/Word 点检表 → 自动生成填写页 → 提交快照归档 → 历史电子档还原
+        RegisterPage(NavPaperless, BuildPaperlessTemplateTab());  // 模板管理：导入/预览/调整列类型/保存/删除
+        RegisterPage(NavPaperless, BuildPaperlessFillTab());       // 填写提交：依模板自动生成填写页 + 提交时刻模板快照归档
+        RegisterPage(NavPaperless, BuildPaperlessHistoryTab());    // 历史查询：按条件检索 + 双击还原当时格式与数据的电子档
+        // 原样渲染（新增，与上面三页彼此独立）：保留 Excel 原排版的绘制与填写
+        RegisterPage(NavPaperless, BuildPaperlessHtmlPreviewTab()); // 原样预览：按原排版完整绘制（合并/列宽/字体/边框/填充）
+        RegisterPage(NavPaperless, BuildPaperlessHtmlFillTab());    // 原样填写：直接在原表单元格内填写 + 整页快照归档
+
         // 【帮助】手册放在最后一个分类，新人从这入门
         RegisterPage(NavHelp, BuildManualTab());             // 使用手册：模糊搜索「我要做什么」→ 告诉你去哪、点什么
 
@@ -672,6 +680,7 @@ public partial class MainForm : Form
     internal const string NavEnergy = "能源与碳";
     internal const string NavTwin = "数字孪生";
     internal const string NavHelp = "帮助";
+    internal const string NavPaperless = "现场无纸化";
 
     /// <summary>
     /// 把页面注册到指定一级分类下：分类不存在则自动创建分类页与二级页签容器。

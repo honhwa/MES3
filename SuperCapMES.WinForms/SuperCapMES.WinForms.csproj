@@ -6,6 +6,12 @@
     <Nullable>enable</Nullable>
     <UseWindowsForms>true</UseWindowsForms>
     <ImplicitUsings>enable</ImplicitUsings>
+    <!--
+      WebView2 包同时投放 WinForms 与 WPF 两个变体，WPF 变体引用的 WindowsBase 版本比本项目的
+      引用程序集高，MSBuild 因版本仲裁报 MSB3277。本项目是纯 WinForms，从不加载 WPF 变体，
+      运行时无影响 —— 按已知误报降级为消息，保持"0 警告"的口径真实可信（不是掩盖真问题）。
+    -->
+    <MSBuildWarningsAsMessages>$(MSBuildWarningsAsMessages);MSB3277</MSBuildWarningsAsMessages>
   </PropertyGroup>
 
   <!--
@@ -18,6 +24,19 @@
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
       <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
     </Content>
+  </ItemGroup>
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Web.WebView2" Version="1.0.4258.31" GeneratePathProperty="true" />
+  </ItemGroup>
+
+  <!--
+    WebView2 的原生加载器 WebView2Loader.dll 默认只落到 runtimes/win-*/native/ 下，
+    而 WebView2 初始化时会在应用根目录找它 —— 不显式复制就会出现
+    "Unable to load DLL 'WebView2Loader.dll'"。这里按 RID 复制到输出根目录，确保直接跑 exe 也能用。
+  -->
+  <ItemGroup>
+    <None Include="$(PkgMicrosoft_Web_WebView2)\runtimes\win-x64\native\WebView2Loader.dll"
+          Link="WebView2Loader.dll" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" Visible="false" />
   </ItemGroup>
 
 </Project>
