@@ -1,0 +1,374 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>MES 仿真演示大屏</title>
+<style>
+  /* 展厅大屏：深色、大字、无外链、双击即可运行 */
+  :root{
+    --bg:#070d16; --panel:#0d1725; --panel2:#122033; --line:#1e3a5c;
+    --text:#e8f1fb; --muted:#7e98b8; --accent:#3fa9ff; --ok:#31d0aa;
+    --warn:#ffb02e; --bad:#ff5d5d; --gold:#f5c451;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  html,body{height:100%}
+  body{
+    background:var(--bg); color:var(--text);
+    font-family:"Microsoft YaHei","微软雅黑","Noto Sans CJK SC",system-ui,sans-serif;
+    display:flex; flex-direction:column; overflow:hidden;
+  }
+
+  /* ---------- 顶栏 ---------- */
+  header{
+    display:flex; align-items:center; gap:22px; padding:12px 22px;
+    background:linear-gradient(180deg,#0e1c2e,#0a1420);
+    border-bottom:1px solid var(--line); flex:0 0 auto;
+  }
+  .brand{display:flex; align-items:baseline; gap:12px}
+  .brand b{font-size:22px; letter-spacing:1px}
+  .brand span{font-size:12px; color:var(--muted); letter-spacing:2px}
+  .clock{display:flex; align-items:baseline; gap:8px; margin-left:6px}
+  .clock .big{font-size:40px; font-weight:700; color:#fff; font-variant-numeric:tabular-nums; letter-spacing:2px}
+  .clock .lbl{font-size:12px; color:var(--muted)}
+  .prog{flex:1; min-width:160px; max-width:420px}
+  .prog .bar{height:8px; background:#0a1727; border:1px solid var(--line); border-radius:6px; overflow:hidden}
+  .prog .fill{height:100%; width:0; background:linear-gradient(90deg,#1f7fd0,#3fa9ff); transition:width .3s}
+  .prog .cap{display:flex; justify-content:space-between; font-size:11px; color:var(--muted); margin-top:4px}
+
+  .ctrl{display:flex; align-items:center; gap:8px; margin-left:auto}
+  button{
+    background:var(--panel2); color:var(--text); border:1px solid var(--line);
+    padding:8px 14px; border-radius:6px; cursor:pointer; font-size:13px;
+    font-family:inherit; transition:.15s;
+  }
+  button:hover{border-color:var(--accent); color:#fff}
+  button.on{background:#123a5e; border-color:var(--accent); color:#fff}
+  .speed{display:flex; gap:4px; background:#0a1727; padding:3px; border-radius:7px; border:1px solid var(--line)}
+  .speed button{padding:5px 10px; border:0; background:transparent; font-size:12px}
+  .speed button.on{background:#1d4b78; color:#fff; border-radius:5px}
+
+  /* ---------- 主体 ---------- */
+  main{flex:1; display:flex; min-height:0}
+  .stage{flex:1; position:relative; background:#040a12; min-width:0}
+  .stage iframe{width:100%; height:100%; border:0; display:block}
+  .stage .hint{
+    position:absolute; left:14px; top:52px; font-size:12px; color:#6b89ab;
+    background:rgba(6,14,24,.75); padding:5px 10px; border-radius:5px; border:1px solid var(--line);
+  }
+  /* 场景切换条：覆盖在舞台顶部，演示时可随手切页讲解 */
+  .tabs{
+    position:absolute; left:14px; top:10px; display:flex; gap:6px; z-index:5;
+  }
+  .tabs button{
+    background:rgba(13,23,37,.9); border:1px solid var(--line); color:#9fb6cf;
+    padding:6px 14px; border-radius:6px; font-size:13px; cursor:pointer;
+  }
+  .tabs button.on{
+    background:#123a5e; border-color:var(--accent); color:#fff; font-weight:600;
+  }
+
+  /* ---------- 右栏 ---------- */
+  aside{
+    width:330px; flex:0 0 330px; display:flex; flex-direction:column;
+    background:var(--panel); border-left:1px solid var(--line); min-height:0;
+  }
+  .block{padding:14px 16px; border-bottom:1px solid var(--line)}
+  .block h4{font-size:12px; color:var(--muted); font-weight:400; letter-spacing:1px; margin-bottom:10px}
+  .kpis{display:grid; grid-template-columns:1fr 1fr; gap:10px}
+  .kpi{background:var(--panel2); border:1px solid var(--line); border-radius:8px; padding:10px 12px}
+  .kpi .v{font-size:26px; font-weight:700; font-variant-numeric:tabular-nums; line-height:1.15}
+  .kpi .n{font-size:11px; color:var(--muted); margin-top:2px}
+  .kpi.ok .v{color:var(--ok)} .kpi.warn .v{color:var(--warn)} .kpi.bad .v{color:var(--bad)}
+  .kpi.acc .v{color:var(--accent)} .kpi.gold .v{color:var(--gold)}
+
+  .status{display:flex; gap:8px; margin-top:10px}
+  .chip{
+    flex:1; text-align:center; background:var(--panel2); border:1px solid var(--line);
+    border-radius:6px; padding:7px 4px;
+  }
+  .chip .c{font-size:19px; font-weight:700}
+  .chip .t{font-size:11px; color:var(--muted)}
+  .chip.run .c{color:var(--ok)} .chip.idle .c{color:var(--muted)} .chip.fault .c{color:var(--bad)}
+
+  .feed{flex:1; overflow:auto; padding:4px 0}
+  .ev{display:flex; gap:8px; padding:7px 16px; font-size:12px; line-height:1.45; border-left:2px solid transparent}
+  .ev .t{color:#5f7c9c; font-variant-numeric:tabular-nums; flex:0 0 44px}
+  .ev .d{color:#9fb6cf; flex:0 0 52px}
+  .ev .m{flex:1; color:#c8dcee}
+  .ev.fault{border-left-color:var(--bad); background:rgba(255,93,93,.06)}
+  .ev.idle{border-left-color:var(--warn); background:rgba(255,176,46,.05)}
+  .ev.ok{border-left-color:var(--ok)}
+  .ev.ok .m{color:#7fbfa8}
+
+  /* ---------- 字幕条 ---------- */
+  footer{
+    flex:0 0 auto; background:linear-gradient(180deg,#0b1727,#08121d);
+    border-top:1px solid var(--line); padding:14px 24px; min-height:86px;
+    display:flex; align-items:center; gap:18px;
+  }
+  .scene-no{
+    flex:0 0 auto; width:54px; height:54px; border-radius:10px;
+    background:#123a5e; border:1px solid var(--accent); color:#fff;
+    display:flex; flex-direction:column; align-items:center; justify-content:center;
+  }
+  .scene-no b{font-size:20px; line-height:1}
+  .scene-no span{font-size:10px; color:#8fb8db; margin-top:2px}
+  .caption{flex:1; min-width:0}
+  .caption .title{font-size:17px; font-weight:700; color:#fff; margin-bottom:5px; letter-spacing:.5px}
+  .caption .text{font-size:15px; color:#b9d2e8; line-height:1.6}
+  .caption .text em{color:var(--gold); font-style:normal; font-weight:600}
+  .caption .text b{color:var(--accent)}
+  .endtag{flex:0 0 auto; font-size:13px; color:var(--warn); display:none}
+
+  ::-webkit-scrollbar{width:7px}
+  ::-webkit-scrollbar-thumb{background:#1e3a5c; border-radius:4px}
+</style>
+</head>
+<body>
+
+<header>
+  <div class="brand"><b>超级电容工厂</b><span>MES 运行仿真</span></div>
+
+  <div class="clock">
+    <div class="big" id="clock">08:00</div>
+    <div class="lbl">班内时刻<br><span id="shift">早班 08:00–16:00</span></div>
+  </div>
+
+  <div class="prog">
+    <div class="bar"><div class="fill" id="pfill"></div></div>
+    <div class="cap"><span>开班</span><span id="pcap">0%</span><span>收班</span></div>
+  </div>
+
+  <div class="ctrl">
+    <div class="speed" id="speed">
+      <button data-s="60" class="on">60×</button>
+      <button data-s="300">300×</button>
+      <button data-s="600">600×</button>
+    </div>
+    <button id="btnPause">暂停</button>
+    <button id="btnReset">重置</button>
+    <button id="btnFull">全屏</button>
+  </div>
+</header>
+
+<main>
+  <div class="stage">
+    <div class="tabs" id="tabs"></div>
+    <iframe id="stage" title="场景视图"></iframe>
+    <div class="hint" id="hint">场景：产线运行总览（production-twin）</div>
+  </div>
+
+  <aside>
+    <div class="block">
+      <h4>本班关键指标</h4>
+      <div class="kpis">
+        <div class="kpi acc"><div class="v" id="kOut">0</div><div class="n">累计产出（只）</div></div>
+        <div class="kpi gold"><div class="v" id="kAtt">0%</div><div class="n">计划达成率</div></div>
+        <div class="kpi ok"><div class="v" id="kYield">—</div><div class="n">综合良率</div></div>
+        <div class="kpi"><div class="v" id="kPlan">0</div><div class="n">本班计划（只）</div></div>
+      </div>
+      <div class="status">
+        <div class="chip run"><div class="c" id="cRun">0</div><div class="t">运行</div></div>
+        <div class="chip idle"><div class="c" id="cIdle">0</div><div class="t">未运行</div></div>
+        <div class="chip fault"><div class="c" id="cFault">0</div><div class="t">故障</div></div>
+      </div>
+    </div>
+    <div class="block" style="padding-bottom:6px"><h4>实时事件流</h4></div>
+    <div class="feed" id="feed"></div>
+  </aside>
+</main>
+
+<footer>
+  <div class="scene-no"><b id="sceneNo">1</b><span id="sceneTot">/6</span></div>
+  <div class="caption">
+    <div class="title" id="capTitle">开班</div>
+    <div class="text" id="capText">—</div>
+  </div>
+  <div class="endtag" id="endtag">本班演示结束 · 按 R 重置重播</div>
+</footer>
+
+<script src="sim-core.js"></script>
+<script>
+(function(){
+  'use strict';
+
+  var Clock = SimCore.Clock;
+  var STAGE = document.getElementById('stage');
+
+  /* ---------------- 演示脚本（讲解锚点，按虚拟时间推进） ---------------- */
+  // at = 开班后第几分钟触发；讲 6 幕，覆盖一个完整班次
+  var SCENES = [
+    { at:0,   title:'开班：四条产线陆续开机',
+      text:'08:00 早班开班。四条产线（卷绕 / 涂布 / 装配 / 化成）依次通电自检，设备状态由灰转绿，20 台设备进入运行。' },
+
+    { at:25,  title:'稳定生产：产量随稼动累进',
+      text:'设备不是"随机跳数"，而是按各自的<em>节拍</em>与<em>有效稼动时间</em>累进。所以这条产量曲线是单调上升的——真实现场也是这个形状。' },
+
+    { at:75,  title:'异常：张力波动触发报警',
+      text:'L2 涂布线一台设备触发<b>张力波动异常</b>。注意看：设备转红、在制工单挂起，但<b>同线其它设备不停</b>，损失被限制在单机。' },
+
+    { at:110, title:'恢复：异常闭环',
+      text:'异常持续时间由台账里的停机窗口决定，本班内会自动恢复。右侧事件流记录了"谁、几点、什么原因、几点恢复"——这正是审厂时要查的痕迹。' },
+
+    { at:160, title:'后段：化成线节拍慢、批量大',
+      text:'化成柜单只节拍最长，但并行数量多，因此在制批量最大。这也是产能瓶颈通常出现在化成而不是卷绕的原因。' },
+
+    { at:300, title:'收班：达成率与良率',
+      text:'本班接近收班。页面上方是<em>计划达成率</em>与<em>综合良率</em>，均由同一条台账派生——生产页说在产的批次，仓储与质量页查得到同一批号。' }
+  ];
+
+  /* ---------------- 状态 ---------------- */
+  var seed = 1014;
+  var lastFeedKey = '';
+
+  /* ---------------- 场景（四个模块，讲的时候随手切） ---------------- */
+  var PAGES = [
+    { id:'production', file:'production-twin.html', name:'产线运行', hint:'产线运行总览：设备三色状态 · 在制工单 · 产量/良率累进' },
+    { id:'warehouse',  file:'warehouse-twin.html',  name:'仓储库位', hint:'仓储库位：库区占用 · 批号与库龄 · 成品区对应在产批次' },
+    { id:'quality',    file:'quality-twin.html',    name:'质量与SPC', hint:'质量与 SPC：良率/一次交检合格率 · 缺陷 PPM · 控制图' },
+    { id:'device',     file:'device-twin.html',     name:'设备健康', hint:'设备健康：在线率 · 预警/严重 · MTBF/MTTR' }
+  ];
+  var pageIdx = 0;
+
+  function buildTabs(){
+    var box = document.getElementById('tabs');
+    box.innerHTML = PAGES.map(function(p, i){
+      return '<button data-i="' + i + '" class="' + (i === pageIdx ? 'on' : '') + '">' + p.name + '</button>';
+    }).join('');
+    box.onclick = function(ev){
+      var b = ev.target.closest('button'); if (!b) return;
+      switchPage(+b.dataset.i);
+    };
+  }
+
+  function switchPage(i){
+    pageIdx = i;
+    [].forEach.call(document.getElementById('tabs').children, function(x, k){
+      x.classList.toggle('on', k === i);
+    });
+    document.getElementById('hint').textContent = '场景：' + PAGES[i].hint;
+    syncStageUrl();
+  }
+
+  /* ---------------- 时钟广播（file:// 下用 postMessage，不跨域读 DOM） ---------------- */
+  function broadcast(){
+    try{
+      var t = Clock.now();
+      STAGE.contentWindow.postMessage(
+        { type:'sim-clock', seed:seed, t:t, speed:Clock.speed, paused:Clock.paused }, '*');
+    }catch(e){ /* iframe 未就绪时忽略 */ }
+  }
+  setInterval(broadcast, 400);
+
+  /* ---------------- 渲染 ---------------- */
+  function fmt(n){ return Math.round(n).toLocaleString('en-US'); }
+
+  function render(){
+    var t = Clock.now();
+    var s = SimCore.summary(t);
+
+    // 顶部时钟与进度
+    document.getElementById('clock').textContent = s.clock;
+    document.getElementById('pfill').style.width = (s.progress*100).toFixed(1) + '%';
+    document.getElementById('pcap').textContent = (s.progress*100).toFixed(0) + '%';
+
+    // 指标
+    document.getElementById('kOut').textContent = fmt(s.output);
+    document.getElementById('kPlan').textContent = fmt(s.plan);
+    document.getElementById('kAtt').textContent = s.attain.toFixed(1) + '%';
+    document.getElementById('kYield').textContent = s.yield.toFixed(2) + '%';
+    document.getElementById('cRun').textContent = s.run;
+    document.getElementById('cIdle').textContent = s.idle;
+    document.getElementById('cFault').textContent = s.fault;
+
+    // 事件流（按虚拟时间取最近 14 条；避免每帧重排，用 key 判断是否变化）
+    var evs = SimCore.events(t, 14);
+    var key = evs.length + '|' + (evs[0] ? evs[0].t + evs[0].msg : '');
+    if (key !== lastFeedKey){
+      lastFeedKey = key;
+      var html = evs.map(function(e){
+        return '<div class="ev ' + e.level + '">' +
+                 '<div class="t">' + Clock.hhmm(e.t) + '</div>' +
+                 '<div class="d">' + e.dev + '</div>' +
+                 '<div class="m">' + e.msg + '</div>' +
+               '</div>';
+      }).join('');
+      document.getElementById('feed').innerHTML = html || '<div class="ev"><div class="m">暂无异常事件</div></div>';
+    }
+
+    // 字幕：取当前生效的那一幕
+    var elapsed = t - SimCore.SHIFT_START_MIN;
+    var idx = 0;
+    for (var i = 0; i < SCENES.length; i++) if (elapsed >= SCENES[i].at) idx = i;
+    var sc = SCENES[idx];
+    document.getElementById('sceneNo').textContent = (idx+1);
+    document.getElementById('sceneTot').textContent = '/' + SCENES.length;
+    document.getElementById('capTitle').textContent = sc.title;
+    document.getElementById('capText').innerHTML = sc.text;
+
+    // 班末
+    var ended = t >= SimCore.SHIFT_START_MIN + SimCore.SHIFT_LEN_MIN;
+    document.getElementById('endtag').style.display = ended ? 'block' : 'none';
+    if (ended && !Clock.paused) Clock.pause();
+  }
+
+  /* ---------------- 控制 ---------------- */
+  document.getElementById('speed').addEventListener('click', function(e){
+    var b = e.target.closest('button'); if (!b) return;
+    Clock.speed = parseFloat(b.dataset.s);
+    [].forEach.call(this.children, function(x){ x.classList.toggle('on', x === b); });
+    if (Clock.paused) Clock.resume();
+    broadcast();
+  });
+
+  document.getElementById('btnPause').addEventListener('click', function(){
+    if (Clock.paused){ Clock.resume(); this.textContent = '暂停'; }
+    else { Clock.pause(); this.textContent = '继续'; }
+    broadcast();
+  });
+
+  document.getElementById('btnReset').addEventListener('click', function(){
+    Clock.reset();
+    lastFeedKey = '';
+    syncStageUrl();
+    document.getElementById('btnPause').textContent = '暂停';
+    broadcast();
+  });
+
+  document.getElementById('btnFull').addEventListener('click', function(){
+    if (document.fullscreenElement) document.exitFullscreen();
+    else document.documentElement.requestFullscreen();
+  });
+
+  document.addEventListener('keydown', function(e){
+    if (e.code === 'Space'){ e.preventDefault(); document.getElementById('btnPause').click(); }
+    if (e.key === 'r' || e.key === 'R') document.getElementById('btnReset').click();
+    if (e.key === 'f' || e.key === 'F') document.getElementById('btnFull').click();
+  });
+
+  /* ---------------- 启动：首帧对齐 + 自动播放 ---------------- */
+  // 首帧必须用 URL 参数对齐：父页可能带着 ?t= 打开（评审时跳转到某个时刻），
+  // 而 iframe 若硬编码 src 就会从 08:00 重来 —— 两边时钟不一致，画面必然对不上。
+  function syncStageUrl(){
+    var t = Clock.now();
+    STAGE.src = PAGES[pageIdx].file + '?seed=' + seed +
+                '&t=' + t.toFixed(2) +
+                '&speed=' + Clock.speed +
+                (Clock.paused ? '&paused=1' : '');
+  }
+
+  STAGE.addEventListener('load', function(){
+    // iframe 就绪后再广播一次，随后每 400ms 持续同步
+    broadcast();
+  });
+
+  syncStageUrl();
+
+  // 自动播放：进入即跑，无需任何点击（展厅场景）
+  render();
+  setInterval(render, 400);
+})();
+</script>
+</body>
+</html>

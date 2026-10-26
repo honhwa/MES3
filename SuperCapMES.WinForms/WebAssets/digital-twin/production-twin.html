@@ -1020,5 +1020,9 @@ const View = {
 
 document.addEventListener('DOMContentLoaded', ()=>View.init());
 </script>
+<!-- 统一仿真内核：接管 MockSource.tick()，让本页与其它页读同一份台账与虚拟时钟。
+     视图代码一行不改；sim-core 缺失时本页仍按自带 mock 独立运行（向后兼容）。 -->
+<script>window.__SIM_PAGE = 'production';</script>
+<script src="sim-core.js"></script>
 </body>
 </html>

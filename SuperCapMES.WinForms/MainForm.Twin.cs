@@ -31,6 +31,11 @@ public partial class MainForm
     // 四个孪生页面：文件名 / 展示名 / 一句话说明 / 主题色
     private static readonly (string File, string Title, string Desc, string Color, string Icon)[] TwinPages =
     {
+        // 演示总控：本身是一个"播放器"，内部用 iframe 承载下面四个已接入统一仿真内核的模块。
+        // 放在首位是因为它是对外演示的主入口——一进来就能自动播放，不用逐个点。
+        ("demo.html", "仿真演示（四模块联动）",
+            "演示总控：产线运行 / 仓储库位 / 质量与SPC / 设备健康 四模块共用一份台账与同一条虚拟时钟，"
+            + "自动播放 + 倍速（60×/300×/600×）+ 暂停/重置 + 逐幕讲解字幕；左上角可随手切模块。", "#3fa9ff", "🎬"),
         ("digital-twin-dashboard.html", "运营大屏",
             "生产 / 网络 / 设备 / 碳排放 四大类核心指标总览，支持模块折叠、时间范围筛选与自动轮播。", "#2f81f7", "📊"),
         ("cockpit.html", "经营驾驶舱",

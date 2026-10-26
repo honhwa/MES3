@@ -271,7 +271,7 @@ const FLOW_TYPES = {
 };
 const KITS = [
   { id: 'WO-2026-1015-018', prod: 'SC-3000F 超级电容', qty: 2000, status: 'ok', note: '材料齐备，可投产' },
-  { id: 'WO-2026-1015-019', prod: 'SC-5000F 超级电容', qty: 1200, status: 'crit', note: '缺电解液（在途批待检），预计 10-16 到货' },
+  { id: 'WO-2026-1015-019', prod: 'SC-5000F 超级电容', qty: 1200, status: 'crit', note: '缺电解液（在途批待检），预计 10-28 到货' },
   { id: 'WO-2026-1015-020', prod: '锂电 32700', qty: 5000, status: 'warn', note: '隔膜部分齐套，缺口 1.2 万㎡，已催交' },
 ];
 const COLS = 4, LAYERS = 3;
@@ -798,5 +798,9 @@ const View = {
 
 document.addEventListener('DOMContentLoaded', () => View.init());
 </script>
+<!-- 统一仿真内核：接管随机源与曲线时间轴，使本页与其它页读同一份台账、同一条虚拟时钟。
+     视图代码一行不改；sim-core 缺失时本页仍按自带 mock 独立运行。 -->
+<script>window.__SIM_PAGE = 'warehouse';</script>
+<script src="sim-core.js"></script>
 </body>
 </html>

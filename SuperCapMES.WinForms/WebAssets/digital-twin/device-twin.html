@@ -820,5 +820,9 @@ const View = {
 
 document.addEventListener('DOMContentLoaded', ()=>View.init());
 </script>
+<!-- 统一仿真内核：接管随机源与曲线时间轴，使本页与其它页读同一份台账、同一条虚拟时钟。
+     视图代码一行不改；sim-core 缺失时本页仍按自带 mock 独立运行。 -->
+<script>window.__SIM_PAGE = 'device';</script>
+<script src="sim-core.js"></script>
 </body>
 </html>
