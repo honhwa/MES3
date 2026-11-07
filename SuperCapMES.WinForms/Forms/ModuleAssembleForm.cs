@@ -12,17 +12,10 @@ namespace SuperCapMES.WinForms.Forms;
 /// 新建模组装配窗体：填写模组 SN / 型号 / 产线 / 关联工单，并勾选要装入的电芯
 /// （候选 = 合格或已入库、且尚未属于任何模组的电芯）。
 /// 确定后由调用方执行 <see cref="MesDatabase.AssembleModule"/>。
+/// 控件宣告与静态配置见 ModuleAssembleForm.Designer.cs。
 /// </summary>
-public class ModuleAssembleForm : Form
+public partial class ModuleAssembleForm : Form
 {
-    private TextBox _txtModuleSn = null!;
-    private TextBox _txtModuleModel = null!;
-    private ComboBox _cboLine = null!;
-    private ComboBox _cboWo = null!;
-    private DataGridView _grid = null!;
-    private Label _lblSelected = null!;
-    private Label _lblCandidate = null!;
-
     public string ModuleSn { get; private set; } = "";
     public string ModuleModel { get; private set; } = "";
     public string Line { get; private set; } = "";
@@ -31,88 +24,44 @@ public class ModuleAssembleForm : Form
 
     public ModuleAssembleForm()
     {
-        Text = "新建模组装配";
-        StartPosition = FormStartPosition.CenterParent;
-        ClientSize = new Size(860, 560);
-        FormBorderStyle = FormBorderStyle.FixedDialog;
-        MaximizeBox = false;
-        MinimizeBox = false;
-        Font = new Font("微软雅黑", 9F);
+        InitializeComponent();
+        InitializeRuntime();
+    }
 
+    /// <summary>
+    /// 执行期初始化：静态控件建立 / 配置 / 加入容器均已搬至 InitializeComponent()
+    /// （含原 Controls.Add 顺序）；此处仅串联仍依赖执行期资料的 helper。
+    /// </summary>
+    private void InitializeRuntime()
+    {
         BuildUi();
         LoadCandidates();
     }
 
+    /// <summary>
+    /// 原 BuildUi() 的静态段落（header / 四个提示标签 / 输入控件 / group / _grid /
+    /// bottom / top / 各按钮之 new 与所有 Controls.Add）已全部展开至
+    /// ModuleAssembleForm.Designer.cs；Label() 工厂（全静态）亦已展开为具名栏位。
+    /// 此处仅保留依赖 DateTime / MesDatabase / LINQ 的设定与 DataGridView 手写列。
+    /// </summary>
     private void BuildUi()
     {
         // ---- 模组信息 ----
-        var header = new TableLayoutPanel
-        {
-            Dock = DockStyle.Top,
-            Height = 92,
-            ColumnCount = 4,
-            Padding = new Padding(12, 12, 12, 0)
-        };
-        header.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 90));
-        header.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 50));
-        header.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 90));
-        header.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 50));
-
-        header.Controls.Add(Label("模组 SN *："), 0, 0);
-        _txtModuleSn = new TextBox
-        {
-            Text = $"SM-A{DateTime.Today:yyMMdd}-L1-{DateTime.Now:HHmmss}",
-            Dock = DockStyle.Fill,
-            Font = new Font("Consolas", 10F),
-            Margin = new Padding(4, 6, 8, 4)
-        };
-        header.Controls.Add(_txtModuleSn, 1, 0);
-
-        header.Controls.Add(Label("模组型号："), 2, 0);
-        _txtModuleModel = new TextBox { Text = "模组 SC-MOD-100F-24V", Dock = DockStyle.Fill, Margin = new Padding(4, 6, 8, 4) };
-        header.Controls.Add(_txtModuleModel, 3, 0);
-
-        header.Controls.Add(Label("生产线体："), 0, 1);
-        _cboLine = new ComboBox { DropDownStyle = ComboBoxStyle.DropDownList, Dock = DockStyle.Fill, Margin = new Padding(4, 6, 8, 4) };
+        _txtModuleSn.Text = $"SM-A{DateTime.Today:yyMMdd}-L1-{DateTime.Now:HHmmss}";
         _cboLine.Items.AddRange(LineOptions.All.Cast<object>().ToArray());
         _cboLine.SelectedIndex = 0;
-        header.Controls.Add(_cboLine, 1, 1);
-
-        header.Controls.Add(Label("关联工单："), 2, 1);
-        _cboWo = new ComboBox { DropDownStyle = ComboBoxStyle.DropDownList, Dock = DockStyle.Fill, Margin = new Padding(4, 6, 8, 4) };
         _cboWo.Items.AddRange(MesDatabase.WorkOrders
             .Select(w => $"{w.WoNo} ｜ {w.ProductModel}").Cast<object>().ToArray());
         if (_cboWo.Items.Count > 0) _cboWo.SelectedIndex = 0;
-        header.Controls.Add(_cboWo, 3, 1);
 
         // ---- 候选电芯 ----
-        var group = new GroupBox
-        {
-            Text = "选择要装入模组的电芯（仅「合格 / 已入库」且未属于任何模组的电芯）",
-            Dock = DockStyle.Fill,
-            Padding = new Padding(6, 12, 6, 6)
-        };
-        _grid = new DataGridView
-        {
-            Dock = DockStyle.Fill,
-            AllowUserToAddRows = false,
-            AllowUserToDeleteRows = false,
-            AutoGenerateColumns = false,
-            AutoSizeColumnsMode = DataGridViewAutoSizeColumnsMode.Fill,
-            BackgroundColor = Color.White,
-            RowHeadersVisible = false,
-            SelectionMode = DataGridViewSelectionMode.CellSelect,
-            BorderStyle = BorderStyle.None,
-            EnableHeadersVisualStyles = false,
-            ColumnHeadersDefaultCellStyle = new DataGridViewCellStyle
-            {
-                BackColor = Color.FromArgb(15, 76, 129),
-                ForeColor = Color.White,
-                Alignment = DataGridViewContentAlignment.MiddleCenter
-            },
-            ColumnHeadersHeight = 30
-        };
         _grid.RowTemplate.Height = 26;
+        _grid.ColumnHeadersDefaultCellStyle = new DataGridViewCellStyle
+        {
+            BackColor = Color.FromArgb(15, 76, 129),
+            ForeColor = Color.White,
+            Alignment = DataGridViewContentAlignment.MiddleCenter
+        };
         _grid.Columns.Add(new DataGridViewCheckBoxColumn
         {
             Name = "Chk", HeaderText = "选择", DataPropertyName = "Chk", FillWeight = 6, FlatStyle = FlatStyle.Flat
@@ -122,63 +71,7 @@ public class ModuleAssembleForm : Form
         _grid.Columns.Add(Col("CellStatus", "状态", 10));
         _grid.Columns.Add(Col("ElectrodeLot", "极片批号", 14));
         _grid.Columns.Add(Col("CreateTime", "生产时间", 14));
-        _grid.CurrentCellDirtyStateChanged += (_, _) =>
-        {
-            if (_grid.IsCurrentCellDirty && _grid.CurrentCell is DataGridViewCheckBoxCell)
-                _grid.CommitEdit(DataGridViewDataErrorContexts.Commit);
-        };
-        _grid.CellValueChanged += (_, e) => { if (e.RowIndex >= 0 && e.ColumnIndex >= 0 && _grid.Columns[e.ColumnIndex].Name == "Chk") UpdateSelected(); };
-        _grid.DataError += (_, e) => e.ThrowException = false;
-        group.Controls.Add(_grid);
-
-        // ---- 底部 ----
-        var bottom = new Panel { Dock = DockStyle.Bottom, Height = 96, BackColor = Color.WhiteSmoke };
-        var top = new FlowLayoutPanel { Dock = DockStyle.Top, Height = 40, WrapContents = false, Padding = new Padding(8, 6, 0, 0) };
-        var btnAll = new Button { Text = "全选", Size = new Size(70, 28) };
-        var btnNone = new Button { Text = "取消全选", Size = new Size(84, 28) };
-        btnAll.Click += (_, _) => SetAll(true);
-        btnNone.Click += (_, _) => SetAll(false);
-        top.Controls.Add(btnAll);
-        top.Controls.Add(btnNone);
-        _lblCandidate = new Label { Text = "", AutoSize = true, ForeColor = Color.Gray, Margin = new Padding(12, 8, 0, 0) };
-        top.Controls.Add(_lblCandidate);
-        _lblSelected = new Label
-        {
-            Text = "已选 0 只",
-            AutoSize = true,
-            Font = new Font("微软雅黑", 9.5F, FontStyle.Bold),
-            ForeColor = Color.FromArgb(15, 76, 129),
-            Margin = new Padding(16, 8, 0, 0)
-        };
-        top.Controls.Add(_lblSelected);
-
-        var btnOk = new Button
-        {
-            Text = "装配模组",
-            Size = new Size(110, 32),
-            Location = new Point(bottom.Width - 226, 52),
-            BackColor = Color.FromArgb(15, 76, 129),
-            ForeColor = Color.White,
-            FlatStyle = FlatStyle.Flat
-        };
-        var btnCancel = new Button { Text = "取消", Size = new Size(90, 32), Location = new Point(bottom.Width - 106, 52) };
-        btnOk.Click += BtnOk_Click;
-        btnCancel.Click += (_, _) => { DialogResult = DialogResult.Cancel; Close(); };
-        bottom.Controls.Add(top);
-        bottom.Controls.Add(btnOk);
-        bottom.Controls.Add(btnCancel);
-
-        Controls.Add(group);
-        Controls.Add(header);
-        Controls.Add(bottom);
     }
-
-    private static Label Label(string text) => new()
-    {
-        Text = text,
-        Dock = DockStyle.Fill,
-        TextAlign = ContentAlignment.MiddleRight
-    };
 
     private static DataGridViewTextBoxColumn Col(string prop, string header, int weight) => new()
     {
@@ -188,6 +81,40 @@ public class ModuleAssembleForm : Form
         ReadOnly = true,
         FillWeight = weight
     };
+
+    // ================= 网格事件（原 lambda 具名化，Designer 以方法群挂接） =================
+
+    /// <summary>原 _grid.CurrentCellDirtyStateChanged lambda。</summary>
+    private void Grid_CurrentCellDirtyStateChanged(object? sender, EventArgs e)
+    {
+        if (_grid.IsCurrentCellDirty && _grid.CurrentCell is DataGridViewCheckBoxCell)
+            _grid.CommitEdit(DataGridViewDataErrorContexts.Commit);
+    }
+
+    /// <summary>原 _grid.CellValueChanged lambda。</summary>
+    private void Grid_CellValueChanged(object? sender, DataGridViewCellEventArgs e)
+    {
+        if (e.RowIndex >= 0 && e.ColumnIndex >= 0 && _grid.Columns[e.ColumnIndex].Name == "Chk") UpdateSelected();
+    }
+
+    /// <summary>原 _grid.DataError lambda。</summary>
+    private void Grid_DataError(object? sender, DataGridViewDataErrorEventArgs e)
+    {
+        e.ThrowException = false;
+    }
+
+    /// <summary>原 btnAll.Click lambda。</summary>
+    private void BtnAll_Click(object? sender, EventArgs e) => SetAll(true);
+
+    /// <summary>原 btnNone.Click lambda。</summary>
+    private void BtnNone_Click(object? sender, EventArgs e) => SetAll(false);
+
+    /// <summary>原 btnCancel.Click lambda。</summary>
+    private void BtnCancel_Click(object? sender, EventArgs e)
+    {
+        DialogResult = DialogResult.Cancel;
+        Close();
+    }
 
     private void LoadCandidates()
     {

@@ -6,21 +6,8 @@ using SuperCapMES.WinForms.Models;
 namespace SuperCapMES.WinForms.Forms;
 
 // <summary>供应商碳数据录入/更新弹窗。</summary>
-public class SupplierCarbonForm : Form
+public partial class SupplierCarbonForm : Form
 {
-    private readonly TextBox _txtSupplier = new() { Width = 180 };
-    private readonly ComboBox _cboMaterial = new() { DropDownStyle = ComboBoxStyle.DropDownList, Width = 260 };
-    private readonly TextBox _txtValue = new() { Width = 130 };
-    private readonly CheckBox _chkNoData = new() { Text = "该供应商未提供数据", AutoSize = true };
-    private readonly ComboBox _cboScope3 = new() { DropDownStyle = ComboBoxStyle.DropDownList, Width = 220 };
-    private readonly ComboBox _cboSource = new() { DropDownStyle = ComboBoxStyle.DropDownList, Width = 150 };
-    private readonly NumericUpDown _numYear = new() { Width = 90, Minimum = 2000, Maximum = 2100, Value = 2026 };
-    private readonly TextBox _txtRemark = new() { Width = 260 };
-    private readonly Label _tip = new()
-    {
-        AutoSize = false, Height = 34, ForeColor = Color.FromArgb(217, 119, 6), Font = new Font("微软雅黑", 8.5F)
-    };
-
     public string Supplier => _txtSupplier.Text.Trim();
     public string MaterialCode => (_cboMaterial.SelectedItem as MatItem)?.Code ?? "";
     public double? KgPerUnit => _chkNoData.Checked
@@ -41,12 +28,20 @@ public class SupplierCarbonForm : Form
 
     public SupplierCarbonForm(SupplierCarbon? existing, List<WmsMaterial> materials)
     {
+        InitializeComponent();
+        InitializeRuntime(existing, materials);
+    }
+
+    /// <summary>
+    /// 执行期初始化：依赖 existing / materials 的 Text / Items / SelectedIndex / Value、
+    /// 各 foreach 建项与 CheckInput() 呼叫，逐行保留原建构式语义。
+    /// 原本在动态资料赋值之后才挂接的「值变更监控」事件改具名方法、维持挂接顺序，
+    /// 避免在初始化期提前触发 CheckInput 而改变表单初始状态。
+    /// 控件建立 / 静态配置 / 加入容器均已搬至 SupplierCarbonForm.Designer.cs。
+    /// </summary>
+    private void InitializeRuntime(SupplierCarbon? existing, List<WmsMaterial> materials)
+    {
         Text = existing is null ? "录入供应商碳数据" : $"更新 {existing.Supplier} 的碳数据";
-        FormBorderStyle = FormBorderStyle.FixedDialog;
-        StartPosition = FormStartPosition.CenterParent;
-        ClientSize = new Size(600, 440);
-        MaximizeBox = false;
-        Font = new Font("微软雅黑", 9F);
 
         foreach (var m in materials)
             _cboMaterial.Items.Add(new MatItem
@@ -75,76 +70,31 @@ public class SupplierCarbonForm : Form
             _txtRemark.Text = existing.Remark;
         }
 
-        var head = new Label
-        {
-            Dock = DockStyle.Top, Height = 88, Padding = new Padding(14, 10, 14, 6),
-            BackColor = Color.White, ForeColor = Color.FromArgb(51, 65, 85),
-            Text = "录入某供应商供应的某物料的碳强度（kgCO2e/单位）。\n\n"
-                 + "<b>未提供数据 ≠ 0 排放</b>：勾选「未提供」后该供应商不参与排名，"
-                 + "避免因数据缺失反而排到第一名。"
-        };
-
-        var form = new TableLayoutPanel
-        {
-            Dock = DockStyle.Fill, ColumnCount = 2, RowCount = 8, Padding = new Padding(14, 8, 14, 6)
-        };
-        form.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 110));
-        form.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
-
-        void AddRow(int r, string label, Control ctl)
-        {
-            form.Controls.Add(new Label
-            {
-                Text = label, AutoSize = true, Anchor = AnchorStyles.Left, ForeColor = Color.FromArgb(51, 65, 85)
-            }, 0, r);
-            ctl.Anchor = AnchorStyles.Left;
-            form.Controls.Add(ctl, 1, r);
-        }
-
-        AddRow(0, "供应商 *", _txtSupplier);
-        AddRow(1, "物料 *", _cboMaterial);
-        AddRow(2, "碳强度 *", _txtValue);
-        form.Controls.Add(_chkNoData, 1, 3);
-        AddRow(4, "范围三类别", _cboScope3);
-        AddRow(5, "数据来源", _cboSource);
-        AddRow(6, "数据年份", _numYear);
-        AddRow(7, "备注", _txtRemark);
-
-        _chkNoData.CheckedChanged += (_, _) =>
-        {
-            _txtValue.Enabled = !_chkNoData.Checked;
-            _cboSource.Enabled = !_chkNoData.Checked;
-            CheckInput();
-        };
-        _txtValue.TextChanged += (_, _) => CheckInput();
-        _txtSupplier.TextChanged += (_, _) => CheckInput();
-        _txtValue.Enabled = true;
+        _chkNoData.CheckedChanged += new System.EventHandler(this.ChkNoData_CheckedChanged);
+        _txtValue.TextChanged += new System.EventHandler(this.TxtValue_TextChanged);
+        _txtSupplier.TextChanged += new System.EventHandler(this.TxtSupplier_TextChanged);
         CheckInput();
+    }
 
-        var btnOk = new Button { Text = "下一步", Width = 110, Height = 32 };
-        var btnCancel = new Button { Text = "取消", Width = 90, Height = 32, DialogResult = DialogResult.Cancel };
-        btnOk.Click += (_, _) =>
-        {
-            if (Supplier.Length == 0) { ScWarn("请填写供应商名称。"); return; }
-            if (MaterialCode.Length == 0) { ScWarn("请选择物料。"); return; }
-            if (!_chkNoData.Checked && KgPerUnit is null)
-            { ScWarn(_tip.Text.Length > 0 ? _tip.Text : "请填写正确的碳强度（≥ 0），或勾选「未提供」。"); return; }
-            DialogResult = DialogResult.OK;
-            Close();
-        };
-        var btnRow = new FlowLayoutPanel
-        {
-            Dock = DockStyle.Bottom, Height = 44,
-            FlowDirection = FlowDirection.RightToLeft, Padding = new Padding(10, 5, 12, 0)
-        };
-        btnRow.Controls.Add(btnCancel);
-        btnRow.Controls.Add(btnOk);
+    private void ChkNoData_CheckedChanged(object? sender, EventArgs e)
+    {
+        _txtValue.Enabled = !_chkNoData.Checked;
+        _cboSource.Enabled = !_chkNoData.Checked;
+        CheckInput();
+    }
 
-        Controls.Add(form);
-        Controls.Add(head);
-        Controls.Add(btnRow);
-        AcceptButton = btnOk;
-        CancelButton = btnCancel;
+    private void TxtValue_TextChanged(object? sender, EventArgs e) => CheckInput();
+
+    private void TxtSupplier_TextChanged(object? sender, EventArgs e) => CheckInput();
+
+    private void BtnOk_Click(object? sender, EventArgs e)
+    {
+        if (Supplier.Length == 0) { ScWarn("请填写供应商名称。"); return; }
+        if (MaterialCode.Length == 0) { ScWarn("请选择物料。"); return; }
+        if (!_chkNoData.Checked && KgPerUnit is null)
+        { ScWarn(_tip.Text.Length > 0 ? _tip.Text : "请填写正确的碳强度（≥ 0），或勾选「未提供」。"); return; }
+        DialogResult = DialogResult.OK;
+        Close();
     }
 
     private void CheckInput()

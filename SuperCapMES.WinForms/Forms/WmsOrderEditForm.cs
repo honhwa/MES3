@@ -14,20 +14,8 @@ namespace SuperCapMES.WinForms.Forms;
 /// 中部可增删明细行（物料编码下拉 → 自动带出名称/规格/单位，库位下拉）；
 /// 保存时做必填校验并调用 MesDatabase.CreateWmsOrder，成功后返回新单号。
 /// </summary>
-public class WmsOrderEditForm : Form
+public partial class WmsOrderEditForm : Form
 {
-    private ComboBox _cboType = null!;
-    private Label _lblPartner = null!;
-    private TextBox _txtPartner = null!;
-    private Label _lblRef = null!;
-    private TextBox _txtRef = null!;
-    private Label _lblReason = null!;
-    private TextBox _txtReason = null!;
-    private TextBox _txtOperator = null!;
-    private TextBox _txtRemark = null!;
-    private Label _lblLocHint = null!;
-    private DataGridView _lineGrid = null!;
-
     /// <summary>
     /// 联动写入抑制标志：程序化设置批次/库位单元格值时置 true，
     /// 避免 CellValueChanged 再次触发联动写入而产生递归。
@@ -39,117 +27,52 @@ public class WmsOrderEditForm : Form
 
     public WmsOrderEditForm()
     {
-        Text = "新建 WMS 单据";
-        Font = new Font("微软雅黑", 9F);
-        StartPosition = FormStartPosition.CenterParent;
-        ClientSize = new Size(980, 640);
-        MinimumSize = new Size(860, 560);
-        BuildUi();
+        InitializeComponent();
+        InitializeRuntime();
     }
 
-    private void BuildUi()
+    /// <summary>
+    /// 执行期初始化：仅保留 Designer 无法解析的动态逻辑（执行期集合项目 /
+    /// DataGridView 栏位与 CellStyle 物件初始设定式 / MesDatabase 主数据绑定）。
+    /// 控件树建立、静态属性、容器加入与方法群事件挂接均在 WmsOrderEditForm.Designer.cs。
+    /// </summary>
+    private void InitializeRuntime()
     {
-        var root = new TableLayoutPanel
-        {
-            Dock = DockStyle.Fill,
-            ColumnCount = 1,
-            RowCount = 4,
-            Padding = new Padding(10, 8, 10, 8)
-        };
-        root.RowStyles.Add(new RowStyle(SizeType.Absolute, 172));  // 表头
-        root.RowStyles.Add(new RowStyle(SizeType.Absolute, 44));   // 明细工具栏
-        root.RowStyles.Add(new RowStyle(SizeType.Percent, 100));   // 明细网格
-        root.RowStyles.Add(new RowStyle(SizeType.Absolute, 52));   // 底部按钮
+        // 单据类型下拉项目来自执行期集合 WmsOrderTypes.All（Designer 仅能展开字面静态项目）。
+        _cboType.Items.AddRange(WmsOrderTypes.All);
 
-        root.Controls.Add(BuildHeader(), 0, 0);
-        root.Controls.Add(BuildLineToolbar(), 0, 1);
-        root.Controls.Add(BuildLineGrid(), 0, 2);
-        root.Controls.Add(BuildFooter(), 0, 3);
-
-        Controls.Add(root);
+        // 明细网格的栏位 / CellStyle / 主数据绑定（Designer 无法解析的段落）。
+        ConfigureLineGrid();
 
         ApplyTypeRules();
         AddLineRow();
     }
 
-    // ---------------- 表头 ----------------
+    // ---------------- 明细网格动态设定 ----------------
 
-    private Control BuildHeader()
+    /// <summary>
+    /// 明细网格的栏位、CellStyle 物件初始设定式与主数据绑定（Designer 无法解析的段落），
+    /// 依迁移规格保留于执行期；网格本体静态属性、容器加入与方法群事件见 WmsOrderEditForm.Designer.cs。
+    /// </summary>
+    private void ConfigureLineGrid()
     {
-        var box = new GroupBox { Text = "单据表头（* 为必填）", Dock = DockStyle.Fill, Padding = new Padding(8, 12, 8, 6) };
-        var tbl = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 4, RowCount = 3 };
-        tbl.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 90));
-        tbl.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 50));
-        tbl.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 90));
-        tbl.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 50));
-        for (var i = 0; i < 3; i++)
-            tbl.RowStyles.Add(new RowStyle(SizeType.Absolute, 36));
-
-        // 类型
-        _cboType = new ComboBox { Dock = DockStyle.Fill, DropDownStyle = ComboBoxStyle.DropDownList };
-        _cboType.Items.AddRange(WmsOrderTypes.All);
-        _cboType.SelectedIndexChanged += (_, _) => ApplyTypeRules();
-        tbl.Controls.Add(MakeLabel("单据类型 *"), 0, 0);
-        tbl.Controls.Add(_cboType, 1, 0);
-
-        // 往来对象（标签随类型变）
-        _lblPartner = MakeLabel("往来对象 *");
-        _txtPartner = new TextBox { Dock = DockStyle.Fill };
-        tbl.Controls.Add(_lblPartner, 2, 0);
-        tbl.Controls.Add(_txtPartner, 3, 0);
-
-        // 参考号
-        _lblRef = MakeLabel("参考号");
-        _txtRef = new TextBox { Dock = DockStyle.Fill };
-        tbl.Controls.Add(_lblRef, 0, 1);
-        tbl.Controls.Add(_txtRef, 1, 1);
-
-        // 退货原因
-        _lblReason = MakeLabel("退货原因");
-        _txtReason = new TextBox { Dock = DockStyle.Fill };
-        tbl.Controls.Add(_lblReason, 2, 1);
-        tbl.Controls.Add(_txtReason, 3, 1);
-
-        // 经手人
-        _txtOperator = new TextBox { Dock = DockStyle.Fill, Text = "admin" };
-        tbl.Controls.Add(MakeLabel("经手人 *"), 0, 2);
-        tbl.Controls.Add(_txtOperator, 1, 2);
-
-        // 备注
-        _txtRemark = new TextBox { Dock = DockStyle.Fill };
-        tbl.Controls.Add(MakeLabel("备注"), 2, 2);
-        tbl.Controls.Add(_txtRemark, 3, 2);
-
-        box.Controls.Add(tbl);
-        return box;
-    }
-
-    // ---------------- 明细工具栏 ----------------
-
-    private Control BuildLineToolbar()
-    {
-        var bar = new FlowLayoutPanel { Dock = DockStyle.Fill, WrapContents = false, Padding = new Padding(2, 6, 2, 0) };
-        bar.Controls.Add(MakeButton("添加行", BtnAddLine));
-        bar.Controls.Add(MakeButton("删除选中行", BtnDeleteLine));
-        _lblLocHint = new Label
+        _lineGrid.ColumnHeadersDefaultCellStyle = new DataGridViewCellStyle
         {
-            Text = "",
-            AutoSize = true,
-            ForeColor = Color.Gray,
-            Margin = new Padding(14, 9, 0, 0)
+            BackColor = Color.FromArgb(15, 76, 129),
+            ForeColor = Color.White,
+            Font = new Font("微软雅黑", 9F, FontStyle.Bold),
+            Alignment = DataGridViewContentAlignment.MiddleCenter
         };
-        bar.Controls.Add(_lblLocHint);
-        return bar;
-    }
+        _lineGrid.DefaultCellStyle = new DataGridViewCellStyle
+        {
+            BackColor = Color.White,
+            ForeColor = Color.Black,
+            SelectionBackColor = Color.FromArgb(207, 224, 239),
+            SelectionForeColor = Color.Black,
+            Font = new Font("微软雅黑", 9F)
+        };
+        _lineGrid.AlternatingRowsDefaultCellStyle = new DataGridViewCellStyle { BackColor = Color.FromArgb(245, 248, 252) };
 
-    // ---------------- 明细网格 ----------------
-
-    private Control BuildLineGrid()
-    {
-        var box = new GroupBox { Text = "单据明细（物料编码选中后自动带出名称/规格/单位；出库类批次/库位只能从库存已有项中选择，入库类批次可手填或选已有、库位可全量选择；数量需 > 0）", Dock = DockStyle.Fill, Padding = new Padding(6, 12, 6, 6) };
-
-        _lineGrid = MakeEditableGrid();
-        _lineGrid.AutoGenerateColumns = false;
         _lineGrid.Columns.Clear();
 
         var matCol = new DataGridViewComboBoxColumn
@@ -190,14 +113,8 @@ public class WmsOrderEditForm : Form
             FlatStyle = FlatStyle.Flat
         });
 
-        // 物料/批次变化 → 联动候选与自动带出；进入编辑前重建候选；编辑控件 DropDownStyle 按类型切换；容错：非法下拉值不抛异常
-        _lineGrid.CellValueChanged += LineGrid_CellValueChanged;
-        _lineGrid.CellBeginEdit += LineGrid_CellBeginEdit;
-        _lineGrid.EditingControlShowing += LineGrid_EditingControlShowing;
-        _lineGrid.DataError += (_, e) => e.ThrowException = false;
-
-        box.Controls.Add(_lineGrid);
-        return box;
+        // 网格事件（CellValueChanged / CellBeginEdit / EditingControlShowing / DataError）
+        // 已改为方法群，挂接于 WmsOrderEditForm.Designer.cs。
     }
 
     private void BtnAddLine(object? sender, EventArgs e) => AddLineRow();
@@ -502,36 +419,6 @@ public class WmsOrderEditForm : Form
         }
     }
 
-    // ---------------- 底部 ----------------
-
-    private Control BuildFooter()
-    {
-        var bar = new Panel { Dock = DockStyle.Fill, BackColor = Color.WhiteSmoke };
-        var btnOk = new Button
-        {
-            Text = "保存",
-            Width = 110,
-            Height = 32,
-            BackColor = Color.FromArgb(15, 76, 129),
-            ForeColor = Color.White,
-            FlatStyle = FlatStyle.Flat,
-            Font = new Font("微软雅黑", 9F, FontStyle.Bold)
-        };
-        var btnCancel = new Button { Text = "取消", Width = 100, Height = 32 };
-        btnOk.Location = new Point(bar.Width - 226, 10);
-        btnCancel.Location = new Point(bar.Width - 112, 10);
-        bar.Resize += (_, _) =>
-        {
-            btnOk.Location = new Point(bar.Width - 226, 10);
-            btnCancel.Location = new Point(bar.Width - 112, 10);
-        };
-        btnOk.Click += (_, _) => Save();
-        btnCancel.Click += (_, _) => { DialogResult = DialogResult.Cancel; Close(); };
-        bar.Controls.Add(btnOk);
-        bar.Controls.Add(btnCancel);
-        return bar;
-    }
-
     // ---------------- 类型联动 ----------------
 
     private string CurrentType() =>
@@ -689,24 +576,7 @@ public class WmsOrderEditForm : Form
 
     // ---------------- 控件工厂 ----------------
 
-    private static Label MakeLabel(string text) =>
-        new() { Text = text, Dock = DockStyle.Fill, TextAlign = ContentAlignment.MiddleLeft, ForeColor = Color.FromArgb(40, 50, 60) };
-
-    private static Button MakeButton(string text, EventHandler onClick)
-    {
-        var b = new Button
-        {
-            Text = text,
-            Size = new Size(96, 30),
-            Margin = new Padding(4, 0, 4, 0),
-            BackColor = Color.FromArgb(15, 76, 129),
-            ForeColor = Color.White,
-            FlatStyle = FlatStyle.Flat
-        };
-        b.Click += onClick;
-        return b;
-    }
-
+    /// <summary>明细网格文字栏位；Columns.Add 属动态段落，故本工厂保留于执行期。</summary>
     private static DataGridViewTextBoxColumn MakeTextColumn(string name, string header, int fillWeight) =>
         new()
         {
@@ -715,36 +585,26 @@ public class WmsOrderEditForm : Form
             FillWeight = fillWeight
         };
 
-    private static DataGridView MakeEditableGrid() =>
-        new()
-        {
-            Dock = DockStyle.Fill,
-            ReadOnly = false,
-            AllowUserToAddRows = false,
-            AllowUserToDeleteRows = false,
-            AutoSizeColumnsMode = DataGridViewAutoSizeColumnsMode.Fill,
-            BackgroundColor = Color.White,
-            RowHeadersVisible = false,
-            SelectionMode = DataGridViewSelectionMode.FullRowSelect,
-            BorderStyle = BorderStyle.None,
-            EnableHeadersVisualStyles = false,
-            ColumnHeadersDefaultCellStyle = new DataGridViewCellStyle
-            {
-                BackColor = Color.FromArgb(15, 76, 129),
-                ForeColor = Color.White,
-                Font = new Font("微软雅黑", 9F, FontStyle.Bold),
-                Alignment = DataGridViewContentAlignment.MiddleCenter
-            },
-            DefaultCellStyle = new DataGridViewCellStyle
-            {
-                BackColor = Color.White,
-                ForeColor = Color.Black,
-                SelectionBackColor = Color.FromArgb(207, 224, 239),
-                SelectionForeColor = Color.Black,
-                Font = new Font("微软雅黑", 9F)
-            },
-            AlternatingRowsDefaultCellStyle = new DataGridViewCellStyle { BackColor = Color.FromArgb(245, 248, 252) }
-        };
+    // ---------------- 由 Designer.cs 以方法群挂接的事件 ----------------
+
+    private void CboType_SelectedIndexChanged(object? sender, EventArgs e) => ApplyTypeRules();
+
+    private void BtnOk_Click(object? sender, EventArgs e) => Save();
+
+    private void BtnCancel_Click(object? sender, EventArgs e)
+    {
+        DialogResult = DialogResult.Cancel;
+        Close();
+    }
+
+    private void LineGrid_DataError(object? sender, DataGridViewDataErrorEventArgs e) => e.ThrowException = false;
+
+    /// <summary>底部面板尺寸变化时重算按钮位置（原 BuildFooter 内的 lambda）。</summary>
+    private void FooterBar_Resize(object? sender, EventArgs e)
+    {
+        btnOk.Location = new Point(footerBar.Width - 226, 10);
+        btnCancel.Location = new Point(footerBar.Width - 112, 10);
+    }
 
     private void Warn(string msg) =>
         MessageBox.Show(msg, "提示", MessageBoxButtons.OK, MessageBoxIcon.Warning);

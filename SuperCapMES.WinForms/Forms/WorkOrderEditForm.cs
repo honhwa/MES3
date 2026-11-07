@@ -12,29 +12,12 @@ namespace SuperCapMES.WinForms.Forms;
 /// 工单指派/编辑窗体：
 /// 根据 ERP 订单号生成工单号，填写计划生产数据、生产型号、产线、日期等。
 /// </summary>
-public class WorkOrderEditForm : Form
+public partial class WorkOrderEditForm : Form
 {
-    private readonly WorkOrder? _existing;
+    // _existing 原为 readonly；建构式仅保留 InitializeComponent()/InitializeRuntime(existing)，
+    // 故赋值移至 InitializeRuntime 并移除 readonly（无执行期行为差异）。
+    private WorkOrder? _existing;
 
-    private TextBox _txtErp = null!;
-    private TextBox _txtWoNo = null!;
-    private CheckBox _chkAuto = null!;
-    private ToolTip _tip = null!;
-    private TextBox _txtModel = null!;
-    private ComboBox _cboLine = null!;
-    private NumericUpDown _numPlan = null!;
-    private NumericUpDown _numFinished = null!;
-    private NumericUpDown _numNg = null!;
-    private ComboBox _cboStatus = null!;
-    private DateTimePicker _dtStart = null!;
-    private DateTimePicker _dtDue = null!;
-    private Label _lblStock = null!;
-    private DataGridView _gridStock = null!;
-    private Label _lblAsset = null!;
-    private DataGridView _gridAsset = null!;
-    private TextBox _txtAiInput = null!;
-    private Button _btnAiParse = null!;
-    private Label _lblAiTrace = null!;
     /// <summary>最近一次资源校验结果（物料 + 设备，保存时据此预警与登记占用）。</summary>
     private ResourceCheckResult? _lastResourceCheck;
     /// <summary>最近一次资材占用校验（主体口径：跨工单累加 + 净缺口）。</summary>
@@ -49,199 +32,27 @@ public class WorkOrderEditForm : Form
 
     public WorkOrderEditForm(WorkOrder? existing)
     {
-        _existing = existing;
-        Text = existing is null ? "新建工单 - 工单指派" : "修改工单";
-        FormBorderStyle = FormBorderStyle.FixedDialog;
-        MaximizeBox = false;
-        MinimizeBox = false;
-        StartPosition = FormStartPosition.CenterParent;
-        ClientSize = new Size(700, 700);
-        Font = new Font("微软雅黑", 9F);
-        BuildUi();
+        InitializeComponent();
+        InitializeRuntime(existing);
     }
 
-    private void BuildUi()
+    /// <summary>
+    /// 执行期初始化：依赖参数的 _existing / Text / ERP 标签文字、两个资源网格的
+    /// Columns 与 CellStyle 物件初始设定式、编辑模式预填（DateTime.Today / MesDatabase 版本 /
+    /// ToolTip）等 Designer 无法解析的段落。控件树建立、静态属性、容器加入与
+    /// 方法群事件挂接均在 WorkOrderEditForm.Designer.cs。
+    /// </summary>
+    private void InitializeRuntime(WorkOrder? existing)
     {
-        _tip = new ToolTip { InitialDelay = 300, ReshowDelay = 100, AutoPopDelay = 6000 };
+        _existing = existing;
+        Text = existing is null ? "新建工单 - 工单指派" : "修改工单";
 
-        var grid = new TableLayoutPanel
-        {
-            Dock = DockStyle.Fill,
-            ColumnCount = 2,
-            RowCount = 10,
-            Padding = new Padding(16, 14, 16, 8)
-        };
-        grid.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 150));
-        grid.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
-        for (var i = 0; i < 10; i++)
-            grid.RowStyles.Add(new RowStyle(SizeType.Absolute, 38));
+        // ERP 订单号标签文字依赖 _existing（新增/编辑不同），Designer 仅能设固定字面。
+        lblErp.Text = _existing is null ? "ERP 订单号（可留空）" : "ERP 订单号（不可修改）";
 
-        // 0 ERP 订单号（仅新建工单可修改；新建时支持双击从 ERP 已接收 PO 列表选择）
-        _txtErp = new TextBox { Dock = DockStyle.Fill };
-        _txtErp.TextChanged += (_, _) => SyncWoNo();
-        _txtErp.DoubleClick -= TxtErp_DoubleClick;
-        _txtErp.DoubleClick += TxtErp_DoubleClick;
-        grid.Controls.Add(MakeLabel(_existing is null ? "ERP 订单号（可留空）" : "ERP 订单号（不可修改）"), 0, 0);
-        grid.Controls.Add(_txtErp, 1, 0);
-
-        // 1 工单号 + 自动生成
-        _txtWoNo = new TextBox { Dock = DockStyle.Fill, Font = new Font("Consolas", 9.5F) };
-        _chkAuto = new CheckBox { Text = "由订单号自动生成", AutoSize = true, Checked = true };
-        _chkAuto.CheckedChanged += (_, _) => { _txtWoNo.ReadOnly = _chkAuto.Checked; SyncWoNo(); };
-        var woRow = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 2 };
-        woRow.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
-        woRow.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
-        woRow.Controls.Add(_txtWoNo, 0, 0);
-        woRow.Controls.Add(_chkAuto, 1, 0);
-        grid.Controls.Add(MakeLabel("工单号 *"), 0, 1);
-        grid.Controls.Add(woRow, 1, 1);
-
-        // 2 产品型号
-        _txtModel = new TextBox { Dock = DockStyle.Fill };
-        grid.Controls.Add(MakeLabel("生产型号 *"), 0, 2);
-        grid.Controls.Add(_txtModel, 1, 2);
-
-        // 3 产线
-        _cboLine = new ComboBox { Dock = DockStyle.Fill, DropDownStyle = ComboBoxStyle.DropDownList };
-        _cboLine.Items.AddRange(new object[] { "L1", "L2", "L3" });
-        grid.Controls.Add(MakeLabel("生产线体 *"), 0, 3);
-        grid.Controls.Add(_cboLine, 1, 3);
-
-        // 4 计划生产数
-        _numPlan = new NumericUpDown { Dock = DockStyle.Fill, Maximum = 999999, Minimum = 1, Value = 1000 };
-        grid.Controls.Add(MakeLabel("计划生产数 *"), 0, 4);
-        grid.Controls.Add(_numPlan, 1, 4);
-
-        // 5 完成数
-        _numFinished = new NumericUpDown { Dock = DockStyle.Fill, Maximum = 999999, Minimum = 0, Value = 0 };
-        grid.Controls.Add(MakeLabel("已完成数"), 0, 5);
-        grid.Controls.Add(_numFinished, 1, 5);
-
-        // 6 不良数
-        _numNg = new NumericUpDown { Dock = DockStyle.Fill, Maximum = 999999, Minimum = 0, Value = 0 };
-        grid.Controls.Add(MakeLabel("不良数"), 0, 6);
-        grid.Controls.Add(_numNg, 1, 6);
-
-        // 7 状态
-        _cboStatus = new ComboBox { Dock = DockStyle.Fill, DropDownStyle = ComboBoxStyle.DropDownList };
-        _cboStatus.Items.AddRange(new object[] { "未开始", "生产中", "已完成", "已关闭" });
-        grid.Controls.Add(MakeLabel("工单状态"), 0, 7);
-        grid.Controls.Add(_cboStatus, 1, 7);
-
-        // 8 开始日期
-        _dtStart = new DateTimePicker { Dock = DockStyle.Fill, Format = DateTimePickerFormat.Custom, CustomFormat = "yyyy-MM-dd" };
-        grid.Controls.Add(MakeLabel("开始日期"), 0, 8);
-        grid.Controls.Add(_dtStart, 1, 8);
-
-        // 9 交期
-        _dtDue = new DateTimePicker { Dock = DockStyle.Fill, Format = DateTimePickerFormat.Custom, CustomFormat = "yyyy-MM-dd" };
-        grid.Controls.Add(MakeLabel("计划交期"), 0, 9);
-        grid.Controls.Add(_dtDue, 1, 9);
-
-        // 底部按钮
-        var btnRow = new Panel { Dock = DockStyle.Bottom, Height = 52 };
-        var btnOk = new Button { Text = "保存", Width = 100, Height = 32, DialogResult = DialogResult.None };
-        var btnCancel = new Button { Text = "取消", Width = 100, Height = 32 };
-        btnOk.Location = new Point(btnRow.Width - 224, 10);
-        btnCancel.Location = new Point(btnRow.Width - 112, 10);
-        btnRow.Resize += (_, _) =>
-        {
-            btnOk.Location = new Point(btnRow.Width - 224, 10);
-            btnCancel.Location = new Point(btnRow.Width - 112, 10);
-        };
-        btnOk.Click += (_, _) => Save();
-        btnCancel.Click += (_, _) => { DialogResult = DialogResult.Cancel; Close(); };
-
-        btnRow.Controls.Add(btnOk);
-        btnRow.Controls.Add(btnCancel);
-        btnRow.BackColor = Color.WhiteSmoke;
-
-        // ---- AI 文本解析条：粘贴一段大白话，自动填型号/数量/线体/日期 ----
-        var aiBar = new Panel { Dock = DockStyle.Top, Height = 74, Padding = new Padding(16, 4, 16, 4), BackColor = Color.White };
-        _txtAiInput = new TextBox
-        {
-            Multiline = true,
-            ScrollBars = ScrollBars.Vertical,
-            Dock = DockStyle.Fill,
-            Font = new Font("微软雅黑", 9F),
-            PlaceholderText = "例：下周三开工，SC-CX2026-100F 要 6000 只，走 L1，用卷绕机 WIND-L1-01，14 号交货"
-        };
-        var aiLeft = new Panel { Dock = DockStyle.Fill, Padding = new Padding(0, 0, 8, 0) };
-        aiLeft.Controls.Add(_txtAiInput);
-
-        var aiRight = new FlowLayoutPanel { Dock = DockStyle.Right, Width = 150, WrapContents = false };
-        _btnAiParse = new Button
-        {
-            Text = "🤖 AI 解析文本",
-            Dock = DockStyle.Top,
-            Height = 32,
-            BackColor = Color.FromArgb(15, 76, 129),
-            ForeColor = Color.White,
-            FlatStyle = FlatStyle.Flat
-        };
-        _btnAiParse.Click += (_, _) => BtnAiParse();
-        _lblAiTrace = new Label
-        {
-            Dock = DockStyle.Top,
-            Height = 30,
-            AutoSize = false,
-            Font = new Font("微软雅黑", 8.5F),
-            ForeColor = Color.FromArgb(100, 116, 139),
-            Text = "未启用大模型时走规则抽取"
-        };
-        aiRight.Controls.Add(_lblAiTrace);
-        aiRight.Controls.Add(_btnAiParse);
-        aiBar.Controls.Add(aiLeft);   // Fill
-        aiBar.Controls.Add(aiRight);  // Right
-
-        // ---- 资源校验区：物料齐套 + 资产占用（两个子页，同一套口径）----
-        var resTabs = new TabControl { Dock = DockStyle.Top, Height = 258, Font = new Font("微软雅黑", 9F) };
-
-        var matPage = new TabPage("资材占用（跨工单汇总）");
-        matPage.Padding = new Padding(4);
-        _lblStock = new Label
-        {
-            Dock = DockStyle.Top,
-            Height = 42,
-            AutoSize = false,
-            Font = new Font("微软雅黑", 9F),
-            ForeColor = Color.FromArgb(100, 116, 139),
-            TextAlign = ContentAlignment.MiddleLeft,
-            Text = "填写产品型号后自动按「工单 + BOM」计算资材占用，并跨工单汇总。"
-        };
-        _gridStock = MakeMaterialOccupancyGrid();
-        matPage.Controls.Add(_gridStock);  // Fill
-        matPage.Controls.Add(_lblStock);   // Top
-
-        var assetPage = new TabPage("设备占用");
-        assetPage.Padding = new Padding(4);
-        _lblAsset = new Label
-        {
-            Dock = DockStyle.Top,
-            Height = 42,
-            AutoSize = false,
-            Font = new Font("微软雅黑", 9F),
-            ForeColor = Color.FromArgb(100, 116, 139),
-            TextAlign = ContentAlignment.MiddleLeft,
-            Text = "填写型号与起止日期后自动校验设备/工装占用。"
-        };
-        _gridAsset = MakeAssetGrid();
-        assetPage.Controls.Add(_gridAsset);  // Fill
-        assetPage.Controls.Add(_lblAsset);   // Top
-
-        resTabs.TabPages.Add(matPage);   // 主体：资材占用（跨工单累加，决定采购量）
-        resTabs.TabPages.Add(assetPage); // 辅助：设备占用（可复用，按时间窗判冲突）
-
-        // 型号 / 计划数 / 起止日期 任一变化就重算——不要让用户点按钮才知道冲突
-        _txtModel.TextChanged += (_, _) => RefreshResourceCheck();
-        _numPlan.ValueChanged += (_, _) => RefreshResourceCheck();
-        _dtStart.ValueChanged += (_, _) => RefreshResourceCheck();
-        _dtDue.ValueChanged += (_, _) => RefreshResourceCheck();
-
-        Controls.Add(grid);        // Fill 必须最先加
-        Controls.Add(resTabs);     // Top
-        Controls.Add(aiBar);       // Top
-        Controls.Add(btnRow);      // Bottom
+        // 两个资源网格的栏位 / CellStyle（物件初始设定式，Designer 无法解析）。
+        ConfigureStockGrid();
+        ConfigureAssetGrid();
 
         // 编辑模式预填
         if (_existing is not null)
@@ -283,9 +94,6 @@ public class WorkOrderEditForm : Form
         _tip.SetToolTip(_btnAiParse, "把一段大白话需求交给大模型解析成工单字段。未启用模型时自动走规则抽取，结果同样标明来源。");
         RefreshResourceCheck();
     }
-
-    private static Label MakeLabel(string text) =>
-        new() { Text = text, Dock = DockStyle.Fill, TextAlign = ContentAlignment.MiddleLeft, ForeColor = Color.FromArgb(40, 50, 60) };
 
     /// <summary>
     /// 勾选自动生成时：ERP 非空 → 工单号 = "WO-" + ERP 订单号；ERP 留空 → 生成唯一测试工单号（测试/手工工单场景）。
@@ -507,58 +315,55 @@ public class WorkOrderEditForm : Form
 
     // ================= 齐套检查 =================
 
-    /// <summary>齐套明细网格（列比主站精简，避免把窗体撑太宽）。</summary>
-    private static DataGridView MakeStockGrid()
+    /// <summary>
+    /// 资材占用网格的 Columns 与 CellStyle 物件初始设定式（Designer 无法解析的段落）。
+    /// 原 MakeStockGrid 的 6 个预设栏位随即被 MakeMaterialOccupancyGrid 的 Columns.Clear 清除，
+    /// 故此处仅保留最终生效的 11 个栏位，行为不变；网格本体静态属性见 WorkOrderEditForm.Designer.cs。
+    /// </summary>
+    private void ConfigureStockGrid()
     {
-        var g = new DataGridView
+        _gridStock.ColumnHeadersDefaultCellStyle = new DataGridViewCellStyle
         {
-            Dock = DockStyle.Fill,
-            ReadOnly = true,
-            AllowUserToAddRows = false,
-            AllowUserToDeleteRows = false,
-            AutoSizeColumnsMode = DataGridViewAutoSizeColumnsMode.Fill,
-            BackgroundColor = Color.White,
-            RowHeadersVisible = false,
-            SelectionMode = DataGridViewSelectionMode.FullRowSelect,
-            BorderStyle = BorderStyle.None,
-            EnableHeadersVisualStyles = false,
-            ColumnHeadersDefaultCellStyle = new DataGridViewCellStyle
-            {
-                BackColor = Color.FromArgb(15, 76, 129),
-                ForeColor = Color.White,
-                Font = new Font("微软雅黑", 9F),
-                Alignment = DataGridViewContentAlignment.MiddleCenter,
-                Padding = new Padding(4, 3, 4, 3)
-            }
+            BackColor = Color.FromArgb(15, 76, 129),
+            ForeColor = Color.White,
+            Font = new Font("微软雅黑", 9F),
+            Alignment = DataGridViewContentAlignment.MiddleCenter,
+            Padding = new Padding(4, 3, 4, 3)
         };
-        g.AutoGenerateColumns = false;
-        g.Columns.Add(StockCol("MaterialName", "物料名称", 18));
-        g.Columns.Add(StockCol("RequirementText", "需求量", 9));
-        g.Columns.Add(StockCol("AvailableText", "可用量", 9));
-        g.Columns.Add(StockCol("ShortageText", "缺口", 9));
-        g.Columns.Add(StockCol("Status", "状态", 8));
-        g.Columns.Add(StockCol("Advice", "处置建议", 26));
+        _gridStock.Columns.Clear();
+        _gridStock.Columns.Add(StockCol("MaterialType", "类型", 7));
+        _gridStock.Columns.Add(StockCol("MaterialName", "物料名称", 17));
+        _gridStock.Columns.Add(StockCol("MaterialCode", "物料编码", 14));
+        _gridStock.Columns.Add(StockCol("TotalText", "占用总量", 12));
+        _gridStock.Columns.Add(StockCol("WoCountText", "工单数", 8));
+        _gridStock.Columns.Add(StockCol("AvailableText", "可用库存", 11));
+        _gridStock.Columns.Add(StockCol("InTransitText", "在途采购", 11));
+        _gridStock.Columns.Add(StockCol("ShortageText", "需采购", 11));
+        _gridStock.Columns.Add(StockCol("StatusText", "状态", 8));
+        _gridStock.Columns.Add(StockCol("DetailsText", "占用明细（工单 / 数量 / 起止时间）", 42));
+        _gridStock.Columns.Add(StockCol("CrowdingText", "时段挤兑提示", 28));
+    }
 
-        g.CellFormatting += (_, e) =>
+    /// <summary>设备占用网格的 Columns 与 CellStyle（原 MakeAssetGrid 的动态段落）。</summary>
+    private void ConfigureAssetGrid()
+    {
+        _gridAsset.ColumnHeadersDefaultCellStyle = new DataGridViewCellStyle
         {
-            if (g.Rows.Count == 0 || e.RowIndex < 0) return;
-            if (g.Rows[e.RowIndex].DataBoundItem is not MaterialShortageRow r) return;
-            if (r.Status == ShortageStatus.Short)
-            {
-                e.CellStyle.BackColor = Color.FromArgb(254, 226, 226);
-                e.CellStyle.ForeColor = Color.FromArgb(220, 38, 38);
-            }
-            else if (r.Status == ShortageStatus.Tight)
-            {
-                e.CellStyle.BackColor = Color.FromArgb(255, 247, 237);
-                e.CellStyle.ForeColor = Color.FromArgb(217, 119, 6);
-            }
-            else
-            {
-                e.CellStyle.ForeColor = Color.FromArgb(21, 128, 61);
-            }
+            BackColor = Color.FromArgb(15, 76, 129),
+            ForeColor = Color.White,
+            Font = new Font("微软雅黑", 9F),
+            Alignment = DataGridViewContentAlignment.MiddleCenter,
+            Padding = new Padding(4, 3, 4, 3)
         };
-        return g;
+        _gridAsset.Columns.Clear();
+        _gridAsset.Columns.Add(StockCol("Process", "工序", 8));
+        _gridAsset.Columns.Add(StockCol("AssetName", "资产", 16));
+        _gridAsset.Columns.Add(StockCol("AssetCode", "编码", 13));
+        _gridAsset.Columns.Add(StockCol("NeedText", "本单需求", 9));
+        _gridAsset.Columns.Add(StockCol("AvailableText", "可用余量", 9));
+        _gridAsset.Columns.Add(StockCol("StatusText", "状态", 9));
+        _gridAsset.Columns.Add(StockCol("ConflictText", "冲突占用明细", 30));
+        _gridAsset.Columns.Add(StockCol("OptionText", "可选方案", 34));
     }
 
     private static DataGridViewTextBoxColumn StockCol(string prop, string header, int fillWeight) => new()
@@ -570,81 +375,69 @@ public class WorkOrderEditForm : Form
         FillWeight = fillWeight
     };
 
-    /// <summary>
-    /// 资材占用表（本项目"占用"的主体）：同一物料被多少张工单占着、占多少、
-    /// 可用多少、在途多少、还需采购多少。占用明细列把"工单号 + 数量 + 起止时间"摊开。
-    /// </summary>
-    private static DataGridView MakeMaterialOccupancyGrid()
+    /// <summary>原 MakeStockGrid 的 CellFormatting lambda；改具名方法，以 sender 取代捕获的区域变数 g。</summary>
+    private void StockGrid_CellFormatting_Shortage(object? sender, DataGridViewCellFormattingEventArgs e)
     {
-        var g = MakeStockGrid();   // 复用同一套网格外观
-        g.Columns.Clear();
-        g.Columns.Add(StockCol("MaterialType", "类型", 7));
-        g.Columns.Add(StockCol("MaterialName", "物料名称", 17));
-        g.Columns.Add(StockCol("MaterialCode", "物料编码", 14));
-        g.Columns.Add(StockCol("TotalText", "占用总量", 12));
-        g.Columns.Add(StockCol("WoCountText", "工单数", 8));
-        g.Columns.Add(StockCol("AvailableText", "可用库存", 11));
-        g.Columns.Add(StockCol("InTransitText", "在途采购", 11));
-        g.Columns.Add(StockCol("ShortageText", "需采购", 11));
-        g.Columns.Add(StockCol("StatusText", "状态", 8));
-        g.Columns.Add(StockCol("DetailsText", "占用明细（工单 / 数量 / 起止时间）", 42));
-        g.Columns.Add(StockCol("CrowdingText", "时段挤兑提示", 28));
-
-        g.CellFormatting += (_, e) =>
+        var g = (DataGridView)sender!;
+        if (g.Rows.Count == 0 || e.RowIndex < 0) return;
+        if (g.Rows[e.RowIndex].DataBoundItem is not MaterialShortageRow r) return;
+        if (r.Status == ShortageStatus.Short)
         {
-            if (g.Rows.Count == 0 || e.RowIndex < 0) return;
-            if (g.Rows[e.RowIndex].DataBoundItem is not MaterialOccupancyRow r) return;
-            if (r.NetShortage > 1e-9)
-            {
-                e.CellStyle.BackColor = Color.FromArgb(254, 226, 226);
-                e.CellStyle.ForeColor = Color.FromArgb(220, 38, 38);
-            }
-            else if (r.Status == ShortageStatus.Tight)
-            {
-                e.CellStyle.ForeColor = Color.FromArgb(217, 119, 6);
-            }
-            else
-            {
-                e.CellStyle.ForeColor = Color.FromArgb(21, 128, 61);
-            }
-        };
-        return g;
+            e.CellStyle.BackColor = Color.FromArgb(254, 226, 226);
+            e.CellStyle.ForeColor = Color.FromArgb(220, 38, 38);
+        }
+        else if (r.Status == ShortageStatus.Tight)
+        {
+            e.CellStyle.BackColor = Color.FromArgb(255, 247, 237);
+            e.CellStyle.ForeColor = Color.FromArgb(217, 119, 6);
+        }
+        else
+        {
+            e.CellStyle.ForeColor = Color.FromArgb(21, 128, 61);
+        }
     }
 
-    private static DataGridView MakeAssetGrid()
+    /// <summary>原 MakeMaterialOccupancyGrid 的 CellFormatting lambda；改具名方法。</summary>
+    private void GridStock_CellFormatting_Occupancy(object? sender, DataGridViewCellFormattingEventArgs e)
     {
-        var g = MakeStockGrid();   // 复用同一套网格外观
-        g.Columns.Clear();
-        g.Columns.Add(StockCol("Process", "工序", 8));
-        g.Columns.Add(StockCol("AssetName", "资产", 16));
-        g.Columns.Add(StockCol("AssetCode", "编码", 13));
-        g.Columns.Add(StockCol("NeedText", "本单需求", 9));
-        g.Columns.Add(StockCol("AvailableText", "可用余量", 9));
-        g.Columns.Add(StockCol("StatusText", "状态", 9));
-        g.Columns.Add(StockCol("ConflictText", "冲突占用明细", 30));
-        g.Columns.Add(StockCol("OptionText", "可选方案", 34));
-
-        g.CellFormatting -= (_, _) => { };
-        g.CellFormatting += (_, e) =>
+        var g = (DataGridView)sender!;
+        if (g.Rows.Count == 0 || e.RowIndex < 0) return;
+        if (g.Rows[e.RowIndex].DataBoundItem is not MaterialOccupancyRow r) return;
+        if (r.NetShortage > 1e-9)
         {
-            if (g.Rows.Count == 0 || e.RowIndex < 0) return;
-            if (g.Rows[e.RowIndex].DataBoundItem is not AssetCheckLine l) return;
-            switch (l.Status)
-            {
-                case AssetCheckStatus.Conflict:
-                    e.CellStyle.BackColor = Color.FromArgb(254, 226, 226);
-                    e.CellStyle.ForeColor = Color.FromArgb(220, 38, 38);
-                    break;
-                case AssetCheckStatus.Insufficient:
-                    e.CellStyle.BackColor = Color.FromArgb(255, 247, 237);
-                    e.CellStyle.ForeColor = Color.FromArgb(217, 119, 6);
-                    break;
-                default:
-                    e.CellStyle.ForeColor = Color.FromArgb(21, 128, 61);
-                    break;
-            }
-        };
-        return g;
+            e.CellStyle.BackColor = Color.FromArgb(254, 226, 226);
+            e.CellStyle.ForeColor = Color.FromArgb(220, 38, 38);
+        }
+        else if (r.Status == ShortageStatus.Tight)
+        {
+            e.CellStyle.ForeColor = Color.FromArgb(217, 119, 6);
+        }
+        else
+        {
+            e.CellStyle.ForeColor = Color.FromArgb(21, 128, 61);
+        }
+    }
+
+    /// <summary>原 MakeAssetGrid 的 CellFormatting lambda；改具名方法。</summary>
+    private void GridAsset_CellFormatting_Asset(object? sender, DataGridViewCellFormattingEventArgs e)
+    {
+        var g = (DataGridView)sender!;
+        if (g.Rows.Count == 0 || e.RowIndex < 0) return;
+        if (g.Rows[e.RowIndex].DataBoundItem is not AssetCheckLine l) return;
+        switch (l.Status)
+        {
+            case AssetCheckStatus.Conflict:
+                e.CellStyle.BackColor = Color.FromArgb(254, 226, 226);
+                e.CellStyle.ForeColor = Color.FromArgb(220, 38, 38);
+                break;
+            case AssetCheckStatus.Insufficient:
+                e.CellStyle.BackColor = Color.FromArgb(255, 247, 237);
+                e.CellStyle.ForeColor = Color.FromArgb(217, 119, 6);
+                break;
+            default:
+                e.CellStyle.ForeColor = Color.FromArgb(21, 128, 61);
+                break;
+        }
     }
 
     /// <summary>按当前型号 / 计划数 / 起止日期重算资源校验（物料 + 资产）。纯查询。</summary>
@@ -757,6 +550,40 @@ public class WorkOrderEditForm : Form
             _btnAiParse.Enabled = true;
             _btnAiParse.Text = "🤖 AI 解析文本";
         }
+    }
+
+    // ---------------- 由 Designer.cs 以方法群挂接的事件 ----------------
+
+    private void TxtErp_TextChanged(object? sender, EventArgs e) => SyncWoNo();
+
+    private void ChkAuto_CheckedChanged(object? sender, EventArgs e)
+    {
+        _txtWoNo.ReadOnly = _chkAuto.Checked;
+        SyncWoNo();
+    }
+
+    private void TxtModel_TextChanged(object? sender, EventArgs e) => RefreshResourceCheck();
+
+    private void NumPlan_ValueChanged(object? sender, EventArgs e) => RefreshResourceCheck();
+
+    private void DtStart_ValueChanged(object? sender, EventArgs e) => RefreshResourceCheck();
+
+    private void DtDue_ValueChanged(object? sender, EventArgs e) => RefreshResourceCheck();
+
+    private void BtnAiParse_Click(object? sender, EventArgs e) => BtnAiParse();
+
+    private void BtnOk_Click(object? sender, EventArgs e) => Save();
+
+    private void BtnCancel_Click(object? sender, EventArgs e)
+    {
+        DialogResult = DialogResult.Cancel;
+        Close();
+    }
+
+    private void BtnRow_Resize(object? sender, EventArgs e)
+    {
+        btnOk.Location = new Point(btnRow.Width - 224, 10);
+        btnCancel.Location = new Point(btnRow.Width - 112, 10);
     }
 
     private void Warn(string msg) =>

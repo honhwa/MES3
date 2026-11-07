@@ -1067,37 +1067,48 @@ public sealed partial class MainForm
 }
 
 /// <summary>模板名称输入对话框（保存时复用）。</summary>
-internal sealed class InputDialog : Form
+internal sealed partial class InputDialog : Form
 {
-    private readonly TextBox _txt;
     public string Value => _txt.Text;
     public InputDialog(string title, string prompt, string defaultValue)
     {
+        InitializeComponent();
+        InitializeRuntime(title, prompt, defaultValue);
+    }
+
+    /// <summary>依赖参数的 Text 设定留在执行期（Designer 无法解析）。</summary>
+    private void InitializeRuntime(string title, string prompt, string defaultValue)
+    {
         Text = title;
-        Width = 360; Height = 140;
-        StartPosition = FormStartPosition.CenterParent;
-        var lbl = new Label { Left = 12, Top = 14, Width = 320, Text = prompt };
-        _txt = new TextBox { Left = 12, Top = 44, Width = 320, Text = defaultValue };
-        var ok = new Button { Text = "确定", Left = 172, Top = 80, Width = 72, DialogResult = DialogResult.OK };
-        var cancel = new Button { Text = "取消", Left = 252, Top = 80, Width = 72, DialogResult = DialogResult.Cancel };
-        Controls.AddRange(new Control[] { lbl, _txt, ok, cancel });
-        AcceptButton = ok; CancelButton = cancel;
+        lbl.Text = prompt;
+        _txt.Text = defaultValue;
     }
 }
 
 /// <summary>电子档查看窗：还原提交时刻的模板格式 + 填写值，支持导出 HTML 与打印。</summary>
-internal sealed class EArchiveForm : Form
+internal sealed partial class EArchiveForm : Form
 {
+    // 状态栏位：必须由建构式参数赋值，故保留（非控件，Designer 不管理）。
     private readonly ChecklistSubmission _sub;
+
     public EArchiveForm(ChecklistSubmission sub)
     {
         _sub = sub;
-        Text = $"电子档 · {sub.TemplateName} · {sub.SubmittedAt:yyyy-MM-dd HH:mm}";
-        Width = 900; Height = 640;
-        StartPosition = FormStartPosition.CenterParent;
-        BackColor = Color.WhiteSmoke;
+        InitializeComponent();
+        InitializeRuntime(sub);
+    }
 
-        var meta = new FlowLayoutPanel { Dock = DockStyle.Top, AutoSize = true, Height = 56, WrapContents = true, Padding = new Padding(8) };
+    /// <summary>
+    /// 执行期初始化：插值标题、抬头字段、只读网格、页脚与事件挂接均依赖 sub /
+    /// 执行期产物；Controls.Add 顺序刻意保留原样，以维持 Dock 布局（grid / footer /
+    /// bar / meta）不变，故静态控件的建立与属性在 Designer.cs，加入容器留在此处。
+    /// btnHtml / btnPrint 的 lambda 捕获 sub 与 BuildReadonlyGrid 产物 grid，
+    /// 属动态段落，无法以方法群在 InitializeComponent 挂接，故原样保留。
+    /// </summary>
+    private void InitializeRuntime(ChecklistSubmission sub)
+    {
+        Text = $"电子档 · {sub.TemplateName} · {sub.SubmittedAt:yyyy-MM-dd HH:mm}";
+
         // 抬头字段（按提交时刻快照的字段名还原）
         var snap = sub.TemplateSnapshot ?? new ChecklistTemplate();
         foreach (var hf in snap.HeaderFields)
@@ -1110,13 +1121,8 @@ internal sealed class EArchiveForm : Form
 
         var grid = BuildReadonlyGrid(sub);
 
-        var bar = new FlowLayoutPanel { Dock = DockStyle.Bottom, AutoSize = true, Height = 38, Padding = new Padding(8, 4, 8, 4) };
-        var btnHtml = new Button { Text = "🌐 导出 HTML 电子档", AutoSize = true };
         btnHtml.Click += (s, e) => ExportHtml(sub);
-        var btnPrint = new Button { Text = "🖨 打印", AutoSize = true };
         btnPrint.Click += (s, e) => PrintArchive(sub, grid);
-        var btnClose = new Button { Text = "关闭", AutoSize = true, DialogResult = DialogResult.OK };
-        bar.Controls.AddRange(new Control[] { btnHtml, btnPrint, btnClose });
 
         Controls.Add(grid);
         if (snap.FooterNotes.Count > 0)
@@ -1333,17 +1339,10 @@ public enum BulkFillScope
 /// 批量填充对话框：选列 → 选值 → 选范围。
 /// 默认「仅空白行」，避免一次误操作把手填结果全盖掉。
 /// </summary>
-internal sealed class BulkFillDialog : Form
+internal sealed partial class BulkFillDialog : Form
 {
+    // 状态栏位：必须由建构式参数赋值，故保留（非控件，Designer 不管理）。
     private readonly ChecklistTemplate _tpl;
-    private readonly ComboBox _cboCol = new() { DropDownStyle = ComboBoxStyle.DropDownList, Left = 92, Top = 16, Width = 320 };
-    private readonly Panel _valueHost = new() { Left = 92, Top = 52, Width = 320, Height = 28 };
-    private readonly ComboBox _cboScope = new() { DropDownStyle = ComboBoxStyle.DropDownList, Left = 92, Top = 92, Width = 320 };
-    private readonly Label _lblHint = new() { Left = 14, Top = 126, Width = 398, Height = 40, ForeColor = Color.DimGray };
-
-    private readonly TextBox _txtValue = new() { Dock = DockStyle.Fill, BorderStyle = BorderStyle.FixedSingle };
-    private readonly ComboBox _cboValue = new() { Dock = DockStyle.Fill, DropDownStyle = ComboBoxStyle.DropDownList };
-    private readonly CheckBox _chkValue = new() { Dock = DockStyle.Fill, Text = "勾选（是）" };
 
     /// <summary>选中的可填列索引（对应模板 Columns 下标）</summary>
     public int ColumnIndex => _cboCol.SelectedItem is ColumnItem ci ? ci.Index : -1;
@@ -1361,19 +1360,13 @@ internal sealed class BulkFillDialog : Form
     public BulkFillDialog(ChecklistTemplate tpl, int presetColumn, int selectedRowCount)
     {
         _tpl = tpl;
-        Text = "批量填充（同列多行一次填）";
-        Width = 440;
-        Height = 250;
-        FormBorderStyle = FormBorderStyle.FixedDialog;
-        MaximizeBox = false;
-        MinimizeBox = false;
-        StartPosition = FormStartPosition.CenterParent;
-        BackColor = Color.WhiteSmoke;
+        InitializeComponent();
+        InitializeRuntime(tpl, presetColumn, selectedRowCount);
+    }
 
-        Controls.Add(new Label { Text = "列：", Left = 14, Top = 19, Width = 70, AutoSize = false });
-        Controls.Add(new Label { Text = "值：", Left = 14, Top = 56, Width = 70, AutoSize = false });
-        Controls.Add(new Label { Text = "范围：", Left = 14, Top = 95, Width = 70, AutoSize = false });
-
+    /// <summary>依赖 tpl / presetColumn / selectedRowCount 的执行期初始化。</summary>
+    private void InitializeRuntime(ChecklistTemplate tpl, int presetColumn, int selectedRowCount)
+    {
         // 只列可填列（上下文列不可填）
         foreach (var c in tpl.Columns.Select((c, i) => (c, i)).Where(x => x.c.Fillable))
             _cboCol.Items.Add(new ColumnItem(c.i, $"{c.c.Header}（{c.c.KindText}）"));
@@ -1387,35 +1380,23 @@ internal sealed class BulkFillDialog : Form
             }
             _cboCol.SelectedIndex = pick;
         }
-        _cboCol.SelectedIndexChanged += (s, e) => RebuildValueControl();
+        // 原 lambda 改具名方法；挂接刻意留在 SelectedIndex 设定之后：
+        // 若移到 InitializeComponent 提前挂上，InitializeRuntime 设定 SelectedIndex 时
+        // 会额外触发一次 RebuildValueControl()，改变执行次数，故保留原位置。
+        _cboCol.SelectedIndexChanged += CboCol_SelectedIndexChanged;
 
-        _cboScope.Items.AddRange(new object[] { "全部行", "仅空白行（推荐，不覆盖手填）", "仅当前选中的行" });
-        _cboScope.SelectedIndex = 1;
         if (selectedRowCount <= 0)
         {
             // 没有选中行时该选项无意义，直接禁用并标注
             _cboScope.Items[2] = "仅当前选中的行（未选中）";
         }
 
-        _valueHost.Controls.Add(_txtValue);
-        _valueHost.Controls.Add(_cboValue);
-        _valueHost.Controls.Add(_chkValue);
-
-        Controls.Add(_cboCol);
-        Controls.Add(_valueHost);
-        Controls.Add(_cboScope);
-        Controls.Add(_lblHint);
-
-        var ok = new Button { Text = "确定填充", Left = 236, Top = 172, Width = 88, DialogResult = DialogResult.OK };
-        var cancel = new Button { Text = "取消", Left = 330, Top = 172, Width = 72, DialogResult = DialogResult.Cancel };
-        ok.Click += (s, e) => { Value = ReadValue(); };
-        Controls.Add(ok);
-        Controls.Add(cancel);
-        AcceptButton = ok;
-        CancelButton = cancel;
-
         RebuildValueControl();
     }
+
+    private void CboCol_SelectedIndexChanged(object? sender, System.EventArgs e) => RebuildValueControl();
+
+    private void Ok_Click(object? sender, System.EventArgs e) => Value = ReadValue();
 
     private void RebuildValueControl()
     {
@@ -1465,40 +1446,21 @@ internal sealed class BulkFillDialog : Form
 /// 真实点检文件经常一个文件里塞「点检表 / 点检记录台账 / 异常问题追踪表」，
 /// 默认只读第一个会让用户误以为"后面的表也导进来了"——必须先让人选清楚。
 /// </summary>
-internal sealed class SheetPickerDialog : Form
+internal sealed partial class SheetPickerDialog : Form
 {
-    private readonly ComboBox _cbo = new() { Left = 14, Top = 46, Width = 386, DropDownStyle = ComboBoxStyle.DropDownList };
-
     public int SelectedIndex => _cbo.SelectedIndex < 0 ? 0 : _cbo.SelectedIndex;
 
     public SheetPickerDialog(List<PaperlessImport.SheetRef> sheets)
     {
-        Text = "选择要导入的工作表";
-        Width = 434;
-        Height = 156;
-        FormBorderStyle = FormBorderStyle.FixedDialog;
-        MaximizeBox = false;
-        MinimizeBox = false;
-        StartPosition = FormStartPosition.CenterParent;
-        BackColor = Color.WhiteSmoke;
+        InitializeComponent();
+        InitializeRuntime(sheets);
+    }
 
-        Controls.Add(new Label
-        {
-            Left = 14,
-            Top = 16,
-            Width = 392,
-            Height = 22,
-            Text = $"该文件有 {sheets.Count} 个工作表，请选择要解析成点检表的那一个：",
-        });
+    /// <summary>依赖 sheets 参数的插值字串、建项与 SelectedIndex 留在执行期。</summary>
+    private void InitializeRuntime(List<PaperlessImport.SheetRef> sheets)
+    {
+        lblPrompt.Text = $"该文件有 {sheets.Count} 个工作表，请选择要解析成点检表的那一个：";
         foreach (var s in sheets) _cbo.Items.Add($"{s.Index + 1}. {s.Name}");
         if (_cbo.Items.Count > 0) _cbo.SelectedIndex = 0;
-        Controls.Add(_cbo);
-
-        var ok = new Button { Text = "确定", Left = 240, Top = 84, Width = 76, DialogResult = DialogResult.OK };
-        var cancel = new Button { Text = "取消", Left = 324, Top = 84, Width = 76, DialogResult = DialogResult.Cancel };
-        Controls.Add(ok);
-        Controls.Add(cancel);
-        AcceptButton = ok;
-        CancelButton = cancel;
     }
 }

@@ -10,21 +10,14 @@ namespace SuperCapMES.WinForms.Forms;
 /// 生效时间（日期 + 时分）/ 备注 / 操作人」，并实时预览规格文本。风格与 <see cref="SpcCloseForm"/> 一致。
 /// 校验：至少一侧规格有效；双边时 LSL &lt; USL；（可选）生效时间须晚于给定下限。
 /// 点击「保存」且校验通过后 <see cref="Form.DialogResult"/> = OK，收集值通过属性返回。
+/// 控件宣告与静态配置见 SpcVersionForm.Designer.cs。
 /// </summary>
-public class SpcVersionForm : Form
+public partial class SpcVersionForm : Form
 {
-    private readonly string _itemName;
-    private readonly int _nextVersion;
-    private readonly bool _isEdit;
-    private readonly DateTime? _lowerBound;
-
-    private TextBox _txtUsl = null!;
-    private TextBox _txtLsl = null!;
-    private DateTimePicker _dtDate = null!;
-    private DateTimePicker _dtTime = null!;
-    private TextBox _txtRemark = null!;
-    private TextBox _txtOperator = null!;
-    private Label _lblPreview = null!;
+    private string _itemName = "";
+    private int _nextVersion;
+    private bool _isEdit;
+    private DateTime? _lowerBound;
 
     /// <summary>规格上限（留空 = double.NaN 表示无上限）</summary>
     public double Usl { get; private set; } = double.NaN;
@@ -61,153 +54,69 @@ public class SpcVersionForm : Form
         DateTime? lowerBound = null,
         bool isEdit = false)
     {
+        InitializeComponent();
+        InitializeRuntime(itemName, nextVersion, usl, lsl, effectiveFrom, remark, operatorName, lowerBound, isEdit);
+    }
+
+    /// <summary>
+    /// 执行期初始化：仅处理依赖建构式参数的内容（Designer 无法解析的插值字串 / 条件运算式 / 动态初值）。
+    /// 原建构式内除了这些赋值外，其余控件建立 / 配置 / 加入容器均已搬至 InitializeComponent()。
+    /// </summary>
+    private void InitializeRuntime(
+        string itemName,
+        int nextVersion,
+        double usl,
+        double lsl,
+        DateTime effectiveFrom,
+        string remark,
+        string operatorName,
+        DateTime? lowerBound,
+        bool isEdit)
+    {
         _itemName = itemName;
         _nextVersion = nextVersion;
         _isEdit = isEdit;
         _lowerBound = lowerBound;
 
-        Text = isEdit ? $"修改待生效版本 V{nextVersion}" : $"新建规格版本 V{nextVersion}";
-        FormBorderStyle = FormBorderStyle.FixedDialog;
-        MaximizeBox = false;
-        MinimizeBox = false;
-        StartPosition = FormStartPosition.CenterParent;
-        ClientSize = new Size(500, 366);
-        Font = new Font("微软雅黑", 9F);
+        // 以栏位值组标题（值与参数相同，行为不变；栏位在此被读取）。
+        Text = _isEdit ? $"修改待生效版本 V{_nextVersion}" : $"新建规格版本 V{_nextVersion}";
+        lblItemName.Text = _itemName;
+        _txtUsl.Text = double.IsNaN(usl) ? "" : usl.ToString("0.###", CultureInfo.InvariantCulture);
+        _txtLsl.Text = double.IsNaN(lsl) ? "" : lsl.ToString("0.###", CultureInfo.InvariantCulture);
+        if (effectiveFrom != default) _dtDate.Value = effectiveFrom.Date;
+        if (effectiveFrom != default) _dtTime.Value = effectiveFrom;
+        _txtRemark.Text = remark ?? "";
+        _txtOperator.Text = string.IsNullOrWhiteSpace(operatorName) ? "admin" : operatorName;
 
-        BuildUi(usl, lsl, effectiveFrom, remark, operatorName);
         UpdatePreview();
     }
 
-    private void BuildUi(double usl, double lsl, DateTime effectiveFrom, string remark, string operatorName)
+    private void TxtUsl_TextChanged(object? sender, EventArgs e)
     {
-        var grid = new TableLayoutPanel
-        {
-            Dock = DockStyle.Fill,
-            ColumnCount = 2,
-            RowCount = 7,
-            Padding = new Padding(16, 16, 16, 8)
-        };
-        grid.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 100));
-        grid.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
-        for (var i = 0; i < 6; i++) grid.RowStyles.Add(new RowStyle(SizeType.Absolute, 34));
-        grid.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
-
-        // 监控项
-        grid.Controls.Add(MakeLabel("监控项"), 0, 0);
-        grid.Controls.Add(new Label
-        {
-            Text = _itemName,
-            Dock = DockStyle.Fill,
-            TextAlign = ContentAlignment.MiddleLeft,
-            ForeColor = Color.FromArgb(15, 76, 129),
-            Font = new Font("微软雅黑", 9F, FontStyle.Bold)
-        }, 1, 0);
-
-        // 上限
-        grid.Controls.Add(MakeLabel("上限 USL"), 0, 1);
-        _txtUsl = new TextBox
-        {
-            Dock = DockStyle.Fill,
-            Text = double.IsNaN(usl) ? "" : usl.ToString("0.###", CultureInfo.InvariantCulture),
-            BackColor = Color.White,
-            Margin = new Padding(3, 5, 3, 5)
-        };
-        _txtUsl.TextChanged += (_, _) => UpdatePreview();
-        grid.Controls.Add(_txtUsl, 1, 1);
-
-        // 下限
-        grid.Controls.Add(MakeLabel("下限 LSL"), 0, 2);
-        _txtLsl = new TextBox
-        {
-            Dock = DockStyle.Fill,
-            Text = double.IsNaN(lsl) ? "" : lsl.ToString("0.###", CultureInfo.InvariantCulture),
-            BackColor = Color.White,
-            Margin = new Padding(3, 5, 3, 5)
-        };
-        _txtLsl.TextChanged += (_, _) => UpdatePreview();
-        grid.Controls.Add(_txtLsl, 1, 2);
-
-        // 生效时间（日期）
-        grid.Controls.Add(MakeLabel("生效时间"), 0, 3);
-        var timeRow = new FlowLayoutPanel { Dock = DockStyle.Fill, WrapContents = false, Margin = new Padding(0) };
-        _dtDate = new DateTimePicker
-        {
-            Width = 150,
-            Format = DateTimePickerFormat.Custom,
-            CustomFormat = "yyyy-MM-dd",
-            Margin = new Padding(0, 4, 4, 0)
-        };
-        if (effectiveFrom != default) _dtDate.Value = effectiveFrom.Date;
-        _dtTime = new DateTimePicker
-        {
-            Width = 90,
-            Format = DateTimePickerFormat.Custom,
-            CustomFormat = "HH:mm",
-            ShowUpDown = true,
-            Margin = new Padding(0, 4, 0, 0)
-        };
-        if (effectiveFrom != default) _dtTime.Value = effectiveFrom;
-        timeRow.Controls.Add(_dtDate);
-        timeRow.Controls.Add(_dtTime);
-        grid.Controls.Add(timeRow, 1, 3);
-
-        // 备注
-        grid.Controls.Add(MakeLabel("备注"), 0, 4);
-        _txtRemark = new TextBox { Dock = DockStyle.Fill, Text = remark ?? "", BackColor = Color.White, Margin = new Padding(3, 5, 3, 5) };
-        grid.Controls.Add(_txtRemark, 1, 4);
-
-        // 操作人
-        grid.Controls.Add(MakeLabel("操作人"), 0, 5);
-        _txtOperator = new TextBox
-        {
-            Dock = DockStyle.Fill,
-            Text = string.IsNullOrWhiteSpace(operatorName) ? "admin" : operatorName,
-            BackColor = Color.White,
-            Margin = new Padding(3, 5, 3, 5)
-        };
-        grid.Controls.Add(_txtOperator, 1, 5);
-
-        // 规格预览
-        grid.Controls.Add(MakeLabel("规格预览"), 0, 6);
-        _lblPreview = new Label
-        {
-            Text = "—",
-            Dock = DockStyle.Fill,
-            TextAlign = ContentAlignment.TopLeft,
-            ForeColor = Color.FromArgb(15, 76, 129),
-            Font = new Font("微软雅黑", 10F, FontStyle.Bold),
-            Padding = new Padding(0, 6, 0, 0)
-        };
-        grid.Controls.Add(_lblPreview, 1, 6);
-
-        // 底部按钮
-        var btnRow = new Panel { Dock = DockStyle.Bottom, Height = 52, BackColor = Color.WhiteSmoke };
-        var btnOk = new Button { Text = "保存", Width = 110, Height = 32 };
-        var btnCancel = new Button { Text = "取消", Width = 100, Height = 32 };
-        btnOk.Location = new Point(btnRow.Width - 226, 10);
-        btnCancel.Location = new Point(btnRow.Width - 114, 10);
-        btnRow.Resize += (_, _) =>
-        {
-            btnOk.Location = new Point(btnRow.Width - 226, 10);
-            btnCancel.Location = new Point(btnRow.Width - 114, 10);
-        };
-        btnOk.Click += (_, _) => Save();
-        btnCancel.Click += (_, _) => { DialogResult = DialogResult.Cancel; Close(); };
-        btnRow.Controls.Add(btnOk);
-        btnRow.Controls.Add(btnCancel);
-
-        Controls.Add(grid);
-        Controls.Add(btnRow);
+        UpdatePreview();
     }
 
-    private static Label MakeLabel(string text) =>
-        new()
-        {
-            Text = text,
-            Dock = DockStyle.Fill,
-            TextAlign = ContentAlignment.MiddleLeft,
-            ForeColor = Color.FromArgb(40, 50, 60)
-        };
+    private void TxtLsl_TextChanged(object? sender, EventArgs e)
+    {
+        UpdatePreview();
+    }
+
+    private void BtnRow_Resize(object? sender, EventArgs e)
+    {
+        btnOk.Location = new Point(btnRow.Width - 226, 10);
+        btnCancel.Location = new Point(btnRow.Width - 114, 10);
+    }
+
+    private void BtnOk_Click(object? sender, EventArgs e)
+    {
+        Save();
+    }
+
+    private void BtnCancel_Click(object? sender, EventArgs e)
+    {
+        DialogResult = DialogResult.Cancel;
+        Close();
+    }
 
     private void UpdatePreview()
     {

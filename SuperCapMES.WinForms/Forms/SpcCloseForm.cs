@@ -7,11 +7,8 @@ namespace SuperCapMES.WinForms.Forms;
 /// <summary>
 /// SPC 预警关闭对话框：收集「处理措施」与「操作人」，二者均必填，风格与 ReleaseHoldForm 一致。
 /// </summary>
-public class SpcCloseForm : Form
+public partial class SpcCloseForm : Form
 {
-    private TextBox _txtOperator = null!;
-    private TextBox _txtAction = null!;
-
     /// <summary>处理人（确认后有效）</summary>
     public string OperatorName { get; private set; } = "admin";
 
@@ -20,14 +17,32 @@ public class SpcCloseForm : Form
 
     public SpcCloseForm(string alertNo, string alertDesc)
     {
-        Text = "关闭预警";
-        FormBorderStyle = FormBorderStyle.FixedDialog;
-        MaximizeBox = false;
-        MinimizeBox = false;
-        StartPosition = FormStartPosition.CenterParent;
-        ClientSize = new Size(500, 268);
-        Font = new Font("微软雅黑", 9F);
-        BuildUi(alertNo, alertDesc);
+        InitializeComponent();
+        InitializeRuntime(alertNo, alertDesc);
+    }
+
+    /// <summary>
+    /// 执行期初始化：仅处理依赖传入参数的 Label.Text（Designer 无法解析的插值 / 条件运算式）。
+    /// 控件建立 / 静态配置 / 加入容器均已搬至 SpcCloseForm.Designer.cs。
+    /// </summary>
+    private void InitializeRuntime(string alertNo, string alertDesc)
+    {
+        lblAlertNo.Text = alertNo;
+        lblAlertDesc.Text = string.IsNullOrWhiteSpace(alertDesc) ? "—" : alertDesc;
+    }
+
+    private void BtnRow_Resize(object? sender, EventArgs e)
+    {
+        btnOk.Location = new Point(btnRow.Width - 226, 10);
+        btnCancel.Location = new Point(btnRow.Width - 114, 10);
+    }
+
+    private void BtnOk_Click(object? sender, EventArgs e) => Save();
+
+    private void BtnCancel_Click(object? sender, EventArgs e)
+    {
+        DialogResult = DialogResult.Cancel;
+        Close();
     }
 
     private void BuildUi(string alertNo, string alertDesc)

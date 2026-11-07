@@ -6,18 +6,8 @@ using SuperCapMES.WinForms.Models;
 namespace SuperCapMES.WinForms.Forms;
 
 // <summary>抄表数录入弹窗：选计量点 + 账期 + 用量。</summary>
-public class EnergyEntryForm : Form
+public partial class EnergyEntryForm : Form
 {
-    private readonly ComboBox _cboMeter = new() { DropDownStyle = ComboBoxStyle.DropDownList, Width = 320 };
-    private readonly ComboBox _cboPeriod = new() { DropDownStyle = ComboBoxStyle.DropDownList, Width = 120 };
-    private readonly TextBox _txtValue = new() { Width = 130 };
-    private readonly ComboBox _cboSource = new() { DropDownStyle = ComboBoxStyle.DropDownList, Width = 120 };
-    private readonly TextBox _txtRemark = new() { Width = 260 };
-    private readonly Label _tip = new()
-    {
-        AutoSize = false, Height = 34, ForeColor = Color.FromArgb(217, 119, 6), Font = new Font("微软雅黑", 8.5F)
-    };
-
     public string MeterId => (_cboMeter.SelectedItem as MeterItem)?.MeterId ?? "";
     public string Period => _cboPeriod.SelectedItem?.ToString() ?? "";
     public double Value => double.TryParse(_txtValue.Text.Trim(), out var v) ? v : -1;
@@ -34,13 +24,17 @@ public class EnergyEntryForm : Form
 
     public EnergyEntryForm(List<EnergyMeter> meters)
     {
-        Text = "录入抄表数";
-        FormBorderStyle = FormBorderStyle.FixedDialog;
-        StartPosition = FormStartPosition.CenterParent;
-        ClientSize = new Size(600, 400);
-        MaximizeBox = false;
-        Font = new Font("微软雅黑", 9F);
+        InitializeComponent();
+        InitializeRuntime(meters);
+    }
 
+    /// <summary>
+    /// 执行期初始化：依赖参数的 Items / SelectedIndex、MesDatabase 取数、回圈，
+    /// 以及原本在动态资料赋值之后才挂接的「值变更监控」事件（改具名方法、维持挂接顺序，
+    /// 避免在初始化期提前触发 CheckValue 而改变表单初始状态）。
+    /// </summary>
+    private void InitializeRuntime(List<EnergyMeter> meters)
+    {
         foreach (var m in meters.Where(x => x.Enabled))
             _cboMeter.Items.Add(new MeterItem
             {
@@ -55,72 +49,26 @@ public class EnergyEntryForm : Form
             _cboPeriod.Items.Add(MesDatabase.ToPeriod(new DateTime(now.Year, now.Month, 1).AddMonths(i)));
         _cboPeriod.SelectedIndex = 0;
 
-        _cboSource.Items.AddRange(new object[] { "人工录入", "网关采集", "Excel 导入" });
-        _cboSource.SelectedIndex = 0;
-
-        var head = new Label
-        {
-            Dock = DockStyle.Top, Height = 62, Padding = new Padding(14, 10, 14, 6),
-            BackColor = Color.White, ForeColor = Color.FromArgb(51, 65, 85),
-            Text = "录入某计量点某账期的能耗消耗量。\n"
-                 + "**同计量点同账期重复录入会覆盖修正**（修正已有读数），不会产生重复行。"
-        };
-
-        var form = new TableLayoutPanel
-        {
-            Dock = DockStyle.Fill, ColumnCount = 2, RowCount = 6, Padding = new Padding(14, 8, 14, 6)
-        };
-        form.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 96));
-        form.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
-
-        void AddRow(int r, string label, Control ctl)
-        {
-            form.Controls.Add(new Label
-            {
-                Text = label, AutoSize = true, Anchor = AnchorStyles.Left, ForeColor = Color.FromArgb(51, 65, 85)
-            }, 0, r);
-            ctl.Anchor = AnchorStyles.Left;
-            form.Controls.Add(ctl, 1, r);
-        }
-
-        AddRow(0, "计量点 *", _cboMeter);
-        AddRow(1, "账期 *", _cboPeriod);
-        AddRow(2, "消耗量 *", _txtValue);
-        AddRow(3, "数据来源", _cboSource);
-        AddRow(4, "备注", _txtRemark);
-        form.Controls.Add(_tip, 1, 5);
-
-        _txtValue.TextChanged += (_, _) => CheckValue();
-        _cboMeter.SelectedIndexChanged += (_, _) => CheckValue();
+        _txtValue.TextChanged += new System.EventHandler(this.TxtValue_TextChanged);
+        _cboMeter.SelectedIndexChanged += new System.EventHandler(this.CboMeter_SelectedIndexChanged);
         _txtValue.Text = "";
+    }
 
-        var btnOk = new Button { Text = "下一步", Width = 110, Height = 32 };
-        var btnCancel = new Button { Text = "取消", Width = 90, Height = 32, DialogResult = DialogResult.Cancel };
-        btnOk.Click += (_, _) =>
-        {
-            if (MeterId.Length == 0) { Warn("请选择计量点。"); return; }
-            if (Period.Length != 7) { Warn("请选择账期。"); return; }
-            if (Value < 0)
-            {
-                Warn(_tip.Text.Length > 0 ? _tip.Text : "请填写正确的消耗量（≥ 0 的数字）。");
-                return;
-            }
-            DialogResult = DialogResult.OK;
-            Close();
-        };
-        var btnRow = new FlowLayoutPanel
-        {
-            Dock = DockStyle.Bottom, Height = 44,
-            FlowDirection = FlowDirection.RightToLeft, Padding = new Padding(10, 5, 12, 0)
-        };
-        btnRow.Controls.Add(btnCancel);
-        btnRow.Controls.Add(btnOk);
+    private void TxtValue_TextChanged(object? sender, EventArgs e) => CheckValue();
 
-        Controls.Add(form);
-        Controls.Add(head);
-        Controls.Add(btnRow);
-        AcceptButton = btnOk;
-        CancelButton = btnCancel;
+    private void CboMeter_SelectedIndexChanged(object? sender, EventArgs e) => CheckValue();
+
+    private void BtnOk_Click(object? sender, EventArgs e)
+    {
+        if (MeterId.Length == 0) { Warn("请选择计量点。"); return; }
+        if (Period.Length != 7) { Warn("请选择账期。"); return; }
+        if (Value < 0)
+        {
+            Warn(_tip.Text.Length > 0 ? _tip.Text : "请填写正确的消耗量（≥ 0 的数字）。");
+            return;
+        }
+        DialogResult = DialogResult.OK;
+        Close();
     }
 
     private void CheckValue()

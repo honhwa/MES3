@@ -19,7 +19,6 @@ public partial class MainForm : Form
 {
     // ================= 顶部导航（一级业务分类 → 二级功能页面） =================
     /// <summary>顶层页签容器：每个页签 = 一个一级业务分类，页内容是该分类的二级页签容器。</summary>
-    private TabControl _tabs = null!;
 
     /// <summary>一级分类名 → 该分类下的二级页签容器（子 TabControl）。</summary>
     private readonly Dictionary<string, TabControl> _categoryTabs = new();
@@ -505,10 +504,6 @@ public partial class MainForm : Form
     private Button _btnCmpFreeze = null!;         // 操作：冻结影响范围
 
     // 自动刷新（底部状态栏 + 定时器）
-    private System.Windows.Forms.Timer _autoTimer = null!;
-    private CheckBox _chkAutoRefresh = null!;
-    private NumericUpDown _numMinutes = null!;
-    private Label _lblAutoStatus = null!;
     private DateTime _nextRefreshTime;
     private const int DefaultRefreshMinutes = 5;
     private const int MinRefreshMinutes = 1;
@@ -559,25 +554,20 @@ public partial class MainForm : Form
     /// <summary>MainForm：（说明待补充）</summary>
     public MainForm()
     {
-        Text = "MES 原型 - WinForms";
-        StartPosition = FormStartPosition.CenterScreen;
-        WindowState = FormWindowState.Maximized;
-        Font = new Font("微软雅黑", 9F);
+        InitializeComponent();
+        InitializeRuntime();
+    }
 
+    /// <summary>
+    /// 执行期初始化：AI 后端设定 + 依业务模块注册所有二级页面。
+    /// 页面内容由各 MainForm.*.cs 的 Build*Tab() 建立（含动态资料与工厂逻辑），
+    /// 无法放进 Designer 可解析的 InitializeComponent()。
+    /// </summary>
+    private void InitializeRuntime()
+    {
         // AI 助手后端：按本机配置决定走「云端大模型」还是「本地规则引擎」。
-        // 配置齐全（启用 + 有 Key）才挂云端；否则一律本地计算，数据不出本机。
-        // 这就是"接大模型只改一行"的那一行——界面与页面完全不需要知道后端是谁。
+        // 配置齐全才挂云端；否则一律本地计算，数据不出本机。
         AssistantEngine.Backend = AssistantBackendFactory.CreateFromSettings();
-
-        // 顶层容器：页签 = 一级业务分类（字号加大加粗以示层级）
-        // 注意：一级容器字体必须与二级容器显式区分——WinForms 字体沿控件树继承，
-        //       二级容器若不显式设回 9F，页内所有控件都会继承成 11F 粗体。
-        _tabs = new TabControl
-        {
-            Dock = DockStyle.Fill,
-            Font = new Font("微软雅黑", 11F, FontStyle.Regular),
-            Padding = new Point(22, 7)
-        };
 
         // ========== 按业务模块归类注册页面（一级分类 → 二级功能页面） ==========
         // 分类顺序即顶部页签顺序；同一分类内按注册顺序排列。
@@ -656,17 +646,12 @@ public partial class MainForm : Form
         // 【帮助】手册放在最后一个分类，新人从这入门
         RegisterPage(NavHelp, BuildManualTab());             // 使用手册：模糊搜索「我要做什么」→ 告诉你去哪、点什么
 
-        Controls.Add(_tabs);
-
-        // 自动刷新：底部状态栏 + 定时器（默认停用，间隔 5 分钟）
-        _autoTimer = new System.Windows.Forms.Timer { Interval = DefaultRefreshMinutes * 60_000 };
-        _autoTimer.Tick += AutoTimer_Tick;
-        Controls.Add(BuildAutoRefreshBar());
         UpdateAutoRefreshStatus();
-
-        Shown += (_, _) => RefreshAll();
-        FormClosed += (_, _) => _autoTimer.Stop();
     }
+
+    private void MainForm_Shown(object? sender, EventArgs e) => RefreshAll();
+
+    private void MainForm_FormClosed(object? sender, FormClosedEventArgs e) => _autoTimer.Stop();
 
     // ================= 顶部导航：一级分类 + 二级页面 =================
 
@@ -749,94 +734,6 @@ public partial class MainForm : Form
             : new List<TabPage>();
 
     // ================= 自动刷新 =================
-    /// <summary>构建底部自动刷新状态栏：CheckBox 开关 + 分钟输入 + 应用 + 立即刷新 + 状态文本</summary>
-    private StatusStrip BuildAutoRefreshBar()
-    {
-        var bar = new StatusStrip
-        {
-            Dock = DockStyle.Bottom,
-            SizingGrip = false,
-            BackColor = Color.FromArgb(15, 76, 129),
-            ForeColor = Color.White,
-            Font = new Font("微软雅黑", 9F),
-            Padding = new Padding(4, 2, 6, 2)
-        };
-
-        _chkAutoRefresh = new CheckBox
-        {
-            Text = "自动刷新",
-            Checked = false,
-            AutoSize = true,
-            BackColor = Color.FromArgb(15, 76, 129),
-            ForeColor = Color.White,
-            Font = new Font("微软雅黑", 9F),
-            Margin = new Padding(2, 4, 2, 4)
-        };
-
-        _numMinutes = new NumericUpDown
-        {
-            Minimum = MinRefreshMinutes,
-            Maximum = MaxRefreshMinutes,
-            DecimalPlaces = 0,
-            Increment = 1,
-            Value = DefaultRefreshMinutes,
-            Width = 56,
-            TextAlign = HorizontalAlignment.Center
-        };
-
-        var lblMinutes = new Label
-        {
-            Text = "分钟",
-            AutoSize = true,
-            BackColor = Color.FromArgb(15, 76, 129),
-            ForeColor = Color.White,
-            Font = new Font("微软雅黑", 9F),
-            Margin = new Padding(2, 4, 2, 4)
-        };
-
-        var btnApply = MakeStatusButton("应用", BtnApplyRefreshSettings);
-        var btnRefreshNow = MakeStatusButton("立即刷新", BtnRefreshNow);
-
-        _lblAutoStatus = new Label
-        {
-            AutoSize = true,
-            BackColor = Color.FromArgb(15, 76, 129),
-            ForeColor = Color.White,
-            Font = new Font("微软雅黑", 9F),
-            Margin = new Padding(10, 4, 2, 4),
-            Text = "自动刷新：已停用"
-        };
-
-        _chkAutoRefresh.CheckedChanged += ChkAutoRefresh_CheckedChanged;
-
-        bar.Items.Add(new ToolStripControlHost(_chkAutoRefresh) { Margin = new Padding(4, 0, 0, 0) });
-        bar.Items.Add(new ToolStripControlHost(_numMinutes) { Margin = new Padding(4, 0, 0, 0) });
-        bar.Items.Add(new ToolStripControlHost(lblMinutes) { Margin = new Padding(2, 0, 0, 0) });
-        bar.Items.Add(new ToolStripControlHost(btnApply) { Margin = new Padding(8, 0, 0, 0) });
-        bar.Items.Add(new ToolStripControlHost(btnRefreshNow) { Margin = new Padding(6, 0, 0, 0) });
-        bar.Items.Add(new ToolStripStatusLabel(" ") { Spring = true });
-        bar.Items.Add(new ToolStripControlHost(_lblAutoStatus) { Margin = new Padding(0, 0, 4, 0) });
-
-        return bar;
-    }
-
-    /// <summary>紧凑状态栏按钮（白底深蓝字，与深蓝状态栏呼应）</summary>
-    private static Button MakeStatusButton(string text, EventHandler onClick)
-    {
-        var b = new Button
-        {
-            Text = text,
-            Size = new Size(82, 26),
-            Margin = new Padding(2, 0, 2, 0),
-            BackColor = Color.White,
-            ForeColor = Color.FromArgb(15, 76, 129),
-            FlatStyle = FlatStyle.Flat,
-            Font = new Font("微软雅黑", 9F, FontStyle.Bold)
-        };
-        b.Click += onClick;
-        return b;
-    }
-
     /// <summary>「自动刷新」勾选变化：勾选即按当前分钟数启用，取消即停用</summary>
     private void ChkAutoRefresh_CheckedChanged(object? sender, EventArgs e) => ApplyAutoRefreshSettings();
 

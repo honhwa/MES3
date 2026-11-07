@@ -14,17 +14,11 @@ namespace SuperCapMES.WinForms.Forms;
 /// 支持按 型号 / 极片批次 / 关键字 筛选 + 勾选（含全选/取消全选），
 /// 确认后调用 <see cref="MesDatabase.BindShipmentCells"/> 批量绑定到指定物流出库单。
 /// 一芯一单：已在有效绑定中的电芯不会出现在候选里，避免串货。
+/// 控件宣告与静态配置见 ShipmentBindForm.Designer.cs。
 /// </summary>
-public class ShipmentBindForm : Form
+public partial class ShipmentBindForm : Form
 {
-    private readonly string _orderNo;
-
-    private ComboBox _cboModel = null!;
-    private ComboBox _cboLot = null!;
-    private TextBox _txtKeyword = null!;
-    private Label _lblCandidate = null!;
-    private Label _lblSelected = null!;
-    private DataGridView _grid = null!;
+    private string _orderNo = "";
 
     /// <summary>本次成功绑定的电芯数量（供调用方提示/定位）。</summary>
     public int BoundCount { get; private set; }
@@ -43,86 +37,30 @@ public class ShipmentBindForm : Form
 
     public ShipmentBindForm(string orderNo)
     {
-        _orderNo = orderNo ?? "";
-        Text = $"绑定出货电芯 - {_orderNo}";
-        StartPosition = FormStartPosition.CenterParent;
-        ClientSize = new Size(1000, 620);
-        FormBorderStyle = FormBorderStyle.Sizable;
-        MinimizeBox = false;
-        MaximizeBox = true;
-        Font = new Font("微软雅黑", 9F);
-
-        BuildUi();
-        ReloadFilterItems();
-        RefreshCandidates();
+        InitializeComponent();
+        InitializeRuntime(orderNo);
     }
 
-    private void BuildUi()
+    /// <summary>
+    /// 执行期初始化：处理依赖建构式参数 / 物件初始设定式 / 回圈建项的内容，
+    /// 以及原本建构式在 UI 建立后呼叫的 ReloadFilterItems() / RefreshCandidates()。
+    /// 其余控件建立 / 配置 / 加入容器均已搬至 InitializeComponent()。
+    /// </summary>
+    private void InitializeRuntime(string orderNo)
     {
-        // ---- 顶部筛选条 ----
-        var filter = new FlowLayoutPanel
+        _orderNo = orderNo ?? "";
+        Text = $"绑定出货电芯 - {_orderNo}";
+
+        // 原 BuildUi 内 _grid 的 DataGridViewCellStyle / RowTemplate 采物件初始设定式，Designer 无法解析，原样保留。
+        _grid.ColumnHeadersDefaultCellStyle = new DataGridViewCellStyle
         {
-            Dock = DockStyle.Top,
-            Height = 46,
-            Padding = new Padding(8, 8, 4, 0),
-            WrapContents = false
+            BackColor = Color.FromArgb(15, 76, 129),
+            ForeColor = Color.White,
+            Alignment = DataGridViewContentAlignment.MiddleCenter
         };
+        _grid.RowTemplate.Height = 26;
 
-        filter.Controls.Add(new Label { Text = "型号：", AutoSize = true, Margin = new Padding(0, 8, 0, 0) });
-        _cboModel = new ComboBox { DropDownStyle = ComboBoxStyle.DropDownList, Width = 150, Margin = new Padding(4, 4, 0, 0) };
-        _cboModel.SelectedIndexChanged += (_, _) => RefreshCandidates();
-        filter.Controls.Add(_cboModel);
-
-        filter.Controls.Add(new Label { Text = "极片批次：", AutoSize = true, Margin = new Padding(12, 8, 0, 0) });
-        _cboLot = new ComboBox { DropDownStyle = ComboBoxStyle.DropDownList, Width = 170, Margin = new Padding(4, 4, 0, 0) };
-        _cboLot.SelectedIndexChanged += (_, _) => RefreshCandidates();
-        filter.Controls.Add(_cboLot);
-
-        filter.Controls.Add(new Label { Text = "关键字：", AutoSize = true, Margin = new Padding(12, 8, 0, 0) });
-        _txtKeyword = new TextBox { Width = 150, Margin = new Padding(4, 4, 0, 0) };
-        filter.Controls.Add(_txtKeyword);
-
-        filter.Controls.Add(MakeButton("筛选", (_, _) => RefreshCandidates()));
-        filter.Controls.Add(MakeButton("重置", (_, _) =>
-        {
-            _cboModel.SelectedIndex = 0;
-            _cboLot.SelectedIndex = 0;
-            _txtKeyword.Text = "";
-            RefreshCandidates();
-        }));
-
-        _lblCandidate = new Label
-        {
-            Text = "",
-            AutoSize = true,
-            ForeColor = Color.Gray,
-            Margin = new Padding(14, 10, 0, 0)
-        };
-        filter.Controls.Add(_lblCandidate);
-
-        // ---- 网格 ----
-        _grid = new DataGridView
-        {
-            Dock = DockStyle.Fill,
-            AllowUserToAddRows = false,
-            AllowUserToDeleteRows = false,
-            AutoGenerateColumns = false,
-            AutoSizeColumnsMode = DataGridViewAutoSizeColumnsMode.Fill,
-            BackgroundColor = Color.White,
-            RowHeadersVisible = false,
-            SelectionMode = DataGridViewSelectionMode.CellSelect,
-            BorderStyle = BorderStyle.None,
-            EnableHeadersVisualStyles = false,
-            ColumnHeadersDefaultCellStyle = new DataGridViewCellStyle
-            {
-                BackColor = Color.FromArgb(15, 76, 129),
-                ForeColor = Color.White,
-                Alignment = DataGridViewContentAlignment.MiddleCenter
-            },
-            ColumnHeadersHeight = 30,
-            RowTemplate = { Height = 26 }
-        };
-
+        // 原 BuildUi 内 _grid 栏位建立（回圈 / 工厂），Designer 无法解析，原样保留。
         var chk = new DataGridViewCheckBoxColumn
         {
             Name = "Chk",
@@ -140,57 +78,58 @@ public class ShipmentBindForm : Form
         _grid.Columns.Add(MakeCol("ElectrolyteLot", "电解液批号", 14));
         _grid.Columns.Add(MakeCol("CreateTime", "生产时间", 14));
 
-        // 勾选即时提交，保证"已选 n 只"实时刷新
-        _grid.CurrentCellDirtyStateChanged -= Grid_CurrentCellDirtyStateChanged;
-        _grid.CurrentCellDirtyStateChanged += Grid_CurrentCellDirtyStateChanged;
-        _grid.CellValueChanged -= Grid_CellValueChanged;
-        _grid.CellValueChanged += Grid_CellValueChanged;
-        _grid.DataError += (_, e) => e.ThrowException = false;
+        ReloadFilterItems();
+        RefreshCandidates();
+    }
 
-        // ---- 底部按钮条 ----
-        var bottom = new Panel { Dock = DockStyle.Bottom, Height = 50, BackColor = Color.WhiteSmoke };
-        var btnSelectAll = MakeButton("全选", (_, _) => SetAllChecked(true));
-        var btnClearAll = MakeButton("取消全选", (_, _) => SetAllChecked(false));
-        btnSelectAll.Location = new Point(10, 10);
-        btnClearAll.Location = new Point(94, 10);
-        bottom.Controls.Add(btnSelectAll);
-        bottom.Controls.Add(btnClearAll);
+    private void CboModel_SelectedIndexChanged(object? sender, EventArgs e)
+    {
+        RefreshCandidates();
+    }
 
-        _lblSelected = new Label
-        {
-            Text = "已选 0 只",
-            AutoSize = true,
-            Font = new Font("微软雅黑", 9.5F, FontStyle.Bold),
-            ForeColor = Color.FromArgb(40, 50, 60),
-            Location = new Point(190, 17)
-        };
-        bottom.Controls.Add(_lblSelected);
+    private void CboLot_SelectedIndexChanged(object? sender, EventArgs e)
+    {
+        RefreshCandidates();
+    }
 
-        var btnOk = new Button
-        {
-            Text = "确认绑定",
-            Size = new Size(110, 32),
-            BackColor = Color.FromArgb(15, 76, 129),
-            ForeColor = Color.White,
-            FlatStyle = FlatStyle.Flat,
-            Font = new Font("微软雅黑", 9F, FontStyle.Bold)
-        };
-        var btnCancel = new Button { Text = "取消", Size = new Size(90, 32) };
+    private void BtnFilter_Click(object? sender, EventArgs e)
+    {
+        RefreshCandidates();
+    }
+
+    private void BtnReset_Click(object? sender, EventArgs e)
+    {
+        _cboModel.SelectedIndex = 0;
+        _cboLot.SelectedIndex = 0;
+        _txtKeyword.Text = "";
+        RefreshCandidates();
+    }
+
+    private void BtnSelectAll_Click(object? sender, EventArgs e)
+    {
+        SetAllChecked(true);
+    }
+
+    private void BtnClearAll_Click(object? sender, EventArgs e)
+    {
+        SetAllChecked(false);
+    }
+
+    private void Grid_DataError(object? sender, DataGridViewDataErrorEventArgs e)
+    {
+        e.ThrowException = false;
+    }
+
+    private void Bottom_Resize(object? sender, EventArgs e)
+    {
         btnOk.Location = new Point(bottom.Width - 216, 9);
         btnCancel.Location = new Point(bottom.Width - 116, 9);
-        bottom.Resize += (_, _) =>
-        {
-            btnOk.Location = new Point(bottom.Width - 216, 9);
-            btnCancel.Location = new Point(bottom.Width - 116, 9);
-        };
-        btnOk.Click += BtnOk_Click;
-        btnCancel.Click += (_, _) => { DialogResult = DialogResult.Cancel; Close(); };
-        bottom.Controls.Add(btnOk);
-        bottom.Controls.Add(btnCancel);
+    }
 
-        Controls.Add(_grid);
-        Controls.Add(bottom);
-        Controls.Add(filter);
+    private void BtnCancel_Click(object? sender, EventArgs e)
+    {
+        DialogResult = DialogResult.Cancel;
+        Close();
     }
 
     private static DataGridViewTextBoxColumn MakeCol(string prop, string header, int fillWeight) =>
@@ -202,21 +141,6 @@ public class ShipmentBindForm : Form
             ReadOnly = true,
             FillWeight = fillWeight
         };
-
-    private static Button MakeButton(string text, EventHandler onClick)
-    {
-        var b = new Button
-        {
-            Text = text,
-            Size = new Size(78, 30),
-            Margin = new Padding(4, 3, 0, 0),
-            BackColor = Color.FromArgb(15, 76, 129),
-            ForeColor = Color.White,
-            FlatStyle = FlatStyle.Flat
-        };
-        b.Click += onClick;
-        return b;
-    }
 
     /// <summary>重建筛选下拉项（构造时调用一次；候选集固定为"全部未绑定电芯"的去重型号/批次）。</summary>
     private void ReloadFilterItems()

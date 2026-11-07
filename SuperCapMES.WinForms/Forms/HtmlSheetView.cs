@@ -18,10 +18,9 @@ namespace SuperCapMES.WinForms.Forms;
 ///
 /// 降级：运行时缺失/初始化失败只在页面上显示可读说明，绝不抛异常打断页面构造。
 /// </summary>
-public sealed class HtmlSheetView : UserControl
+public sealed partial class HtmlSheetView : UserControl
 {
-    private readonly WebView2? _view;
-    private readonly Label _lblFallback;
+    private WebView2? _view;
     private string _pendingHtml = "";
     private bool _domReady;
     private bool _initStarted;
@@ -35,18 +34,16 @@ public sealed class HtmlSheetView : UserControl
 
     public HtmlSheetView()
     {
-        Dock = DockStyle.Fill;
-        BackColor = Color.White;
+        InitializeComponent();
+        InitializeRuntime();
+    }
 
-        _lblFallback = new Label
-        {
-            Dock = DockStyle.Fill,
-            TextAlign = ContentAlignment.MiddleCenter,
-            ForeColor = Color.DimGray,
-            Visible = false,
-            Text = "正在初始化 WebView2…",
-        };
-
+    /// <summary>
+    /// 执行期初始化：建立 WebView2（可能抛例外并降级显示 fallback），并把 fallback 置顶。
+    /// 静态控件配置（Dock / BackColor / _lblFallback）见 HtmlSheetView.Designer.cs。
+    /// </summary>
+    private void InitializeRuntime()
+    {
         try
         {
             _view = new WebView2 { Dock = DockStyle.Fill };
@@ -59,7 +56,6 @@ public sealed class HtmlSheetView : UserControl
             ShowFallback("⚠ 无法创建 WebView2 组件：" + ex.Message);
         }
 
-        Controls.Add(_lblFallback);
         _lblFallback.BringToFront();
     }
 

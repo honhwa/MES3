@@ -12,92 +12,86 @@ namespace SuperCapMES.WinForms.Forms;
 /// 「ERP 下发」窗体：
 /// 顶部从 ERP 获取最新 PO（状态 / 关键字过滤）；中部 PO 勾选列表（全选 / 取消全选 + 已选计数）；
 /// 底部选产线 / 操作人 → 下发选中 PO 生成工单（工单号 = WO-{PoNo}）。成功后返回生成的工单号列表。
+/// 控件宣告与静态配置见 ErpFetchForm.Designer.cs。
 /// </summary>
-public class ErpFetchForm : Form
+public partial class ErpFetchForm : Form
 {
-    private ComboBox _cboStatus = null!;
-    private TextBox _txtKeyword = null!;
-    private DataGridView _poGrid = null!;
-    private Label _lblResult = null!;
-    private Label _lblSelected = null!;
-    private ComboBox _cboLine = null!;
-    private TextBox _txtOperator = null!;
-
     /// <summary>下发成功后生成的工单号列表（未成功为空列表）</summary>
     public List<string> CreatedWoNos { get; } = new();
 
     public ErpFetchForm()
     {
-        Text = "ERP 下发 - 从 ERP 获取最新 PO 并生成工单";
-        Font = new Font("微软雅黑", 9F);
-        StartPosition = FormStartPosition.CenterParent;
-        ClientSize = new Size(980, 620);
-        MinimumSize = new Size(840, 520);
-        BuildUi();
-        Fetch();
+        InitializeComponent();
+        InitializeRuntime();
     }
 
-    private void BuildUi()
+    /// <summary>
+    /// 执行期初始化：处理依赖静态类别值 / 物件初始设定式 / 回圈建项的内容，
+    /// 以及原本建构式在 UI 建立后呼叫的 Fetch()。其余控件建立 / 配置 / 加入容器均已搬至 InitializeComponent()。
+    /// </summary>
+    private void InitializeRuntime()
     {
-        var root = new TableLayoutPanel
-        {
-            Dock = DockStyle.Fill,
-            ColumnCount = 1,
-            RowCount = 4,
-            Padding = new Padding(10, 8, 10, 8)
-        };
-        root.RowStyles.Add(new RowStyle(SizeType.Absolute, 44));   // 查询栏
-        root.RowStyles.Add(new RowStyle(SizeType.Percent, 100));   // PO 网格
-        root.RowStyles.Add(new RowStyle(SizeType.Absolute, 42));   // 勾选工具
-        root.RowStyles.Add(new RowStyle(SizeType.Absolute, 54));   // 下发栏
-
-        root.Controls.Add(BuildQueryBar(), 0, 0);
-        root.Controls.Add(BuildGridGroup(), 0, 1);
-        root.Controls.Add(BuildSelectBar(), 0, 2);
-        root.Controls.Add(BuildPushBar(), 0, 3);
-
-        Controls.Add(root);
-    }
-
-    // ---------------- 查询栏 ----------------
-
-    private Control BuildQueryBar()
-    {
-        var bar = new FlowLayoutPanel { Dock = DockStyle.Fill, WrapContents = false, Padding = new Padding(2, 8, 2, 0) };
-
-        bar.Controls.Add(new Label { Text = "状态：", AutoSize = true, Margin = new Padding(0, 6, 0, 0) });
-        _cboStatus = new ComboBox { DropDownStyle = ComboBoxStyle.DropDownList, Width = 100, Margin = new Padding(4, 2, 0, 0) };
+        // 原 BuildQueryBar：_cboStatus 下拉项取静态类别 const，Designer 无法解析，原样保留。
         _cboStatus.Items.Add(ErpPoStatus.Pending);
         _cboStatus.Items.Add("全部");
         _cboStatus.SelectedIndex = 0;   // 默认「待下发」
-        bar.Controls.Add(_cboStatus);
 
-        bar.Controls.Add(new Label { Text = "关键字：", AutoSize = true, Margin = new Padding(12, 6, 0, 0) });
-        _txtKeyword = new TextBox { Width = 220, Margin = new Padding(4, 2, 0, 0) };
-        _txtKeyword.KeyDown += (_, e) => { if (e.KeyCode == Keys.Enter) Fetch(); };
-        bar.Controls.Add(_txtKeyword);
-        bar.Controls.Add(new Label { Text = "（PO 号 / 客户 / 产品型号）", AutoSize = true, ForeColor = Color.Gray, Margin = new Padding(6, 6, 0, 0) });
+        // 原 MakePoGrid：DataGridViewCellStyle 采物件初始设定式，Designer 无法解析，原样保留。
+        _poGrid.ColumnHeadersDefaultCellStyle = new DataGridViewCellStyle
+        {
+            BackColor = Color.FromArgb(15, 76, 129),
+            ForeColor = Color.White,
+            Font = new Font("微软雅黑", 9F, FontStyle.Bold),
+            Alignment = DataGridViewContentAlignment.MiddleCenter
+        };
+        _poGrid.DefaultCellStyle = new DataGridViewCellStyle
+        {
+            BackColor = Color.White,
+            ForeColor = Color.Black,
+            SelectionBackColor = Color.FromArgb(207, 224, 239),
+            SelectionForeColor = Color.Black,
+            Font = new Font("微软雅黑", 9F)
+        };
+        _poGrid.AlternatingRowsDefaultCellStyle = new DataGridViewCellStyle { BackColor = Color.FromArgb(245, 248, 252) };
 
-        bar.Controls.Add(MakeButton("🔄 从 ERP 获取最新 PO", (_, _) => Fetch()));
-
-        _lblResult = new Label { Text = "", AutoSize = true, ForeColor = Color.Gray, Margin = new Padding(14, 6, 0, 0) };
-        bar.Controls.Add(_lblResult);
-        return bar;
-    }
-
-    // ---------------- PO 网格 ----------------
-
-    private Control BuildGridGroup()
-    {
-        var box = new GroupBox { Text = "ERP PO 列表（勾选要下发的 PO，可多选）", Dock = DockStyle.Fill, Padding = new Padding(6, 12, 6, 6) };
-
-        _poGrid = MakePoGrid();
-        _poGrid.ReadOnly = false;
-        _poGrid.EditMode = DataGridViewEditMode.EditOnEnter;
         SetupColumns();
 
-        box.Controls.Add(_poGrid);
-        return box;
+        Fetch();
+    }
+
+    private void TxtKeyword_KeyDown(object? sender, KeyEventArgs e)
+    {
+        if (e.KeyCode == Keys.Enter) Fetch();
+    }
+
+    private void BtnFetch_Click(object? sender, EventArgs e)
+    {
+        Fetch();
+    }
+
+    private void BtnSelectAll_Click(object? sender, EventArgs e)
+    {
+        SetAll(true);
+    }
+
+    private void BtnClearAll_Click(object? sender, EventArgs e)
+    {
+        SetAll(false);
+    }
+
+    private void BtnPush_Click(object? sender, EventArgs e)
+    {
+        Push();
+    }
+
+    private void PoGrid_CurrentCellDirtyStateChanged(object? sender, EventArgs e)
+    {
+        if (_poGrid.IsCurrentCellDirty) _poGrid.CommitEdit(DataGridViewDataErrorContexts.Commit);
+    }
+
+    private void PoGrid_CellValueChanged(object? sender, DataGridViewCellEventArgs e)
+    {
+        if (e.ColumnIndex >= 0 && _poGrid.Columns[e.ColumnIndex].Name == "Chk") UpdateSelectedCount();
     }
 
     private void SetupColumns()
@@ -129,47 +123,8 @@ public class ErpFetchForm : Form
         _poGrid.Columns.Add(pushedCol);
 
         // 勾选状态变化即时生效（提交编辑后再计数）
-        _poGrid.CurrentCellDirtyStateChanged += (_, _) =>
-        {
-            if (_poGrid.IsCurrentCellDirty) _poGrid.CommitEdit(DataGridViewDataErrorContexts.Commit);
-        };
-        _poGrid.CellValueChanged += (_, e) =>
-        {
-            if (e.ColumnIndex >= 0 && _poGrid.Columns[e.ColumnIndex].Name == "Chk") UpdateSelectedCount();
-        };
-    }
-
-    // ---------------- 勾选工具 ----------------
-
-    private Control BuildSelectBar()
-    {
-        var bar = new FlowLayoutPanel { Dock = DockStyle.Fill, WrapContents = false, Padding = new Padding(2, 6, 2, 0) };
-        bar.Controls.Add(MakeButton("全选", (_, _) => SetAll(true)));
-        bar.Controls.Add(MakeButton("取消全选", (_, _) => SetAll(false)));
-        _lblSelected = new Label { Text = "已勾选 0 条", AutoSize = true, ForeColor = Color.FromArgb(15, 76, 129), Margin = new Padding(14, 8, 0, 0) };
-        bar.Controls.Add(_lblSelected);
-        bar.Controls.Add(new Label { Text = "仅「待下发」状态的 PO 会被生成工单；已下发/重复的将自动跳过。", AutoSize = true, ForeColor = Color.Gray, Margin = new Padding(18, 8, 0, 0) });
-        return bar;
-    }
-
-    // ---------------- 下发栏 ----------------
-
-    private Control BuildPushBar()
-    {
-        var bar = new FlowLayoutPanel { Dock = DockStyle.Fill, WrapContents = false, Padding = new Padding(2, 10, 2, 0) };
-
-        bar.Controls.Add(new Label { Text = "产线：", AutoSize = true, Margin = new Padding(0, 6, 0, 0) });
-        _cboLine = new ComboBox { DropDownStyle = ComboBoxStyle.DropDownList, Width = 90, Margin = new Padding(4, 2, 0, 0) };
-        _cboLine.Items.AddRange(new object[] { "L1", "L2", "L3" });
-        _cboLine.SelectedIndex = 0;     // 默认 L1
-        bar.Controls.Add(_cboLine);
-
-        bar.Controls.Add(new Label { Text = "操作人：", AutoSize = true, Margin = new Padding(12, 6, 0, 0) });
-        _txtOperator = new TextBox { Text = "admin", Width = 110, Margin = new Padding(4, 2, 0, 0) };
-        bar.Controls.Add(_txtOperator);
-
-        bar.Controls.Add(MakeButton("⬆ 下发选中 PO 生成工单", (_, _) => Push()));
-        return bar;
+        // 原为 lambda，已改为具名方法 PoGrid_CurrentCellDirtyStateChanged / PoGrid_CellValueChanged，
+        // 于 Designer.cs 以方法群挂上。
     }
 
     // ---------------- 行为 ----------------
@@ -259,52 +214,6 @@ public class ErpFetchForm : Form
             HeaderText = header,
             ReadOnly = true,
             FillWeight = fillWeight
-        };
-
-    private static Button MakeButton(string text, EventHandler onClick)
-    {
-        var b = new Button
-        {
-            Text = text,
-            AutoSize = true,
-            MinimumSize = new Size(96, 30),
-            Margin = new Padding(6, 0, 4, 0),
-            BackColor = Color.FromArgb(15, 76, 129),
-            ForeColor = Color.White,
-            FlatStyle = FlatStyle.Flat
-        };
-        b.Click += onClick;
-        return b;
-    }
-
-    private static DataGridView MakePoGrid() =>
-        new()
-        {
-            Dock = DockStyle.Fill,
-            AllowUserToAddRows = false,
-            AllowUserToDeleteRows = false,
-            AutoSizeColumnsMode = DataGridViewAutoSizeColumnsMode.Fill,
-            BackgroundColor = Color.White,
-            RowHeadersVisible = false,
-            SelectionMode = DataGridViewSelectionMode.FullRowSelect,
-            BorderStyle = BorderStyle.None,
-            EnableHeadersVisualStyles = false,
-            ColumnHeadersDefaultCellStyle = new DataGridViewCellStyle
-            {
-                BackColor = Color.FromArgb(15, 76, 129),
-                ForeColor = Color.White,
-                Font = new Font("微软雅黑", 9F, FontStyle.Bold),
-                Alignment = DataGridViewContentAlignment.MiddleCenter
-            },
-            DefaultCellStyle = new DataGridViewCellStyle
-            {
-                BackColor = Color.White,
-                ForeColor = Color.Black,
-                SelectionBackColor = Color.FromArgb(207, 224, 239),
-                SelectionForeColor = Color.Black,
-                Font = new Font("微软雅黑", 9F)
-            },
-            AlternatingRowsDefaultCellStyle = new DataGridViewCellStyle { BackColor = Color.FromArgb(245, 248, 252) }
         };
 
     private void Warn(string msg) =>

@@ -16,7 +16,7 @@ namespace SuperCapMES.WinForms.Forms;
 /// 判异命中点加红色圆环并标注序号；X 轴显示首/中/末采样时间；顶部标注 N/CL/UCL/LCL。
 /// 样本不足（&lt;2 点）时中央显示灰色提示，绝不抛异常。
 /// </summary>
-public sealed class SpcControlChart : Panel
+public sealed partial class SpcControlChart : Panel
 {
     private IReadOnlyList<SpcSample> _samples = Array.Empty<SpcSample>();
     private SpcResult? _result;
@@ -24,10 +24,7 @@ public sealed class SpcControlChart : Panel
 
     public SpcControlChart()
     {
-        DoubleBuffered = true;
-        ResizeRedraw = true;
-        BackColor = Color.White;
-        BorderStyle = BorderStyle.FixedSingle;
+        InitializeComponent();
     }
 
     /// <summary>设置绘图数据并触发重绘。</summary>

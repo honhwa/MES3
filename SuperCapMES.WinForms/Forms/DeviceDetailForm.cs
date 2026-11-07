@@ -14,31 +14,18 @@ namespace SuperCapMES.WinForms.Forms;
 /// 顶部设备信息 + 本日/本月产量醒目数字；中部近30天日产量折线趋势图（GDI+ 手绘，零外部依赖）；
 /// 下部三页签：每小时产量/OEE 达成率表 + 当日异常列表 + 当天状态履历。
 /// </summary>
-public class DeviceDetailForm : Form
+public partial class DeviceDetailForm : Form
 {
-    private readonly Equipment _equipment;
-    private readonly List<DeviceDailyProduction> _daily;
-    private readonly PictureBox _chartBox;
-
-    // 供自动刷新更新的控件引用
-    private DataGridView _hourlyGrid = null!;
-    private DataGridView _alarmGrid = null!;
-    private DataGridView _statusGrid = null!;
-    private Button _btnAlarmToAbnormal = null!;
-    private Label _lblTodayValue = null!;
-    private Label _lblMonthValue = null!;
-
-    // 自动刷新（底部状态栏 + 定时器，与主窗体风格一致）
-    private System.Windows.Forms.Timer _autoTimer = null!;
-    private CheckBox _chkAutoRefresh = null!;
-    private NumericUpDown _numMinutes = null!;
-    private Label _lblAutoStatus = null!;
+#nullable disable
+    private Equipment _equipment;
+    private List<DeviceDailyProduction> _daily;
+#nullable restore
     private DateTime _nextRefreshTime;
     private const int DefaultRefreshMinutes = 5;
     private const int MinRefreshMinutes = 1;
     private const int MaxRefreshMinutes = 60;
 
-    /// <summary>双缓冲 PictureBox，避免趋势图重绘闪烁</summary>
+    /// <summary>双缓冲 PictureBox，避免趋势图重绘闪烁（静态建立由 Designer.cs 沿用此巢状类别）。</summary>
     private sealed class DoubleBufferedPictureBox : PictureBox
     {
         public DoubleBufferedPictureBox()
@@ -51,110 +38,49 @@ public class DeviceDetailForm : Form
 
     public DeviceDetailForm(Equipment equipment)
     {
+        InitializeComponent();
+        InitializeRuntime(equipment);
+    }
+
+    /// <summary>
+    /// 执行期初始化：设备资料查询、插值字串、产量数字、状态色彩、表格绑定、
+    /// 自动刷新状态文本等动态资料。静态控件树（含 TabControl / 三张表格 /
+    /// 趋势图 GroupBox / 顶部信息面板 / 状态栏 / Timer）与静态事件挂接已展开至
+    /// DeviceDetailForm.Designer.cs 的 InitializeComponent()。
+    /// </summary>
+    private void InitializeRuntime(Equipment equipment)
+    {
         _equipment = equipment ?? throw new ArgumentNullException(nameof(equipment));
         _daily = MesDatabase.GetDailyProductions(equipment.Code);
 
         Text = $"设备详情 - {equipment.Name}（{equipment.Code}）";
-        Font = new Font("微软雅黑", 9F);
-        StartPosition = FormStartPosition.CenterParent;
-        ClientSize = new Size(1000, 720);
-        MinimumSize = new Size(840, 620);
 
-        _chartBox = new DoubleBufferedPictureBox { Dock = DockStyle.Fill };
-        _chartBox.Paint += ChartBox_Paint;
-
+        // 静态控件树（_chartBox / 三张表 / _autoRefreshBar / _autoTimer）及静态事件
+        // 已由 Designer.cs 的 InitializeComponent() 建立并加入表单，此处仅填动态资料。
         BuildUi();
 
-        // 自动刷新：底部状态栏 + 定时器（默认停用，间隔 5 分钟）
-        _autoTimer = new System.Windows.Forms.Timer { Interval = DefaultRefreshMinutes * 60_000 };
-        _autoTimer.Tick += AutoTimer_Tick;
-        Controls.Add(BuildAutoRefreshBar());
         UpdateAutoRefreshStatus();
-
-        FormClosed += (_, _) => _autoTimer.Stop();
     }
 
+    /// <summary>原 InitializeRuntime 内 FormClosed lambda 本体，改为具名方法供 Designer.cs 挂接。</summary>
+    private void DeviceDetailForm_FormClosed(object? sender, FormClosedEventArgs e) => _autoTimer.Stop();
+
+    /// <summary>
+    /// 执行期资料填入与表格绑定：静态控件树已由 Designer.cs 建立，
+    /// 此处仅写入插值字串 / 产量数字 / 状态色彩并绑定三张表。
+    /// </summary>
     private void BuildUi()
     {
-        // 顶部信息区
-        var top = BuildInfoPanel();
-
-        // 中部趋势图
-        var chartGroup = new GroupBox
-        {
-            Text = "近30天日产量趋势图",
-            Dock = DockStyle.Top,
-            Height = 260,
-            Padding = new Padding(8, 14, 8, 8)
-        };
-        chartGroup.Controls.Add(_chartBox);
-
-        // 下部三页签：每小时产量与OEE / 当日异常 / 当天状态履历
-        var tabs = new TabControl { Dock = DockStyle.Fill };
-        var tabHourly = new TabPage("每小时产量与OEE");
-        tabHourly.Controls.Add(MakeGridGroup("每小时产量与 OEE 达成率（当日 0-23 点，目标 OEE 85%）", out var hourlyGrid));
-        var tabAlarm = new TabPage("当日异常");
-        var alarmGroup = MakeGridGroup("当日异常情况（选中一行 → 底部「转异常登记」可自动生成异常单）", out var alarmGrid);
-        var alarmBar = new FlowLayoutPanel
-        {
-            Dock = DockStyle.Bottom,
-            Height = 42,
-            Padding = new Padding(8, 6, 4, 0),
-            WrapContents = false
-        };
-        _btnAlarmToAbnormal = MakeStatusButton("转异常登记", BtnAlarmToAbnormal);
-        _btnAlarmToAbnormal.Click -= BtnAlarmToAbnormal;
-        _btnAlarmToAbnormal.Click += BtnAlarmToAbnormal;
-        _btnAlarmToAbnormal.Enabled = false;
-        alarmBar.Controls.Add(_btnAlarmToAbnormal);
-        var alarmPanel = new Panel { Dock = DockStyle.Fill };
-        alarmPanel.Controls.Add(alarmGroup);   // Fill
-        alarmPanel.Controls.Add(alarmBar);     // Bottom
-        tabAlarm.Controls.Add(alarmPanel);
-        var tabStatus = new TabPage("当天状态履历");
-        tabStatus.Controls.Add(MakeGridGroup("当天状态履历（0 点起按开始时间升序）", out var statusGrid));
-        tabs.TabPages.Add(tabHourly);
-        tabs.TabPages.Add(tabAlarm);
-        tabs.TabPages.Add(tabStatus);
-
-        // Dock 布局：后添加的控件先贴边（顶部），故先加 fill 再依次加顶栏
-        Controls.Add(tabs);
-        Controls.Add(chartGroup);
-        Controls.Add(top);
-
-        // 保存表格引用，供自动刷新重新绑定
-        _hourlyGrid = hourlyGrid;
-        _alarmGrid = alarmGrid;
-        _statusGrid = statusGrid;
-        BindHourlyGrid(hourlyGrid);
-        BindAlarmGrid(alarmGrid);
-        BindStatusGrid(statusGrid);
-    }
-
-    // ================= 顶部信息 =================
-
-    private Control BuildInfoPanel()
-    {
+        // 顶部信息区（原 BuildInfoPanel 的动态段落）
         var todayOutput = MesDatabase.GetTodayOutput(_equipment.Code);
         var monthOutput = MesDatabase.GetMonthOutput(_equipment.Code);
 
-        var panel = new Panel
-        {
-            Dock = DockStyle.Top,
-            Height = 118,
-            BackColor = Color.White,
-            Padding = new Padding(12, 8, 12, 8)
-        };
+        _infoCode.Text = $"设备编号：{_equipment.Code}";
+        _infoName.Text = $"设备名称：{_equipment.Name}";
+        _infoSection.Text = $"工序段：{_equipment.Section}";
+        _infoStatus.Text = $"状态：{_equipment.Status}";
 
-        var grid = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 4, RowCount = 2 };
-        grid.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 25));
-        grid.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 25));
-        grid.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 25));
-        grid.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 25));
-        grid.RowStyles.Add(new RowStyle(SizeType.Absolute, 32));
-        grid.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
-
-        // 第一行：设备基础信息
+        // 状态色彩依设备状态分派（原 statusColor switch，保留执行期运算）
         var statusColor = _equipment.Status switch
         {
             "运行" => Color.FromArgb(39, 174, 96),
@@ -162,65 +88,44 @@ public class DeviceDetailForm : Form
             "停机" => Color.FromArgb(192, 57, 43),
             _ => Color.FromArgb(80, 90, 105)
         };
-        grid.Controls.Add(MakeInfoCell($"设备编号：{_equipment.Code}"), 0, 0);
-        grid.Controls.Add(MakeInfoCell($"设备名称：{_equipment.Name}"), 1, 0);
-        grid.Controls.Add(MakeInfoCell($"工序段：{_equipment.Section}"), 2, 0);
-        var statusCell = MakeInfoCell($"状态：{_equipment.Status}");
-        statusCell.ForeColor = statusColor;
-        grid.Controls.Add(statusCell, 3, 0);
+        _infoStatus.ForeColor = statusColor;
 
-        // 第二行：本日 / 本月产量醒目数字（各跨两列）
-        var todayCard = MakeStatCard("本日产量（只）", todayOutput.ToString("N0"), Color.FromArgb(15, 76, 129), out _lblTodayValue);
-        grid.Controls.Add(todayCard, 0, 1);
-        grid.SetColumnSpan(todayCard, 2);
+        _lblTodayValue.Text = todayOutput.ToString("N0");
+        _lblMonthValue.Text = monthOutput.ToString("N0");
 
-        var monthCard = MakeStatCard("本月产量（只）", monthOutput.ToString("N0"), Color.FromArgb(230, 126, 34), out _lblMonthValue);
-        grid.Controls.Add(monthCard, 2, 1);
-        grid.SetColumnSpan(monthCard, 2);
+        // 三张表共用样式：new DataGridViewCellStyle{...} 依迁移规格留在 .cs，不搬至 Designer.cs。
+        ApplyGridStyles(_hourlyGrid);
+        ApplyGridStyles(_alarmGrid);
+        ApplyGridStyles(_statusGrid);
 
-        panel.Controls.Add(grid);
-        return panel;
+        // 表格绑定（MesDatabase 查询 / DataSource / Columns.Add / 事件挂接）
+        BindHourlyGrid(_hourlyGrid);
+        BindAlarmGrid(_alarmGrid);
+        BindStatusGrid(_statusGrid);
     }
 
-    private static Label MakeInfoCell(string text) =>
-        new()
-        {
-            Text = text,
-            Dock = DockStyle.Fill,
-            TextAlign = ContentAlignment.MiddleLeft,
-            ForeColor = Color.FromArgb(40, 50, 60),
-            AutoEllipsis = true
-        };
-
-    private static Control MakeStatCard(string title, string value, Color accent, out Label valueLabel)
+    /// <summary>
+    /// 三张表共用的 DataGridViewCellStyle 初始设定式（原 MakeGrid() 的样式段落），
+    /// 依迁移规格留在 .cs；由 BuildUi() 于绑定前套用。
+    /// </summary>
+    private static void ApplyGridStyles(DataGridView g)
     {
-        var p = new Panel
+        g.ColumnHeadersDefaultCellStyle = new DataGridViewCellStyle
         {
-            Dock = DockStyle.Fill,
-            Margin = new Padding(4, 2, 4, 2),
-            BackColor = Color.FromArgb(245, 248, 252),
-            BorderStyle = BorderStyle.FixedSingle
+            BackColor = Color.FromArgb(15, 76, 129),
+            ForeColor = Color.White,
+            Font = new Font("微软雅黑", 9F, FontStyle.Bold),
+            Alignment = DataGridViewContentAlignment.MiddleCenter
         };
-        var t = new Label
+        g.DefaultCellStyle = new DataGridViewCellStyle
         {
-            Text = title,
-            Location = new Point(12, 6),
-            AutoSize = true,
-            ForeColor = Color.Gray,
+            BackColor = Color.White,
+            ForeColor = Color.Black,
+            SelectionBackColor = Color.FromArgb(207, 224, 239),
+            SelectionForeColor = Color.Black,
             Font = new Font("微软雅黑", 9F)
         };
-        var v = new Label
-        {
-            Text = value,
-            Location = new Point(12, 26),
-            AutoSize = true,
-            ForeColor = accent,
-            Font = new Font("微软雅黑", 18F, FontStyle.Bold)
-        };
-        valueLabel = v;
-        p.Controls.Add(t);
-        p.Controls.Add(v);
-        return p;
+        g.AlternatingRowsDefaultCellStyle = new DataGridViewCellStyle { BackColor = Color.FromArgb(245, 248, 252) };
     }
 
     // ================= 近30天日产量趋势图（GDI+ 手绘） =================
@@ -491,137 +396,7 @@ public class DeviceDetailForm : Form
             FillWeight = fillWeight
         };
 
-    private static DataGridView MakeGrid()
-    {
-        var g = new DataGridView
-        {
-            Dock = DockStyle.Fill,
-            ReadOnly = true,
-            AllowUserToAddRows = false,
-            AllowUserToDeleteRows = false,
-            AutoSizeColumnsMode = DataGridViewAutoSizeColumnsMode.Fill,
-            BackgroundColor = Color.White,
-            RowHeadersVisible = false,
-            SelectionMode = DataGridViewSelectionMode.FullRowSelect,
-            BorderStyle = BorderStyle.None,
-            EnableHeadersVisualStyles = false,
-            ColumnHeadersDefaultCellStyle = new DataGridViewCellStyle
-            {
-                BackColor = Color.FromArgb(15, 76, 129),
-                ForeColor = Color.White,
-                Font = new Font("微软雅黑", 9F, FontStyle.Bold),
-                Alignment = DataGridViewContentAlignment.MiddleCenter
-            },
-            DefaultCellStyle = new DataGridViewCellStyle
-            {
-                BackColor = Color.White,
-                ForeColor = Color.Black,
-                SelectionBackColor = Color.FromArgb(207, 224, 239),
-                SelectionForeColor = Color.Black,
-                Font = new Font("微软雅黑", 9F)
-            },
-            AlternatingRowsDefaultCellStyle = new DataGridViewCellStyle { BackColor = Color.FromArgb(245, 248, 252) }
-        };
-        return g;
-    }
-
-    private static Control MakeGridGroup(string title, out DataGridView grid)
-    {
-        var box = new GroupBox { Text = title, Dock = DockStyle.Fill, Padding = new Padding(6, 12, 6, 6) };
-        grid = MakeGrid();
-        box.Controls.Add(grid);
-        return box;
-    }
-
     // ================= 自动刷新 =================
-    /// <summary>构建底部自动刷新状态栏：CheckBox 开关 + 分钟输入 + 应用 + 立即刷新 + 状态文本（深蓝主题，与主窗体一致）</summary>
-    private StatusStrip BuildAutoRefreshBar()
-    {
-        var bar = new StatusStrip
-        {
-            Dock = DockStyle.Bottom,
-            SizingGrip = false,
-            BackColor = Color.FromArgb(15, 76, 129),
-            ForeColor = Color.White,
-            Font = new Font("微软雅黑", 9F),
-            Padding = new Padding(4, 2, 6, 2)
-        };
-
-        _chkAutoRefresh = new CheckBox
-        {
-            Text = "自动刷新",
-            Checked = false,
-            AutoSize = true,
-            BackColor = Color.FromArgb(15, 76, 129),
-            ForeColor = Color.White,
-            Font = new Font("微软雅黑", 9F),
-            Margin = new Padding(2, 4, 2, 4)
-        };
-
-        _numMinutes = new NumericUpDown
-        {
-            Minimum = MinRefreshMinutes,
-            Maximum = MaxRefreshMinutes,
-            DecimalPlaces = 0,
-            Increment = 1,
-            Value = DefaultRefreshMinutes,
-            Width = 56,
-            TextAlign = HorizontalAlignment.Center
-        };
-
-        var lblMinutes = new Label
-        {
-            Text = "分钟",
-            AutoSize = true,
-            BackColor = Color.FromArgb(15, 76, 129),
-            ForeColor = Color.White,
-            Font = new Font("微软雅黑", 9F),
-            Margin = new Padding(2, 4, 2, 4)
-        };
-
-        var btnApply = MakeStatusButton("应用", BtnApplyRefreshSettings);
-        var btnRefreshNow = MakeStatusButton("立即刷新", BtnRefreshNow);
-
-        _lblAutoStatus = new Label
-        {
-            AutoSize = true,
-            BackColor = Color.FromArgb(15, 76, 129),
-            ForeColor = Color.White,
-            Font = new Font("微软雅黑", 9F),
-            Margin = new Padding(10, 4, 2, 4),
-            Text = "自动刷新：已停用"
-        };
-
-        _chkAutoRefresh.CheckedChanged += ChkAutoRefresh_CheckedChanged;
-
-        bar.Items.Add(new ToolStripControlHost(_chkAutoRefresh) { Margin = new Padding(4, 0, 0, 0) });
-        bar.Items.Add(new ToolStripControlHost(_numMinutes) { Margin = new Padding(4, 0, 0, 0) });
-        bar.Items.Add(new ToolStripControlHost(lblMinutes) { Margin = new Padding(2, 0, 0, 0) });
-        bar.Items.Add(new ToolStripControlHost(btnApply) { Margin = new Padding(8, 0, 0, 0) });
-        bar.Items.Add(new ToolStripControlHost(btnRefreshNow) { Margin = new Padding(6, 0, 0, 0) });
-        bar.Items.Add(new ToolStripStatusLabel(" ") { Spring = true });
-        bar.Items.Add(new ToolStripControlHost(_lblAutoStatus) { Margin = new Padding(0, 0, 4, 0) });
-
-        return bar;
-    }
-
-    /// <summary>紧凑状态栏按钮（白底深蓝字，与深蓝状态栏呼应）</summary>
-    private static Button MakeStatusButton(string text, EventHandler onClick)
-    {
-        var b = new Button
-        {
-            Text = text,
-            Size = new Size(82, 26),
-            Margin = new Padding(2, 0, 2, 0),
-            BackColor = Color.White,
-            ForeColor = Color.FromArgb(15, 76, 129),
-            FlatStyle = FlatStyle.Flat,
-            Font = new Font("微软雅黑", 9F, FontStyle.Bold)
-        };
-        b.Click += onClick;
-        return b;
-    }
-
     /// <summary>「自动刷新」勾选变化：勾选即按当前分钟数启用，取消即停用</summary>
     private void ChkAutoRefresh_CheckedChanged(object? sender, EventArgs e) => ApplyAutoRefreshSettings();
 

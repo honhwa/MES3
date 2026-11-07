@@ -13,52 +13,26 @@ namespace SuperCapMES.WinForms.Forms;
 /// 已闭环：只读展示闭环结论；底部始终展示 登记/确认/闭环 操作履历。
 /// 每次动作执行后就地重取数据刷新本窗体，保证状态与履历最新。
 /// </summary>
-public class AbnormalDetailForm : Form
+public partial class AbnormalDetailForm : Form
 {
-    private readonly string _abNo;
+#nullable disable
+    private string _abNo;
     private bool _notFound;
-
-    // 概要标签
-    private Label _lblNo = null!;
-    private Label _lblStatus = null!;
-    private Label _lblOccur = null!;
-    private Label _lblFound = null!;
-    private Label _lblLine = null!;
-    private Label _lblEquip = null!;
-    private Label _lblCat = null!;
-    private Label _lblSub = null!;
-    private Label _lblOwner = null!;
-    private Label _lblRegBy = null!;
-    private Label _lblRegTime = null!;
-    private Label _lblConfirm = null!;
-    private Label _lblDetail = null!;
-
-    // 中部操作区容器与三个状态面板
-    private GroupBox _actionGroup = null!;
-    private Panel _pendingPanel = null!;
-    private Panel _editPanel = null!;
-    private Panel _closedPanel = null!;
-
-    // 待确认面板控件
-    private TextBox _txtConfirmOperator = null!;
-
-    // 已确认（闭环编辑）面板控件
-    private TextBox _txtRootCause = null!;
-    private TextBox _txtRootMeasure = null!;
-    private ComboBox _cboHorizon = null!;
-    private TextBox _txtHorizonScope = null!;
-    private Label _lblHorizonScopeTitle = null!;
-    private TextBox _txtCloseOperator = null!;
-
-    // 已闭环只读面板控件
-    private TextBox _txtClosedCause = null!;
-    private TextBox _txtClosedMeasure = null!;
-    private TextBox _txtClosedHorizon = null!;
-    private Label _lblClosedMeta = null!;
-
-    private DataGridView _historyGrid = null!;
+#nullable restore
 
     public AbnormalDetailForm(string abNo)
+    {
+        InitializeComponent();
+        InitializeRuntime(abNo);
+    }
+
+    /// <summary>
+    /// 执行期初始化：依赖参数的 Text、MesDatabase 查询，以及原 BuildUi() 中
+    /// 无法 Designer 化的动态段落（_cboHorizon 选项绑定与事件、DataGridViewCellStyle
+    /// 物件初始设定式、履历栏位建置、就地刷新）。静态控件的建立、属性与容器
+    /// 加入已全部展开至 AbnormalDetailForm.Designer.cs 的 InitializeComponent()。
+    /// </summary>
+    private void InitializeRuntime(string abNo)
     {
         _abNo = string.IsNullOrWhiteSpace(abNo) ? "" : abNo.Trim();
         var rec = MesDatabase.FindAbnormal(_abNo);
@@ -74,12 +48,57 @@ public class AbnormalDetailForm : Form
             Text = $"异常详情 - {rec.AbNo}";
         }
 
-        Font = new Font("微软雅黑", 9F);
-        StartPosition = FormStartPosition.CenterParent;
-        ClientSize = new Size(1080, 800);
-        MinimumSize = new Size(1000, 700);
+        // 原 BuildEditPanel()：_cboHorizon 的执行期选项绑定与 SelectedIndexChanged 挂接。
+        // 依迁移规格「挂接时机影响初始状态则保留在 .cs 原顺序位置」：
+        // AddRange / SelectedItem 依赖 Models 的 AbnormalHorizon 静态成员，必须在
+        // 挂上事件之前完成；否则 SelectedItem 变更会触发 UpdateHorizonScopeEnabled()
+        // 而改写 _txtHorizonScope.BackColor / _lblHorizonScopeTitle.ForeColor 的初值。
+        // 原 lambda 已改为具名方法 CboHorizon_SelectedIndexChanged。
+        _cboHorizon.Items.AddRange(AbnormalHorizon.All);
+        _cboHorizon.SelectedItem = AbnormalHorizon.NotNeeded;
+        _cboHorizon.SelectedIndexChanged += new System.EventHandler(this.CboHorizon_SelectedIndexChanged);
 
-        BuildUi();
+        // 原 MakeGrid()：DataGridViewCellStyle 物件初始设定式，依规格留在 .cs。
+        ApplyHistoryGridStyles();
+
+        // 原 BuildUi() 尾部，保持原相对顺序。
+        SetupHistoryColumns();
+        Reload();
+    }
+
+    private void CboHorizon_SelectedIndexChanged(object? sender, EventArgs e) => UpdateHorizonScopeEnabled();
+
+    // 原 BuildBottomBar() 的 bar.Resize lambda：捕获的 bar / btnClose 已提升为栏位，
+    // bar.Width - 116 为非常值运算式，保留于方法本体（挂接在 Designer.cs）。
+    private void BottomBar_Resize(object? sender, EventArgs e) =>
+        _btnCloseBar.Location = new Point(_bottomBar.Width - 116, 9);
+
+    // 原 BuildBottomBar() 的 btnClose.Click lambda（挂接在 Designer.cs）。
+    private void BtnCloseBar_Click(object? sender, EventArgs e)
+    {
+        DialogResult = DialogResult.Cancel;
+        Close();
+    }
+
+    // 原 MakeGrid() 的三项 DataGridViewCellStyle 物件初始设定式。
+    private void ApplyHistoryGridStyles()
+    {
+        _historyGrid.ColumnHeadersDefaultCellStyle = new DataGridViewCellStyle
+        {
+            BackColor = Color.FromArgb(15, 76, 129),
+            ForeColor = Color.White,
+            Font = new Font("微软雅黑", 9F, FontStyle.Bold),
+            Alignment = DataGridViewContentAlignment.MiddleCenter
+        };
+        _historyGrid.DefaultCellStyle = new DataGridViewCellStyle
+        {
+            BackColor = Color.White,
+            ForeColor = Color.Black,
+            SelectionBackColor = Color.FromArgb(207, 224, 239),
+            SelectionForeColor = Color.Black,
+            Font = new Font("微软雅黑", 9F)
+        };
+        _historyGrid.AlternatingRowsDefaultCellStyle = new DataGridViewCellStyle { BackColor = Color.FromArgb(245, 248, 252) };
     }
 
     protected override void OnShown(EventArgs e)
@@ -88,98 +107,7 @@ public class AbnormalDetailForm : Form
         if (_notFound) Close();
     }
 
-    private void BuildUi()
-    {
-        var summary = BuildSummaryPanel();
-        _actionGroup = BuildActionGroup();
-        var historyGroup = MakeGridGroup("操作履历（登记 / 确认 / 闭环）", out _historyGrid);
-        var bottom = BuildBottomBar();
-
-        // Dock 布局：后添加的控件先贴边；先 fill，再 Top（后加的在上），最后 Bottom
-        Controls.Add(historyGroup);
-        Controls.Add(_actionGroup);
-        Controls.Add(summary);
-        Controls.Add(bottom);
-
-        SetupHistoryColumns();
-        Reload();
-    }
-
     // ================= 顶部概要 =================
-
-    private Control BuildSummaryPanel()
-    {
-        var panel = new Panel
-        {
-            Dock = DockStyle.Top,
-            Height = 196,
-            BackColor = Color.White,
-            Padding = new Padding(12, 8, 12, 6)
-        };
-
-        var grid = new TableLayoutPanel
-        {
-            Dock = DockStyle.Fill,
-            ColumnCount = 4,
-            RowCount = 4
-        };
-        grid.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 25));
-        grid.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 25));
-        grid.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 25));
-        grid.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 25));
-        grid.RowStyles.Add(new RowStyle(SizeType.Absolute, 30));
-        grid.RowStyles.Add(new RowStyle(SizeType.Absolute, 30));
-        grid.RowStyles.Add(new RowStyle(SizeType.Absolute, 30));
-        grid.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
-
-        _lblNo = MakeInfoLabel();
-        _lblStatus = MakeInfoLabel();
-        _lblOccur = MakeInfoLabel();
-        _lblFound = MakeInfoLabel();
-        _lblLine = MakeInfoLabel();
-        _lblEquip = MakeInfoLabel();
-        _lblCat = MakeInfoLabel();
-        _lblSub = MakeInfoLabel();
-        _lblOwner = MakeInfoLabel();
-        _lblRegBy = MakeInfoLabel();
-        _lblRegTime = MakeInfoLabel();
-        _lblConfirm = MakeInfoLabel();
-        _lblDetail = MakeInfoLabel();
-        _lblDetail.AutoSize = false;
-        _lblDetail.TextAlign = ContentAlignment.TopLeft;
-        _lblDetail.Dock = DockStyle.Fill;
-
-        grid.Controls.Add(_lblNo, 0, 0);
-        grid.Controls.Add(_lblStatus, 1, 0);
-        grid.Controls.Add(_lblOccur, 2, 0);
-        grid.Controls.Add(_lblFound, 3, 0);
-
-        grid.Controls.Add(_lblLine, 0, 1);
-        grid.Controls.Add(_lblEquip, 1, 1);
-        grid.Controls.Add(_lblCat, 2, 1);
-        grid.Controls.Add(_lblSub, 3, 1);
-
-        grid.Controls.Add(_lblOwner, 0, 2);
-        grid.Controls.Add(_lblRegBy, 1, 2);
-        grid.Controls.Add(_lblRegTime, 2, 2);
-        grid.Controls.Add(_lblConfirm, 3, 2);
-
-        grid.Controls.Add(_lblDetail, 0, 3);
-        grid.SetColumnSpan(_lblDetail, 4);
-
-        panel.Controls.Add(grid);
-        return panel;
-    }
-
-    private static Label MakeInfoLabel() =>
-        new()
-        {
-            Dock = DockStyle.Fill,
-            TextAlign = ContentAlignment.MiddleLeft,
-            ForeColor = Color.FromArgb(40, 50, 60),
-            AutoEllipsis = true,
-            Margin = new Padding(2, 1, 8, 1)
-        };
 
     private void UpdateSummary(AbnormalRecord rec)
     {
@@ -225,256 +153,6 @@ public class AbnormalDetailForm : Form
         _lblNo.Font = new Font("微软雅黑", 10F, FontStyle.Bold);
     }
 
-    // ================= 中部操作区 =================
-
-    private GroupBox BuildActionGroup()
-    {
-        var box = new GroupBox
-        {
-            Dock = DockStyle.Top,
-            Height = 390,
-            Padding = new Padding(10, 16, 10, 6)
-        };
-
-        _pendingPanel = BuildPendingPanel();
-        _editPanel = BuildEditPanel();
-        _closedPanel = BuildClosedPanel();
-
-        box.Controls.Add(_pendingPanel);
-        box.Controls.Add(_editPanel);
-        box.Controls.Add(_closedPanel);
-        return box;
-    }
-
-    private static Panel MakeActionPanel()
-    {
-        var p = new Panel
-        {
-            Dock = DockStyle.Fill,
-            BackColor = Color.White,
-            Padding = new Padding(6, 2, 6, 2)
-        };
-        return p;
-    }
-
-    // ---- 待确认面板 ----
-    private Panel BuildPendingPanel()
-    {
-        var panel = MakeActionPanel();
-        var tbl = new TableLayoutPanel
-        {
-            Dock = DockStyle.Fill,
-            ColumnCount = 1,
-            RowCount = 3,
-            Padding = new Padding(8, 6, 8, 4)
-        };
-        tbl.RowStyles.Add(new RowStyle(SizeType.Absolute, 48));
-        tbl.RowStyles.Add(new RowStyle(SizeType.Absolute, 44));
-        tbl.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
-
-        var hint = new Label
-        {
-            Dock = DockStyle.Fill,
-            Text = "请核对上述登记内容（发生信息/描述/临时措施）无误后点击「确认登记」，"
-                 + "系统将把异常单状态变更为「已确认」并转后续负责人处理。",
-            ForeColor = Color.FromArgb(230, 126, 34),
-            Font = new Font("微软雅黑", 9.5F, FontStyle.Bold),
-            TextAlign = ContentAlignment.MiddleLeft
-        };
-        tbl.Controls.Add(hint, 0, 0);
-
-        var flow = new FlowLayoutPanel { Dock = DockStyle.Fill, WrapContents = false };
-        flow.Controls.Add(new Label { Text = "确认操作人：", AutoSize = true, Margin = new Padding(0, 9, 0, 0) });
-        _txtConfirmOperator = new TextBox { Text = "admin", Width = 180, Margin = new Padding(6, 4, 0, 0) };
-        flow.Controls.Add(_txtConfirmOperator);
-        var btnConfirm = MakeActionButton("确认登记", BtnConfirm_Click);
-        flow.Controls.Add(btnConfirm);
-        tbl.Controls.Add(flow, 0, 1);
-
-        panel.Controls.Add(tbl);
-        return panel;
-    }
-
-    // ---- 已确认面板（闭环编辑） ----
-    private Panel BuildEditPanel()
-    {
-        var panel = MakeActionPanel();
-        var tbl = new TableLayoutPanel
-        {
-            Dock = DockStyle.Fill,
-            ColumnCount = 1,
-            RowCount = 9,
-            Padding = new Padding(8, 4, 8, 4)
-        };
-        tbl.RowStyles.Add(new RowStyle(SizeType.Absolute, 30));
-        tbl.RowStyles.Add(new RowStyle(SizeType.Absolute, 24));
-        tbl.RowStyles.Add(new RowStyle(SizeType.Absolute, 58));
-        tbl.RowStyles.Add(new RowStyle(SizeType.Absolute, 24));
-        tbl.RowStyles.Add(new RowStyle(SizeType.Absolute, 58));
-        tbl.RowStyles.Add(new RowStyle(SizeType.Absolute, 38));
-        tbl.RowStyles.Add(new RowStyle(SizeType.Absolute, 24));
-        tbl.RowStyles.Add(new RowStyle(SizeType.Absolute, 58));
-        tbl.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
-
-        tbl.Controls.Add(MakeFieldHint("请作为后续负责人补充根本原因与根本措施；若其他线体需要横展，请填写横展范围/计划。"), 0, 0);
-
-        tbl.Controls.Add(MakeFieldTitle("根本原因 *"), 0, 1);
-        _txtRootCause = MakeMultiText();
-        tbl.Controls.Add(_txtRootCause, 0, 2);
-
-        tbl.Controls.Add(MakeFieldTitle("根本措施 *"), 0, 3);
-        _txtRootMeasure = MakeMultiText();
-        tbl.Controls.Add(_txtRootMeasure, 0, 4);
-
-        var flow = new FlowLayoutPanel { Dock = DockStyle.Fill, WrapContents = false };
-        flow.Controls.Add(new Label { Text = "其他线体横展：", AutoSize = true, Margin = new Padding(0, 10, 0, 0) });
-        _cboHorizon = new ComboBox
-        {
-            DropDownStyle = ComboBoxStyle.DropDownList,
-            Width = 110,
-            Margin = new Padding(6, 5, 0, 0)
-        };
-        _cboHorizon.Items.AddRange(AbnormalHorizon.All);
-        _cboHorizon.SelectedItem = AbnormalHorizon.NotNeeded;
-        _cboHorizon.SelectedIndexChanged += (_, _) => UpdateHorizonScopeEnabled();
-        flow.Controls.Add(_cboHorizon);
-        flow.Controls.Add(new Label { Text = "    闭环操作人：", AutoSize = true, Margin = new Padding(6, 10, 0, 0) });
-        _txtCloseOperator = new TextBox { Text = "admin", Width = 160, Margin = new Padding(6, 5, 0, 0) };
-        flow.Controls.Add(_txtCloseOperator);
-        tbl.Controls.Add(flow, 0, 5);
-
-        _lblHorizonScopeTitle = MakeFieldTitle("横展范围 / 横展计划 *（仅「需要」时填写）");
-        tbl.Controls.Add(_lblHorizonScopeTitle, 0, 6);
-        _txtHorizonScope = MakeMultiText();
-        tbl.Controls.Add(_txtHorizonScope, 0, 7);
-        _txtHorizonScope.Enabled = false;
-
-        var btnFlow = new FlowLayoutPanel { Dock = DockStyle.Fill, WrapContents = false };
-        var btnClose = MakeActionButton("提交闭环", BtnClose_Click);
-        btnFlow.Controls.Add(btnClose);
-        btnFlow.Controls.Add(new Label
-        {
-            Text = "提交后状态变更为「已闭环」，不可再修改",
-            AutoSize = true,
-            ForeColor = Color.Gray,
-            Margin = new Padding(12, 10, 0, 0)
-        });
-        tbl.Controls.Add(btnFlow, 0, 8);
-
-        panel.Controls.Add(tbl);
-        return panel;
-    }
-
-    private void UpdateHorizonScopeEnabled()
-    {
-        if (_cboHorizon is null || _txtHorizonScope is null || _lblHorizonScopeTitle is null) return;
-        var needed = _cboHorizon.SelectedItem?.ToString() == AbnormalHorizon.Needed;
-        _txtHorizonScope.Enabled = needed;
-        _txtHorizonScope.BackColor = needed ? Color.White : Color.FromArgb(245, 245, 245);
-        _lblHorizonScopeTitle.ForeColor = needed ? Color.FromArgb(40, 50, 60) : Color.Gray;
-    }
-
-    // ---- 已闭环面板（只读） ----
-    private Panel BuildClosedPanel()
-    {
-        var panel = MakeActionPanel();
-        var tbl = new TableLayoutPanel
-        {
-            Dock = DockStyle.Fill,
-            ColumnCount = 1,
-            RowCount = 8,
-            Padding = new Padding(8, 4, 8, 4)
-        };
-        tbl.RowStyles.Add(new RowStyle(SizeType.Absolute, 30));
-        tbl.RowStyles.Add(new RowStyle(SizeType.Absolute, 24));
-        tbl.RowStyles.Add(new RowStyle(SizeType.Absolute, 60));
-        tbl.RowStyles.Add(new RowStyle(SizeType.Absolute, 24));
-        tbl.RowStyles.Add(new RowStyle(SizeType.Absolute, 60));
-        tbl.RowStyles.Add(new RowStyle(SizeType.Absolute, 24));
-        tbl.RowStyles.Add(new RowStyle(SizeType.Absolute, 60));
-        tbl.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
-
-        tbl.Controls.Add(MakeFieldHint("该异常已完成闭环分析，闭环结论如下（只读，不可再编辑）。"), 0, 0);
-
-        tbl.Controls.Add(MakeFieldTitle("根本原因"), 0, 1);
-        _txtClosedCause = MakeReadonlyText();
-        tbl.Controls.Add(_txtClosedCause, 0, 2);
-
-        tbl.Controls.Add(MakeFieldTitle("根本措施"), 0, 3);
-        _txtClosedMeasure = MakeReadonlyText();
-        tbl.Controls.Add(_txtClosedMeasure, 0, 4);
-
-        tbl.Controls.Add(MakeFieldTitle("横展结论"), 0, 5);
-        _txtClosedHorizon = MakeReadonlyText();
-        tbl.Controls.Add(_txtClosedHorizon, 0, 6);
-
-        _lblClosedMeta = MakeFieldHint("");
-        _lblClosedMeta.TextAlign = ContentAlignment.MiddleLeft;
-        tbl.Controls.Add(_lblClosedMeta, 0, 7);
-
-        panel.Controls.Add(tbl);
-        return panel;
-    }
-
-    private static Label MakeFieldTitle(string text) =>
-        new()
-        {
-            Dock = DockStyle.Fill,
-            Text = text,
-            TextAlign = ContentAlignment.BottomLeft,
-            ForeColor = Color.FromArgb(40, 50, 60),
-            Font = new Font("微软雅黑", 9F, FontStyle.Bold),
-            Margin = new Padding(0, 4, 0, 2)
-        };
-
-    private static Label MakeFieldHint(string text) =>
-        new()
-        {
-            Dock = DockStyle.Fill,
-            Text = text,
-            TextAlign = ContentAlignment.MiddleLeft,
-            ForeColor = Color.Gray,
-            AutoEllipsis = true
-        };
-
-    private static TextBox MakeMultiText() =>
-        new()
-        {
-            Dock = DockStyle.Fill,
-            Multiline = true,
-            AcceptsReturn = true,
-            ScrollBars = ScrollBars.Vertical,
-            BackColor = Color.White
-        };
-
-    private static TextBox MakeReadonlyText() =>
-        new()
-        {
-            Dock = DockStyle.Fill,
-            Multiline = true,
-            ReadOnly = true,
-            ScrollBars = ScrollBars.Vertical,
-            BackColor = Color.White,
-            ForeColor = Color.Black
-        };
-
-    private static Button MakeActionButton(string text, EventHandler onClick)
-    {
-        var b = new Button
-        {
-            Text = text,
-            Width = 120,
-            Height = 34,
-            Margin = new Padding(10, 4, 0, 0),
-            BackColor = Color.FromArgb(15, 76, 129),
-            ForeColor = Color.White,
-            FlatStyle = FlatStyle.Flat,
-            Font = new Font("微软雅黑", 9F, FontStyle.Bold)
-        };
-        b.Click += onClick;
-        return b;
-    }
-
     // ================= 操作区刷新 =================
 
     private void RenderActionPanel(AbnormalRecord rec)
@@ -500,35 +178,13 @@ public class AbnormalDetailForm : Form
         }
     }
 
-    // ================= 底部按钮条 =================
-
-    private Control BuildBottomBar()
+    private void UpdateHorizonScopeEnabled()
     {
-        var bar = new Panel
-        {
-            Dock = DockStyle.Bottom,
-            Height = 50,
-            BackColor = Color.WhiteSmoke
-        };
-        var btnClose = new Button
-        {
-            Text = "关闭",
-            Width = 100,
-            Height = 32,
-            BackColor = Color.FromArgb(15, 76, 129),
-            ForeColor = Color.White,
-            FlatStyle = FlatStyle.Flat,
-            Font = new Font("微软雅黑", 9F, FontStyle.Bold)
-        };
-        btnClose.Location = new Point(bar.Width - 116, 9);
-        bar.Resize += (_, _) => btnClose.Location = new Point(bar.Width - 116, 9);
-        btnClose.Click += (_, _) =>
-        {
-            DialogResult = DialogResult.Cancel;
-            Close();
-        };
-        bar.Controls.Add(btnClose);
-        return bar;
+        if (_cboHorizon is null || _txtHorizonScope is null || _lblHorizonScopeTitle is null) return;
+        var needed = _cboHorizon.SelectedItem?.ToString() == AbnormalHorizon.Needed;
+        _txtHorizonScope.Enabled = needed;
+        _txtHorizonScope.BackColor = needed ? Color.White : Color.FromArgb(245, 245, 245);
+        _lblHorizonScopeTitle.ForeColor = needed ? Color.FromArgb(40, 50, 60) : Color.Gray;
     }
 
     // ================= 履历网格 =================
@@ -561,48 +217,6 @@ public class AbnormalDetailForm : Form
             ReadOnly = true,
             FillWeight = fillWeight
         };
-
-    private static DataGridView MakeGrid()
-    {
-        var g = new DataGridView
-        {
-            Dock = DockStyle.Fill,
-            ReadOnly = true,
-            AllowUserToAddRows = false,
-            AllowUserToDeleteRows = false,
-            AutoSizeColumnsMode = DataGridViewAutoSizeColumnsMode.Fill,
-            BackgroundColor = Color.White,
-            RowHeadersVisible = false,
-            SelectionMode = DataGridViewSelectionMode.FullRowSelect,
-            BorderStyle = BorderStyle.None,
-            EnableHeadersVisualStyles = false,
-            ColumnHeadersDefaultCellStyle = new DataGridViewCellStyle
-            {
-                BackColor = Color.FromArgb(15, 76, 129),
-                ForeColor = Color.White,
-                Font = new Font("微软雅黑", 9F, FontStyle.Bold),
-                Alignment = DataGridViewContentAlignment.MiddleCenter
-            },
-            DefaultCellStyle = new DataGridViewCellStyle
-            {
-                BackColor = Color.White,
-                ForeColor = Color.Black,
-                SelectionBackColor = Color.FromArgb(207, 224, 239),
-                SelectionForeColor = Color.Black,
-                Font = new Font("微软雅黑", 9F)
-            },
-            AlternatingRowsDefaultCellStyle = new DataGridViewCellStyle { BackColor = Color.FromArgb(245, 248, 252) }
-        };
-        return g;
-    }
-
-    private static Control MakeGridGroup(string title, out DataGridView grid)
-    {
-        var box = new GroupBox { Text = title, Dock = DockStyle.Fill, Padding = new Padding(6, 12, 6, 6) };
-        grid = MakeGrid();
-        box.Controls.Add(grid);
-        return box;
-    }
 
     // ================= 数据加载与动作 =================
 

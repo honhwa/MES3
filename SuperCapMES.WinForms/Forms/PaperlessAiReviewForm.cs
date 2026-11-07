@@ -12,16 +12,12 @@ namespace SuperCapMES.WinForms.Forms;
 /// ① 模型结论只在这里给人看，**点「应用」才改模板**——模型绝不直接落库；
 /// ② 每行都能点开看"依据在原文哪一格"（sourceRef 反查并高亮），这是可审计的地基；
 /// ③ 完整性差集、坐标越界等提示集中显示，不做静默合并。
+/// 控件宣告与静态配置见 PaperlessAiReviewForm.Designer.cs。
 /// </summary>
-internal sealed class PaperlessAiReviewForm : Form
+internal sealed partial class PaperlessAiReviewForm : Form
 {
-    private readonly ChecklistTemplate _ruleTpl;
-    private readonly AiAnalysisResult _result;
-    private readonly DataGridView _gridReview = new();
-    private readonly DataGridView _gridRaw = new();
-    private readonly Label _lblSummary = new();
-    private readonly CheckBox _chkApplyHeader = new();
-    private readonly ToolTip _tip = new();
+    private ChecklistTemplate _ruleTpl = null!;
+    private AiAnalysisResult _result = null!;
     private readonly List<AiReviewRow> _rowModels = new();
 
     /// <summary>人工确认后的模板（未点应用时为 null）</summary>
@@ -32,52 +28,25 @@ internal sealed class PaperlessAiReviewForm : Form
 
     public PaperlessAiReviewForm(ChecklistTemplate ruleTpl, AiAnalysisResult result)
     {
+        InitializeComponent();
+        InitializeRuntime(ruleTpl, result);
+    }
+
+    /// <summary>
+    /// 执行期初始化：处理依赖传入参数 / 回圈建项 / 物件初始设定式 / 方法呼叫的内容，
+    /// 以及原本建构式在 UI 建立后呼叫的 BindRows() / BuildRawGrid() / UpdateSummary()。
+    /// 其余控件建立 / 配置 / 加入容器均已搬至 InitializeComponent()。
+    /// </summary>
+    private void InitializeRuntime(ChecklistTemplate ruleTpl, AiAnalysisResult result)
+    {
         _ruleTpl = ruleTpl;
         _result = result;
 
-        Text = "AI 语义复核（三色确认）· 模型只给建议，确认后才改模板";
-        Width = 1400;
-        Height = 780;
-        StartPosition = FormStartPosition.CenterParent;
-        BackColor = Color.WhiteSmoke;
-        MinimizeBox = false;
+        lblHeadTrace.Text = result.TraceText + (result.FromCache ? "" : "");
+        notes.Text = string.Join("\r\n", result.Notes);
+        _chkApplyHeader.Enabled = result.Claim is { HeaderFields.Count: > 0 };
 
-        // ---------- 顶部说明 ----------
-        var head = new Panel { Dock = DockStyle.Top, Height = 56, Padding = new Padding(10, 8, 10, 4) };
-        head.Controls.Add(new Label
-        {
-            Dock = DockStyle.Top,
-            Height = 22,
-            Text = "绿=模型与规则一致（可直接采纳）｜黄=不一致/置信度偏低（需看一眼）｜红=原文找不到或坐标越界（疑似编造，不采纳）",
-            Font = new Font("微软雅黑", 9F, FontStyle.Bold),
-        });
-        head.Controls.Add(new Label
-        {
-            Dock = DockStyle.Top,
-            Height = 20,
-            ForeColor = Color.DimGray,
-            AutoEllipsis = true,
-            Text = result.TraceText + (result.FromCache ? "" : ""),
-        });
-
-        // ---------- 主体左右分栏 ----------
-        var split = new SplitContainer
-        {
-            Dock = DockStyle.Fill,
-            Orientation = Orientation.Vertical,
-            SplitterWidth = 6,
-        };
-
-        // 左：三色复核表
-        _gridReview.Dock = DockStyle.Fill;
-        _gridReview.AllowUserToAddRows = false;
-        _gridReview.AllowUserToDeleteRows = false;
-        _gridReview.RowHeadersVisible = false;
-        _gridReview.BackgroundColor = Color.White;
-        _gridReview.SelectionMode = DataGridViewSelectionMode.FullRowSelect;
-        _gridReview.MultiSelect = false;
-        _gridReview.AutoSizeColumnsMode = DataGridViewAutoSizeColumnsMode.None;
-        _gridReview.ColumnHeadersHeightSizeMode = DataGridViewColumnHeadersHeightSizeMode.AutoSize;
+        // 原建构式内的 _gridReview 栏位建立：AddCol 回圈 / 物件初始设定式，Designer 无法解析，原样保留。
         AddCol("State", "状态", 62);
         AddCol("RuleHeader", "规则列名", 140);
         AddCol("AiHeader", "模型列名", 140);
@@ -93,113 +62,60 @@ internal sealed class PaperlessAiReviewForm : Form
         };
         _gridReview.Columns.Add(colTake);
         AddCol("Reason", "说明（依据）", 250);
-        _gridReview.SelectionChanged += (s, e) => HighlightSource();
-        _gridReview.CellValueChanged += (s, e) =>
-        {
-            if (e.RowIndex < 0 || _gridReview.Columns[e.ColumnIndex].Name != "Take") return;
-            if (e.RowIndex < _rowModels.Count)
-                _rowModels[e.RowIndex].TakeAi = Convert.ToBoolean(_gridReview.Rows[e.RowIndex].Cells["Take"].Value ?? false);
-            UpdateSummary();
-        };
-        _gridReview.CurrentCellDirtyStateChanged += (s, e) =>
-        {
-            // 勾选框要立即提交，否则要等离开单元格才触发 CellValueChanged
-            if (_gridReview.IsCurrentCellDirty && _gridReview.CurrentCell is { } c && _gridReview.Columns[c.ColumnIndex].Name == "Take")
-                _gridReview.CommitEdit(DataGridViewDataErrorContexts.Commit);
-        };
 
-        var leftHead = new Label
-        {
-            Dock = DockStyle.Top,
-            Height = 22,
-            Text = "模型判断 vs 规则判断（点一行看原文依据）",
-            Font = new Font("微软雅黑", 9F, FontStyle.Bold),
-        };
-        var left = new Panel { Dock = DockStyle.Fill, Padding = new Padding(6) };
-        left.Controls.Add(_gridReview);
-        left.Controls.Add(leftHead);
-
-        // 右：原文表（sourceRef 高亮）
-        _gridRaw.Dock = DockStyle.Fill;
-        _gridRaw.AllowUserToAddRows = false;
-        _gridRaw.AllowUserToDeleteRows = false;
-        _gridRaw.ReadOnly = true;
-        _gridRaw.BackgroundColor = Color.White;
-        _gridRaw.AutoSizeColumnsMode = DataGridViewAutoSizeColumnsMode.None;
-        _gridRaw.RowHeadersWidth = 56;
-        _gridRaw.ColumnHeadersHeightSizeMode = DataGridViewColumnHeadersHeightSizeMode.AutoSize;
-        _gridRaw.SelectionMode = DataGridViewSelectionMode.CellSelect;
-
-        var rightHead = new Label
-        {
-            Dock = DockStyle.Top,
-            Height = 22,
-            Text = "原文件表格（高亮格 = 模型给出的依据位置）",
-            Font = new Font("微软雅黑", 9F, FontStyle.Bold),
-        };
-        var right = new Panel { Dock = DockStyle.Fill, Padding = new Padding(6) };
-        right.Controls.Add(_gridRaw);
-        right.Controls.Add(rightHead);
-
-        split.Panel1.Controls.Add(left);
-        split.Panel2.Controls.Add(right);
-        // SplitterDistance 只能在控件有真实尺寸后设，放到 Shown 里（构造期设会被重置）
-        Shown += (s, e) =>
-        {
-            try { if (split.Width > 1000) split.SplitterDistance = 930; } catch { /* 忽略尺寸异常 */ }
-        };
-
-        // ---------- 底部：提示 + 操作 ----------
-        var notes = new TextBox
-        {
-            Dock = DockStyle.Bottom,
-            Height = 74,
-            Multiline = true,
-            ReadOnly = true,
-            ScrollBars = ScrollBars.Vertical,
-            BackColor = Color.White,
-            Text = string.Join("\r\n", result.Notes),
-        };
-        _lblSummary.Dock = DockStyle.Bottom;
-        _lblSummary.Height = 24;
-        _lblSummary.Font = new Font("微软雅黑", 9F, FontStyle.Bold);
-
-        _chkApplyHeader.Dock = DockStyle.Bottom;
-        _chkApplyHeader.Height = 24;
-        _chkApplyHeader.Text = "同时按模型结果替换抬头字段（会覆盖规则已识别的项，请先核对「提示」区差异）";
-        // 默认不勾：模型少认几项时自动替换反而会丢数据，必须人工显式选择
-        _chkApplyHeader.Checked = false;
-        _chkApplyHeader.Enabled = result.Claim is { HeaderFields.Count: > 0 };
-
-        var bar = new FlowLayoutPanel { Dock = DockStyle.Bottom, Height = 42, Padding = new Padding(8, 6, 8, 6) };
-        var btnGreen = new Button { Text = "全部采纳绿项", AutoSize = true };
-        btnGreen.Click += (s, e) => BulkTake(AiMatchState.Agree);
-        var btnNone = new Button { Text = "全不选", AutoSize = true };
-        btnNone.Click += (s, e) => BulkTake(null);
-        var btnClearCache = new Button { Text = "🗑 清空 AI 缓存", AutoSize = true };
-        btnClearCache.Click += (s, e) =>
-        {
-            var n = PaperlessAi.ClearCache();
-            MessageBox.Show($"已清空 {n} 条 AI 解析缓存，下次「AI 语义复核」会重新调用模型。", "完成",
-                MessageBoxButtons.OK, MessageBoxIcon.Information);
-        };
-        var btnApply = new Button { Text = "✅ 应用所选并关闭", AutoSize = true };
-        btnApply.Click += (s, e) => Apply();
-        var btnCancel = new Button { Text = "取消", AutoSize = true, DialogResult = DialogResult.Cancel };
-        bar.Controls.AddRange(new Control[] { btnGreen, btnNone, btnClearCache, btnApply, btnCancel });
         _tip.SetToolTip(btnClearCache, "同文件同模型会命中缓存避免重复计费；改了提示词版本会自动失效。");
-
-        Controls.Add(split);
-        Controls.Add(notes);
-        Controls.Add(_lblSummary);
-        Controls.Add(_chkApplyHeader);
-        Controls.Add(bar);
-        Controls.Add(head);
-        CancelButton = btnCancel;
 
         BindRows();
         BuildRawGrid();
         UpdateSummary();
+    }
+
+    private void GridReview_SelectionChanged(object? sender, EventArgs e)
+    {
+        HighlightSource();
+    }
+
+    private void GridReview_CellValueChanged(object? sender, DataGridViewCellEventArgs e)
+    {
+        if (e.RowIndex < 0 || _gridReview.Columns[e.ColumnIndex].Name != "Take") return;
+        if (e.RowIndex < _rowModels.Count)
+            _rowModels[e.RowIndex].TakeAi = Convert.ToBoolean(_gridReview.Rows[e.RowIndex].Cells["Take"].Value ?? false);
+        UpdateSummary();
+    }
+
+    private void GridReview_CurrentCellDirtyStateChanged(object? sender, EventArgs e)
+    {
+        // 勾选框要立即提交，否则要等离开单元格才触发 CellValueChanged
+        if (_gridReview.IsCurrentCellDirty && _gridReview.CurrentCell is { } c && _gridReview.Columns[c.ColumnIndex].Name == "Take")
+            _gridReview.CommitEdit(DataGridViewDataErrorContexts.Commit);
+    }
+
+    // SplitterDistance 只能在控件有真实尺寸后设，放到 Shown 里（构造期设会被重置）
+    private void PaperlessAiReviewForm_Shown(object? sender, EventArgs e)
+    {
+        try { if (split.Width > 1000) split.SplitterDistance = 930; } catch { /* 忽略尺寸异常 */ }
+    }
+
+    private void BtnGreen_Click(object? sender, EventArgs e)
+    {
+        BulkTake(AiMatchState.Agree);
+    }
+
+    private void BtnNone_Click(object? sender, EventArgs e)
+    {
+        BulkTake(null);
+    }
+
+    private void BtnClearCache_Click(object? sender, EventArgs e)
+    {
+        var n = PaperlessAi.ClearCache();
+        MessageBox.Show($"已清空 {n} 条 AI 解析缓存，下次「AI 语义复核」会重新调用模型。", "完成",
+            MessageBoxButtons.OK, MessageBoxIcon.Information);
+    }
+
+    private void BtnApply_Click(object? sender, EventArgs e)
+    {
+        Apply();
     }
 
     private void AddCol(string name, string header, int width)

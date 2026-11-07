@@ -7,11 +7,8 @@ namespace SuperCapMES.WinForms.Forms;
 /// <summary>
 /// 解除保留对话框：收集 操作人 与 解除原因，风格与 WorkOrderEditForm 一致。
 /// </summary>
-public class ReleaseHoldForm : Form
+public partial class ReleaseHoldForm : Form
 {
-    private TextBox _txtOperator = null!;
-    private TextBox _txtReason = null!;
-
     /// <summary>解除操作人（确认后有效）</summary>
     public string OperatorName { get; private set; } = "admin";
 
@@ -20,14 +17,20 @@ public class ReleaseHoldForm : Form
 
     public ReleaseHoldForm(string holdNo)
     {
-        Text = "解除保留";
-        FormBorderStyle = FormBorderStyle.FixedDialog;
-        MaximizeBox = false;
-        MinimizeBox = false;
-        StartPosition = FormStartPosition.CenterParent;
-        ClientSize = new Size(460, 246);
-        Font = new Font("微软雅黑", 9F);
-        BuildUi(holdNo);
+        InitializeComponent();
+        InitializeRuntime(holdNo);
+    }
+
+    /// <summary>
+    /// 执行期初始化：依赖参数的保留单号文字与 RowStyles 建置（for 回圈，
+    /// Designer 无法解析）；其余控件建立 / 静态配置 / 加入容器均在
+    /// ReleaseHoldForm.Designer.cs 的 InitializeComponent()。
+    /// </summary>
+    private void InitializeRuntime(string holdNo)
+    {
+        lblHoldValue.Text = holdNo;
+        for (var i = 0; i < 3; i++)
+            grid.RowStyles.Add(new RowStyle(SizeType.Absolute, 42));
     }
 
     private void BuildUi(string holdNo)
@@ -94,6 +97,23 @@ public class ReleaseHoldForm : Form
             TextAlign = ContentAlignment.MiddleLeft,
             ForeColor = Color.FromArgb(40, 50, 60)
         };
+
+    private void BtnRow_Resize(object? sender, EventArgs e)
+    {
+        btnOk.Location = new Point(btnRow.Width - 226, 10);
+        btnCancel.Location = new Point(btnRow.Width - 114, 10);
+    }
+
+    private void BtnOk_Click(object? sender, EventArgs e)
+    {
+        Save();
+    }
+
+    private void BtnCancel_Click(object? sender, EventArgs e)
+    {
+        DialogResult = DialogResult.Cancel;
+        Close();
+    }
 
     private void Save()
     {

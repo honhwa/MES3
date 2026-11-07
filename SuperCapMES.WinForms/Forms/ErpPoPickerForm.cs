@@ -15,102 +15,60 @@ namespace SuperCapMES.WinForms.Forms;
 /// 故默认筛选即「已下发」（待下发 PO 需先在「工单管理」页执行 ERP 下发）。
 /// 用法：<c>using var f = new ErpPoPickerForm(); if (f.ShowDialog(owner) == DialogResult.OK) use f.SelectedPoNo;</c>
 /// </summary>
-public class ErpPoPickerForm : Form
+public partial class ErpPoPickerForm : Form
 {
     private const string StatusAll = "全部";
-
-    private ComboBox _cboStatus = null!;
-    private TextBox _txtKeyword = null!;
-    private Label _lblResult = null!;
-    private DataGridView _poGrid = null!;
-    private SplitContainer _split = null!;
-    private GroupBox _bomGroup = null!;
-    private DataGridView _bomGrid = null!;
-    private Label _lblBomHint = null!;
 
     /// <summary>确认选择后返回的 ERP PO 号；未选择时为空串。</summary>
     public string SelectedPoNo { get; private set; } = "";
 
     public ErpPoPickerForm()
     {
-        Text = "选择 ERP PO（已接收订单）";
-        Font = new Font("微软雅黑", 9F);
-        FormBorderStyle = FormBorderStyle.FixedDialog;
-        MaximizeBox = false;
-        MinimizeBox = false;
-        ShowInTaskbar = false;
-        StartPosition = FormStartPosition.CenterParent;
-        ClientSize = new Size(900, 620);
-
-        BuildUi();
-        Fetch();
+        InitializeComponent();
+        InitializeRuntime();
     }
 
-    // ---------------- 布局 ----------------
-
-    private void BuildUi()
+    /// <summary>
+    /// 执行期初始化：DataGridView 样式物件 / 栏位定义（Designer 白名单无法表达）、
+    /// 状态下拉项目（含 Models 常数与 SelectedItem）、PO 列表取数。
+    /// lambda 事件本体已具名化并挂在 ErpPoPickerForm.Designer.cs；
+    /// SetupPoColumns 内的「先 -= 再 +=」事件挂接保留在原 helper。
+    /// </summary>
+    private void InitializeRuntime()
     {
-        var root = new TableLayoutPanel
-        {
-            Dock = DockStyle.Fill,
-            ColumnCount = 1,
-            RowCount = 3,
-            Padding = new Padding(10, 8, 10, 8)
-        };
-        root.RowStyles.Add(new RowStyle(SizeType.Absolute, 44));   // 工具栏
-        root.RowStyles.Add(new RowStyle(SizeType.Percent, 100));   // 上：PO 列表 / 下：BOM
-        root.RowStyles.Add(new RowStyle(SizeType.Absolute, 54));   // 底部按钮
+        ApplyGridStyles(_poGrid);
+        ApplyGridStyles(_bomGrid);
+        SetupPoColumns();
+        SetupBomColumns();
 
-        root.Controls.Add(BuildToolbar(), 0, 0);
-        root.Controls.Add(BuildSplit(), 0, 1);
-        root.Controls.Add(BuildFooter(), 0, 2);
-
-        Controls.Add(root);
-    }
-
-    private Control BuildToolbar()
-    {
-        var bar = new FlowLayoutPanel { Dock = DockStyle.Fill, WrapContents = false, Padding = new Padding(2, 8, 2, 0) };
-
-        bar.Controls.Add(MakeButton("🔄 刷新", (_, _) => Fetch()));
-
-        bar.Controls.Add(new Label { Text = "状态：", AutoSize = true, Margin = new Padding(12, 6, 0, 0) });
-        _cboStatus = new ComboBox { DropDownStyle = ComboBoxStyle.DropDownList, Width = 100, Margin = new Padding(4, 2, 0, 0) };
         _cboStatus.Items.Add(StatusAll);
         _cboStatus.Items.Add(ErpPoStatus.Pending);
         _cboStatus.Items.Add(ErpPoStatus.Pushed);
         _cboStatus.SelectedItem = ErpPoStatus.Pushed;   // 默认「已下发」：仅已下发的 PO 可被选择（不硬编码索引，避免项顺序变化后失效）
-        _cboStatus.SelectedIndexChanged += (_, _) => Fetch();
-        bar.Controls.Add(_cboStatus);
 
-        bar.Controls.Add(new Label { Text = "关键字：", AutoSize = true, Margin = new Padding(12, 6, 0, 0) });
-        _txtKeyword = new TextBox { Width = 200, Margin = new Padding(4, 2, 0, 0) };
-        _txtKeyword.KeyDown += (_, e) => { if (e.KeyCode == Keys.Enter) Fetch(); };
-        bar.Controls.Add(_txtKeyword);
-
-        bar.Controls.Add(MakeButton("搜索", (_, _) => Fetch()));
-        bar.Controls.Add(new Label { Text = "（PO 号 / 客户 / 产品型号）", AutoSize = true, ForeColor = Color.Gray, Margin = new Padding(6, 6, 0, 0) });
-
-        _lblResult = new Label { Text = "", AutoSize = true, ForeColor = Color.Gray, Margin = new Padding(14, 6, 0, 0) };
-        bar.Controls.Add(_lblResult);
-        return bar;
+        Fetch();
     }
 
-    private Control BuildSplit()
+    private void CboStatus_SelectedIndexChanged(object? sender, EventArgs e) => Fetch();
+
+    private void TxtKeyword_KeyDown(object? sender, KeyEventArgs e)
     {
-        _split = new SplitContainer
-        {
-            Dock = DockStyle.Fill,
-            Orientation = Orientation.Horizontal,
-            SplitterWidth = 6,
-            Panel1MinSize = 100,
-            Panel2MinSize = 100
-        };
-
-        _split.Panel1.Controls.Add(BuildPoGroup());
-        _split.Panel2.Controls.Add(BuildBomGroup());
-        return _split;
+        if (e.KeyCode == Keys.Enter) Fetch();
     }
+
+    private void BtnRefresh_Click(object? sender, EventArgs e) => Fetch();
+
+    private void BtnSearch_Click(object? sender, EventArgs e) => Fetch();
+
+    private void BtnCancel_Click(object? sender, EventArgs e)
+    {
+        DialogResult = DialogResult.Cancel;
+        Close();
+    }
+
+    private void BtnConfirm_Click(object? sender, EventArgs e) => Confirm();
+
+    // ---------------- 布局 ----------------
 
     /// <summary>窗体加载（尺寸就绪）后再设置分割位置，避免构造期尺寸未定导致异常。</summary>
     protected override void OnLoad(EventArgs e)
@@ -135,86 +93,6 @@ public class ErpPoPickerForm : Form
         {
             // 尺寸尚未就绪：忽略，保持默认分割。
         }
-    }
-
-    private Control BuildPoGroup()
-    {
-        var box = new GroupBox
-        {
-            Text = "已接收 ERP PO 列表（仅「已下发」可选；选中一行查看其 BOM，双击行 = 确认选择）",
-            Dock = DockStyle.Fill,
-            Padding = new Padding(6, 12, 6, 6)
-        };
-
-        _poGrid = MakeGrid();
-        SetupPoColumns();
-        box.Controls.Add(_poGrid);
-        return box;
-    }
-
-    private Control BuildBomGroup()
-    {
-        _bomGroup = new GroupBox
-        {
-            Text = "BOM 明细",
-            Dock = DockStyle.Fill,
-            Padding = new Padding(6, 12, 6, 6)
-        };
-
-        // 内部两行：网格（填充） + 提示标签（底部）
-        var inner = new TableLayoutPanel
-        {
-            Dock = DockStyle.Fill,
-            ColumnCount = 1,
-            RowCount = 2
-        };
-        inner.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
-        inner.RowStyles.Add(new RowStyle(SizeType.Absolute, 24));
-
-        _bomGrid = MakeGrid();
-        SetupBomColumns();
-
-        _lblBomHint = new Label
-        {
-            Dock = DockStyle.Fill,
-            AutoSize = false,
-            TextAlign = ContentAlignment.MiddleLeft,
-            ForeColor = Color.Gray,
-            Text = ""
-        };
-
-        inner.Controls.Add(_bomGrid, 0, 0);
-        inner.Controls.Add(_lblBomHint, 0, 1);
-        _bomGroup.Controls.Add(inner);
-        return _bomGroup;
-    }
-
-    private Control BuildFooter()
-    {
-        var bar = new FlowLayoutPanel
-        {
-            Dock = DockStyle.Fill,
-            WrapContents = false,
-            FlowDirection = FlowDirection.RightToLeft,
-            Padding = new Padding(2, 10, 2, 0)
-        };
-
-        var cancel = MakeButton("取消", (_, _) => { DialogResult = DialogResult.Cancel; Close(); });
-        cancel.BackColor = Color.FromArgb(90, 100, 110);
-        bar.Controls.Add(cancel);
-
-        bar.Controls.Add(MakeButton("确认选择", (_, _) => Confirm()));
-
-        // 提示文案：明确「仅已下发可选」规则（双击仍可直接确认所选行）。
-        var tip = new Label
-        {
-            Text = "提示：仅可选择「已下发」的 PO；待下发 PO 需先在「工单管理」页执行「ERP 下发」。",
-            AutoSize = true,
-            ForeColor = Color.Gray,
-            Margin = new Padding(0, 8, 12, 0)
-        };
-        bar.Controls.Add(tip);
-        return bar;
     }
 
     // ---------------- 列定义 ----------------
@@ -391,37 +269,26 @@ public class ErpPoPickerForm : Form
 
     // ---------------- 控件工厂 ----------------
 
-    private static DataGridView MakeGrid() =>
-        new()
+    /// <summary>原 MakeGrid() 中 Designer 白名单无法表达的样式物件设定（两个 DataGridView 共用）。</summary>
+    private static void ApplyGridStyles(DataGridView grid)
+    {
+        grid.ColumnHeadersDefaultCellStyle = new DataGridViewCellStyle
         {
-            Dock = DockStyle.Fill,
-            ReadOnly = true,
-            AllowUserToAddRows = false,
-            AllowUserToDeleteRows = false,
-            AutoSizeColumnsMode = DataGridViewAutoSizeColumnsMode.Fill,
-            BackgroundColor = Color.White,
-            RowHeadersVisible = false,
-            SelectionMode = DataGridViewSelectionMode.FullRowSelect,
-            MultiSelect = false,
-            BorderStyle = BorderStyle.None,
-            EnableHeadersVisualStyles = false,
-            ColumnHeadersDefaultCellStyle = new DataGridViewCellStyle
-            {
-                BackColor = Color.FromArgb(15, 76, 129),
-                ForeColor = Color.White,
-                Font = new Font("微软雅黑", 9F, FontStyle.Bold),
-                Alignment = DataGridViewContentAlignment.MiddleCenter
-            },
-            DefaultCellStyle = new DataGridViewCellStyle
-            {
-                BackColor = Color.White,
-                ForeColor = Color.Black,
-                SelectionBackColor = Color.FromArgb(207, 224, 239),
-                SelectionForeColor = Color.Black,
-                Font = new Font("微软雅黑", 9F)
-            },
-            AlternatingRowsDefaultCellStyle = new DataGridViewCellStyle { BackColor = Color.FromArgb(245, 248, 252) }
+            BackColor = Color.FromArgb(15, 76, 129),
+            ForeColor = Color.White,
+            Font = new Font("微软雅黑", 9F, FontStyle.Bold),
+            Alignment = DataGridViewContentAlignment.MiddleCenter
         };
+        grid.DefaultCellStyle = new DataGridViewCellStyle
+        {
+            BackColor = Color.White,
+            ForeColor = Color.Black,
+            SelectionBackColor = Color.FromArgb(207, 224, 239),
+            SelectionForeColor = Color.Black,
+            Font = new Font("微软雅黑", 9F)
+        };
+        grid.AlternatingRowsDefaultCellStyle = new DataGridViewCellStyle { BackColor = Color.FromArgb(245, 248, 252) };
+    }
 
     private static DataGridViewTextBoxColumn ReadOnlyCol(string prop, string header, int fillWeight) =>
         new()
@@ -432,22 +299,6 @@ public class ErpPoPickerForm : Form
             ReadOnly = true,
             FillWeight = fillWeight
         };
-
-    private static Button MakeButton(string text, EventHandler onClick)
-    {
-        var b = new Button
-        {
-            Text = text,
-            AutoSize = true,
-            MinimumSize = new Size(96, 30),
-            Margin = new Padding(6, 0, 4, 0),
-            BackColor = Color.FromArgb(15, 76, 129),
-            ForeColor = Color.White,
-            FlatStyle = FlatStyle.Flat
-        };
-        b.Click += onClick;
-        return b;
-    }
 
     private void Warn(string msg) =>
         MessageBox.Show(msg, "提示", MessageBoxButtons.OK, MessageBoxIcon.Warning);

@@ -7,9 +7,9 @@ namespace SuperCapMES.WinForms.Forms;
 // 碳资产录入窗：新增一条配额 / CCER 台账记录（kind = "A" 配额 / "C" CCER）
 // ============================================================================
 
-public class CarbonAssetEntryForm : Form
+public partial class CarbonAssetEntryForm : Form
 {
-    private readonly string _kind;
+    private string _kind = "";
 
     public string Year { get; private set; } = "";
     public string TxType { get; private set; } = "";
@@ -19,24 +19,21 @@ public class CarbonAssetEntryForm : Form
     public DateTime TxDate { get; private set; } = DateTime.Now;
     public string Note { get; private set; } = "";
 
-    private readonly ComboBox _cboYear = new() { DropDownStyle = ComboBoxStyle.DropDownList, Width = 200 };
-    private readonly ComboBox _cboType = new() { DropDownStyle = ComboBoxStyle.DropDownList, Width = 200 };
-    private readonly TextBox _txtProject = new() { Width = 200 };
-    private readonly TextBox _txtQty = new() { Width = 200 };
-    private readonly TextBox _txtPrice = new() { Width = 200 };
-    private readonly DateTimePicker _dtp = new() { Width = 200, Format = DateTimePickerFormat.Short };
-    private readonly TextBox _txtNote = new() { Width = 200, Height = 48, Multiline = true };
-    private readonly Label _lblMsg = new() { ForeColor = System.Drawing.Color.FromArgb(200, 30, 30), Height = 32, AutoSize = false, Width = 320 };
-
     public CarbonAssetEntryForm(string kind, string defaultYear, IEnumerable<string> years)
+    {
+        InitializeComponent();
+        InitializeRuntime(kind, defaultYear, years);
+    }
+
+    /// <summary>
+    /// 执行期初始化：依赖参数的标题、ComboBox 选项（foreach / LINQ）、
+    /// 可见性判断（Designer 无法解析）；其余控件建立 / 静态配置 / 加入容器
+    /// 均在 CarbonAssetEntryForm.Designer.cs 的 InitializeComponent()。
+    /// </summary>
+    private void InitializeRuntime(string kind, string defaultYear, IEnumerable<string> years)
     {
         _kind = kind == "C" ? "C" : "A";
         Text = _kind == "A" ? "新增碳配额记录" : "新增 CCER 记录";
-        Size = new System.Drawing.Size(380, 400);
-        StartPosition = FormStartPosition.CenterParent;
-        FormBorderStyle = FormBorderStyle.FixedDialog;
-        MaximizeBox = false;
-        MinimizeBox = false;
 
         foreach (var t in (_kind == "A" ? CarbonAssetTypes.AllowanceTypes : CarbonAssetTypes.CcerTypes))
             _cboType.Items.Add(t);
@@ -46,43 +43,8 @@ public class CarbonAssetEntryForm : Form
             _cboYear.Items.Add(y);
         _cboYear.SelectedItem = years.FirstOrDefault(x => x == defaultYear) ?? years.FirstOrDefault() ?? "";
 
-        var ok = new Button { Text = "保存", DialogResult = DialogResult.OK, Width = 90 };
-        var cancel = new Button { Text = "取消", DialogResult = DialogResult.Cancel, Width = 90 };
-        ok.Click += OnOk;
-
-        var grid = new TableLayoutPanel
-        {
-            Dock = DockStyle.Top,
-            AutoSize = true,
-            ColumnCount = 2,
-            Padding = new Padding(12, 12, 12, 4),
-            ColumnStyles = { new ColumnStyle(SizeType.AutoSize), new ColumnStyle(SizeType.AutoSize) }
-        };
-        void AddRow(Label label, Control ctrl)
-        {
-            grid.RowStyles.Add(new RowStyle(SizeType.AutoSize));
-            grid.Controls.Add(label);
-            grid.Controls.Add(ctrl);
-        }
-        AddRow(new Label { Text = "年度", Width = 80 }, _cboYear);
-        AddRow(new Label { Text = "记录类型", Width = 80 }, _cboType);
-        AddRow(new Label { Text = "来源/项目", Width = 80, Visible = _kind == "C" }, _txtProject);
+        lblProject.Visible = _kind == "C";
         _txtProject.Visible = _kind == "C";
-        AddRow(new Label { Text = "数量(tCO2e)", Width = 80 }, _txtQty);
-        AddRow(new Label { Text = "单价(元/t)", Width = 80 }, _txtPrice);
-        AddRow(new Label { Text = "日期", Width = 80 }, _dtp);
-        AddRow(new Label { Text = "备注", Width = 80 }, _txtNote);
-
-        var bar = new FlowLayoutPanel { Dock = DockStyle.Bottom, Height = 44, Padding = new Padding(12, 6, 0, 0) };
-        bar.Controls.Add(ok);
-        bar.Controls.Add(cancel);
-
-        Controls.Add(bar);
-        Controls.Add(_lblMsg);
-        _lblMsg.Dock = DockStyle.Bottom;
-        Controls.Add(grid);
-
-        _txtPrice.Text = "0"; // 流出类（清缴/抵消/收回/卖出）单价常填 0
     }
 
     private void OnOk(object? sender, EventArgs e)
